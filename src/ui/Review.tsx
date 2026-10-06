@@ -7,7 +7,7 @@ import {
   FileSpreadsheet,
   FileText,
 } from 'lucide-react';
-import { useWorkspace, unwrap } from './context';
+import { useWorkspace, unwrap, type EventTarget } from './context';
 import { StatusPill, Empty, timeText, Modal, eventLabel, SearchField } from './components';
 import { TimesDialog } from './Live';
 import { sampleName } from '../shared/model';
@@ -20,7 +20,7 @@ export function Review() {
   const [search, setSearch] = useState(''),
     [problemsOnly, setProblemsOnly] = useState(false),
     [history, setHistory] = useState<string | null>(null),
-    [times, setTimes] = useState<string | null>(null),
+    [times, setTimes] = useState<EventTarget | null>(null),
     [exporting, setExporting] = useState(false);
   const issues = snapshot.events.filter(
       (e) => e.experimentId === experimentId && e.type === 'issue',
@@ -66,7 +66,6 @@ export function Review() {
       setExporting(false);
     }
   }
-  const focused = snapshot.items.find((i) => i.id === times);
   return (
     <div className="page review-page">
       <div className="page-heading">
@@ -298,7 +297,16 @@ export function Review() {
                           >
                             查看
                           </button>
-                          <button className="text-button" onClick={() => setTimes(item.id)}>
+                          <button
+                            className="text-button"
+                            onClick={() =>
+                              setTimes({
+                                itemId: item.id,
+                                experimentId: item.experimentId,
+                                runId: run?.id,
+                              })
+                            }
+                          >
                             时间
                           </button>
                           <button className="text-button" onClick={() => setHistory(item.id)}>
@@ -342,13 +350,7 @@ export function Review() {
           </div>
         </Modal>
       )}
-      {focused && (
-        <TimesDialog
-          item={focused}
-          run={snapshot.runs.find((r) => r.itemId === focused.id)}
-          onClose={() => setTimes(null)}
-        />
-      )}
+      {times && <TimesDialog {...times} onClose={() => setTimes(null)} />}
     </div>
   );
 }

@@ -19,6 +19,7 @@ import {
   FilePlus2,
   BookOpen,
   Cloud,
+  Eye,
 } from 'lucide-react';
 import { useWorkspace, unwrap } from './context';
 import { Plan } from './Plan';
@@ -26,7 +27,9 @@ import { Live } from './Live';
 import { Review } from './Review';
 import { Modal } from './components';
 import { CloudPanel } from './CloudPanel';
+import { ExperimentOverview } from './ExperimentOverview';
 import { DEFAULT_PATTERN, filenameFor, type Field, type DesktopInfo } from '../shared/model';
+import './workspace.css';
 
 function NewExperiment({ onClose }: { onClose: () => void }) {
   const { execute } = useWorkspace();
@@ -425,7 +428,8 @@ export function App() {
   } = workspace;
   const [cloudFirst, setCloudFirst] = useState(false);
   const [newExperiment, setNewExperiment] = useState(false),
-    [settings, setSettings] = useState(false);
+    [settings, setSettings] = useState(false),
+    [overview, setOverview] = useState(false);
   const experiment = snapshot.experiments.find((e) => e.id === experimentId);
   function navigate(action: () => void) {
     void flush()
@@ -528,7 +532,7 @@ export function App() {
         </div>
       </aside>
       <main className="app-main">
-        <header className="app-header">
+        <header className="app-header workspace-header">
           <div className="experiment-switcher">
             <div className="experiment-symbol">
               <FlaskConical size={19} aria-hidden="true" />
@@ -563,6 +567,16 @@ export function App() {
               <Plus size={19} />
             </button>
           </div>
+          <button
+            className="button small overview-open"
+            aria-label="实验概览"
+            title="实验概览"
+            onClick={() => navigate(() => setOverview(true))}
+            disabled={!experiment}
+          >
+            <Eye size={17} />
+            <span>实验概览</span>
+          </button>
           <button
             className="button small cloud-open"
             aria-label="云同步"
@@ -689,6 +703,9 @@ export function App() {
             setCloudFirst(false);
           }}
         />
+      )}
+      {overview && experiment && (
+        <ExperimentOverview experiment={experiment} onClose={() => setOverview(false)} />
       )}
     </div>
   );

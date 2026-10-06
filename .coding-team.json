@@ -1,0 +1,158 @@
+{
+  "version": 1,
+  "routing": {
+    "implementationOrder": [
+      "cursor",
+      "codex",
+      "grok"
+    ],
+    "verificationOrder": [
+      "codex",
+      "cursor"
+    ],
+    "reviewOrder": [
+      "zcode",
+      "codex",
+      "cursor"
+    ],
+    "maxParallel": 2
+  },
+  "requiredCheckKinds": [
+    "typecheck",
+    "test",
+    "build",
+    "ui",
+    "package",
+    "packaged"
+  ],
+  "globalPaths": [
+    "package.json",
+    "package-lock.json",
+    "tsconfig.json",
+    "tsconfig.desktop.json",
+    "tsconfig.react-jsx.json",
+    "src/shared/**",
+    "src/desktop/preload.cts"
+  ],
+  "highRiskPaths": [
+    "src/desktop/**",
+    "src/shared/**",
+    "src/desktop/tables.ts",
+    "src/desktop/backups.ts",
+    "src/desktop/cloud-credentials.ts",
+    "src/desktop/github-sync.ts",
+    "src/desktop/validation.ts",
+    "src/desktop/store.ts",
+    "src/desktop/archive-validation.ts",
+    "src/desktop/report-archive.ts"
+  ],
+  "checks": [
+    {
+      "id": "typecheck",
+      "kind": "typecheck",
+      "argv": [
+        "node",
+        "C:\\Users\\MyPC\\AppData\\Roaming\\npm\\node_modules\\npm\\bin\\npm-cli.js",
+        "run",
+        "typecheck"
+      ],
+      "paths": [
+        "src/**/*.ts",
+        "src/**/*.tsx",
+        "tests/**/*.ts",
+        "tsconfig.json",
+        "tsconfig.desktop.json"
+      ],
+      "timeoutSeconds": 120
+    },
+    {
+      "id": "unit",
+      "kind": "test",
+      "argv": [
+        "node",
+        "C:\\Users\\MyPC\\AppData\\Roaming\\npm\\node_modules\\npm\\bin\\npm-cli.js",
+        "run",
+        "test"
+      ],
+      "paths": [
+        "src/**/*.ts",
+        "src/**/*.tsx",
+        "tests/**/*.test.ts"
+      ],
+      "timeoutSeconds": 300
+    },
+    {
+      "id": "build",
+      "kind": "build",
+      "argv": [
+        "node",
+        "C:\\Users\\MyPC\\AppData\\Roaming\\npm\\node_modules\\npm\\bin\\npm-cli.js",
+        "run",
+        "build"
+      ],
+      "paths": [
+        "src/**/*",
+        "index.html",
+        "vite.config.ts",
+        "tsconfig.desktop.json"
+      ],
+      "timeoutSeconds": 300
+    },
+    {
+      "id": "desktop",
+      "kind": "ui",
+      "argv": [
+        "node",
+        "node_modules/@playwright/test/cli.js",
+        "test",
+        "--reporter=list,json"
+      ],
+      "paths": [
+        "src/desktop/**",
+        "src/ui/**",
+        "src/shared/**",
+        "tests/desktop.spec.ts"
+      ],
+      "timeoutSeconds": 600
+    },
+    {
+      "id": "package",
+      "kind": "package",
+      "argv": [
+        "node",
+        "C:\\Users\\MyPC\\AppData\\Roaming\\npm\\node_modules\\npm\\bin\\npm-cli.js",
+        "run",
+        "dist"
+      ],
+      "paths": [
+        "src/**/*",
+        "dist/**",
+        "docs/使用说明.html",
+        "examples/**",
+        "assets/**"
+      ],
+      "timeoutSeconds": 600
+    },
+    {
+      "id": "packaged",
+      "kind": "packaged",
+      "argv": [
+        "node",
+        "scripts/test-packaged.mjs"
+      ],
+      "paths": [
+        "src/**/*",
+        "release/win-unpacked/**",
+        "tests/desktop.spec.ts",
+        "scripts/test-packaged.mjs"
+      ],
+      "timeoutSeconds": 900
+    }
+  ],
+  "environmentStamp": "Node@25.2.1;npm@11.10.1;Electron@44.5.1;Windows-x64",
+  "evidenceInputs": [
+    "package.json",
+    "package-lock.json"
+  ],
+  "maxEvidenceAgeSeconds": 3600
+}

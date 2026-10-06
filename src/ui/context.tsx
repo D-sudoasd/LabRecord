@@ -28,15 +28,28 @@ const EMPTY: Snapshot = {
   events: [],
   attachments: [],
 };
+export interface EventTarget {
+  itemId: string;
+  experimentId: string;
+  runId?: string;
+}
+export interface EventDraft {
+  target: EventTarget;
+  text: string;
+  category: string;
+  template: string;
+  intent?: { command: Extract<Command, { type: 'addEvent' }>; requestId: string };
+}
 interface Workspace {
   snapshot: Snapshot;
+  getSnapshot: () => Snapshot;
   experimentId: string;
   setExperimentId: (id: string) => void;
   itemId: string;
   setItemId: (id: string) => void;
   page: 'plan' | 'live' | 'review';
   setPage: (page: 'plan' | 'live' | 'review') => void;
-  execute: (command: Command, follow?: boolean) => Promise<CommandResult>;
+  execute: (command: Command, follow?: boolean, requestId?: string) => Promise<CommandResult>;
   replace: (snapshot: Snapshot) => void;
   notify: (message: string, error?: boolean) => void;
   alert: { message: string; error: boolean } | null;
@@ -47,6 +60,8 @@ interface Workspace {
   registerDraft: (key: string, save: () => Promise<void>, failed?: boolean) => void;
   clearDraft: (key: string) => void;
   flush: () => Promise<void>;
+  // Unsubmitted dialog text stays in this window only; it is never a save callback.
+  eventDrafts: Map<string, EventDraft>;
   loading: boolean;
 }
 const Context = createContext<Workspace | null>(null);
@@ -61,6 +76,9 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     [draftVersion, setDraftVersion] = useState(0);
   const [lastWriteFailed, setLastWriteFailed] = useState(false);
   const drafts = useRef(new Map<string, { save: () => Promise<void>; failed: boolean }>());
+  const eventDrafts = useRef(new Map<string, EventDraft>());
+  const savedSnapshot = useRef(EMPTY);
+  const flushing = useRef<Promise<void> | null>(null);
   const currentExperiment = useRef('');
   const setExperimentId = useCallback((id: string) => {
     currentExperiment.current = id;
@@ -70,6 +88,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   const notify = useCallback((message: string, error = false) => setAlert({ message, error }), []);
   const replace = useCallback(
     (data: Snapshot) => {
+      savedSnapshot.current = data;
       setSnapshot(data);
       if (!data.experiments.some((e) => e.id === currentExperiment.current)) {
         const running = data.items.find((i) => i.status === 'running');
@@ -84,10 +103,12 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     [setExperimentId],
   );
   const execute = useCallback(
-    async (command: Command, follow = true) => {
+    async (command: Command, follow = true, requestId?: string) => {
       setBusy((n) => n + 1);
       try {
-        const result = await unwrap(window.labrecord.command(command, crypto.randomUUID()));
+        const result = await unwrap(
+          window.labrecord.command(command, requestId || crypto.randomUUID()),
+        );
         setLastWriteFailed(false);
         setAlert((current) => (current?.error ? null : current));
         replace(result.snapshot);
@@ -114,9 +135,25 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   const clearDraft = useCallback((key: string) => {
     if (drafts.current.delete(key)) setDraftVersion((n) => n + 1);
   }, []);
-  const flush = useCallback(async () => {
-    while (drafts.current.size)
-      for (const draft of [...drafts.current.values()]) await draft.save();
+  const flush = useCallback(() => {
+    if (flushing.current) return flushing.current;
+    const operation = (async () => {
+      while (drafts.current.size) {
+        for (const [key, draft] of [...drafts.current.entries()]) {
+          if (drafts.current.get(key) !== draft) continue;
+          await draft.save();
+          if (drafts.current.get(key) === draft)
+            throw new Error('仍有未保存的输入，请重试保存后再继续。');
+        }
+      }
+    })();
+    flushing.current = operation;
+    void operation
+      .finally(() => {
+        if (flushing.current === operation) flushing.current = null;
+      })
+      .catch(() => {});
+    return operation;
   }, []);
   useEffect(() => {
     unwrap(window.labrecord.snapshot())
@@ -138,6 +175,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     <Context.Provider
       value={{
         snapshot,
+        getSnapshot: () => savedSnapshot.current,
         experimentId,
         setExperimentId,
         itemId,
@@ -155,6 +193,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
         registerDraft,
         clearDraft,
         flush,
+        eventDrafts: eventDrafts.current,
         loading,
       }}
     >

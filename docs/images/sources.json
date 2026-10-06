@@ -1,0 +1,157 @@
+{
+  "version": 1,
+  "description": "Real Electron screenshots from local 0.5.0 combined implementer self-checks using synthetic experiments and independent temporary data. This is screenshot provenance, not independent acceptance or proof of a GitHub release.",
+  "source": "E:/Vibe_coding/LabRecord",
+  "focusRuntime": {
+    "requestedSize": [900, 700],
+    "nativeSize": [902, 702],
+    "zoom": 1.5,
+    "viewport": [592, 442]
+  },
+  "current": [
+    {
+      "path": "docs/images/planning.png",
+      "softwareVersion": "0.5.0",
+      "capturedAtUtc": "2026-10-06T11:51:41.4255658Z",
+      "source": "local_artifacts/combined/final-screenshots/field-focus-retains-curren-18a5b--search-timeline-and-issues/combined-plan.png",
+      "method": "BrowserWindow.webContents.capturePage",
+      "selfCheckLog": "local_artifacts/combined/final-screenshots.log",
+      "sha256": "A1D9D8F060D4AF838C6EAE3343B1A7D43A334AC5A74E9496E89D522105CF4358",
+      "bytes": 162211
+    },
+    {
+      "path": "docs/images/live.png",
+      "softwareVersion": "0.5.0",
+      "capturedAtUtc": "2026-10-06T11:51:43.8032213Z",
+      "source": "local_artifacts/combined/final-screenshots/field-focus-retains-curren-18a5b--search-timeline-and-issues/combined-live.png",
+      "method": "BrowserWindow.webContents.capturePage",
+      "selfCheckLog": "local_artifacts/combined/final-screenshots.log",
+      "sha256": "EC1B4FC887B255480303E45E22FD1A7C0DEE7E1A8526B2F4A597F6F66FBCB4DC",
+      "bytes": 187589
+    },
+    {
+      "path": "docs/images/review.png",
+      "softwareVersion": "0.5.0",
+      "capturedAtUtc": "2026-10-06T11:51:44.8191398Z",
+      "source": "local_artifacts/combined/final-screenshots/field-focus-retains-curren-18a5b--search-timeline-and-issues/combined-review.png",
+      "method": "BrowserWindow.webContents.capturePage",
+      "selfCheckLog": "local_artifacts/combined/final-screenshots.log",
+      "sha256": "96ECDB9DB56A1F88971E1265BA10DCBD3CC1003E9A2500B33829E5B34955CD01",
+      "bytes": 213124
+    },
+    {
+      "path": "docs/images/focus.png",
+      "softwareVersion": "0.5.0",
+      "capturedAtUtc": "2026-10-06T11:51:43.4428684Z",
+      "source": "local_artifacts/combined/final-screenshots/field-focus-retains-curren-18a5b--search-timeline-and-issues/focus-wide.png",
+      "method": "BrowserWindow.webContents.capturePage",
+      "selfCheckLog": "local_artifacts/combined/final-screenshots.log",
+      "sha256": "7E8F7D975637B862A0E48376E55ABF0AE9409537CE2F69137FFC796E648967F9",
+      "bytes": 136554
+    },
+    {
+      "path": "docs/images/focus-small.png",
+      "softwareVersion": "0.5.0",
+      "capturedAtUtc": "2026-10-06T11:51:44.0260755Z",
+      "source": "local_artifacts/combined/final-screenshots/field-focus-retains-curren-18a5b--search-timeline-and-issues/focus-900-top.png",
+      "method": "BrowserWindow.webContents.capturePage",
+      "selfCheckLog": "local_artifacts/combined/final-screenshots.log",
+      "sha256": "DBE0022E2C675B0F9CAC044FB77BBEF9E1B5D44F2FF409939AF1A82F7A6C04FE",
+      "bytes": 120181
+    },
+    {
+      "path": "docs/images/focus-input.png",
+      "softwareVersion": "0.5.0",
+      "capturedAtUtc": "2026-10-06T11:51:44.1031265Z",
+      "source": "local_artifacts/combined/final-screenshots/field-focus-retains-curren-18a5b--search-timeline-and-issues/focus-900-input.png",
+      "method": "BrowserWindow.webContents.capturePage",
+      "selfCheckLog": "local_artifacts/combined/final-screenshots.log",
+      "sha256": "A172D385989CDFD19423D2390FE356270F4E18681C72A6031C7730175FA0AE4F",
+      "bytes": 122304
+    },
+    {
+      "path": "docs/images/overview.png",
+      "softwareVersion": "0.5.0",
+      "capturedAtUtc": "2026-10-06T11:51:43.6917624Z",
+      "source": "local_artifacts/combined/final-screenshots/field-focus-retains-curren-18a5b--search-timeline-and-issues/combined-overview.png",
+      "method": "BrowserWindow.webContents.capturePage",
+      "selfCheckLog": "local_artifacts/combined/final-screenshots.log",
+      "sha256": "736E3181911E4AD41587822CD790D4C3622971EDB8AEC8C2FCEFFB32E68B13CA",
+      "bytes": 209325
+    },
+    {
+      "path": "docs/images/overview-small.png",
+      "softwareVersion": "0.5.0",
+      "capturedAtUtc": "2026-10-06T11:49:03.0828974Z",
+      "source": "local_artifacts/combined/desktop-results/overview-real-900x700-Elec-20106--page-header-modal-overflow/overview-narrow.png",
+      "method": "BrowserWindow.webContents.capturePage",
+      "selfCheckLog": "local_artifacts/combined/desktop.log",
+      "sha256": "BD607496C1094D9205896B8C8579A7BEB6B75650E75EA9325E1F790E8D87DF89",
+      "bytes": 111928
+    },
+    {
+      "path": "docs/images/quick-add.png",
+      "softwareVersion": "0.5.0",
+      "capturedAtUtc": "2026-10-06T11:48:13.5508742Z",
+      "source": "local_artifacts/combined/desktop-results/desktop-quick-entry-and-di-eb07b-act-plan-and-cloud-controls/quick-add.png",
+      "method": "Playwright page.screenshot in Electron",
+      "selfCheckLog": "local_artifacts/combined/desktop.log",
+      "sha256": "BA308FC13D260C4C3616E607866D2DF101C704349202281DE7CBFEB73E915933",
+      "bytes": 246764
+    },
+    {
+      "path": "docs/images/report-cloud.png",
+      "softwareVersion": "0.5.0",
+      "capturedAtUtc": "2026-10-06T11:48:17.4150792Z",
+      "source": "local_artifacts/combined/desktop-results/desktop-report-archive-sta-fed98-sable-with-offline-failures/report-cloud.png",
+      "method": "Playwright page.screenshot in Electron; mocked offline cloud state",
+      "selfCheckLog": "local_artifacts/combined/desktop.log",
+      "sha256": "7498DEBE82F317B66EEFD78E7059DA9BAF361DD3A3CD1A3CC851A719487A77FA",
+      "bytes": 252926
+    }
+  ],
+  "historical": [
+    {
+      "path": "docs/images/planning-small.png",
+      "softwareVersion": "0.4.0",
+      "scope": "Historical delivery screenshot; not a 0.5.0 combined screenshot",
+      "sha256": "8E5A76FFA4E413B3AAE7205884A1BDF869D8613478E59CFAF46899184B247904"
+    },
+    {
+      "path": "docs/images/live-small.png",
+      "softwareVersion": "0.4.0",
+      "scope": "Historical delivery screenshot; not a 0.5.0 combined screenshot",
+      "sha256": "23AC7405C31C4A284607D089AB463C0680C06698B5C819BE4315161B8981CB1A"
+    },
+    {
+      "path": "docs/images/history-0.4/planning.png",
+      "softwareVersion": "0.4.0",
+      "scope": "Historical delivery screenshot; not a 0.5.0 combined screenshot",
+      "sha256": "D4718F5E466CA334D6F567C01C9257F4B545A3323FCD02E93D2C059D8A16C3D2"
+    },
+    {
+      "path": "docs/images/history-0.4/live.png",
+      "softwareVersion": "0.4.0",
+      "scope": "Historical delivery screenshot; not a 0.5.0 combined screenshot",
+      "sha256": "E90CC62CDF3AF73DD891623FE05E0F3D40B17EF9F91E4ADE87A14FD29D9276E6"
+    },
+    {
+      "path": "docs/images/history-0.4/review.png",
+      "softwareVersion": "0.4.0",
+      "scope": "Historical delivery screenshot; not a 0.5.0 combined screenshot",
+      "sha256": "DA08AF07D9F90FBCD943C1CAC012EA3E40CF533741157F4F4F163E2E5DB888F5"
+    },
+    {
+      "path": "docs/images/history-0.4/quick-add.png",
+      "softwareVersion": "0.4.0",
+      "scope": "Historical delivery screenshot; not a 0.5.0 combined screenshot",
+      "sha256": "42AEBB981BF31F70DC01D2CFA5CBDA54A267CFE0964C9304DBF608A5CF7FAAAA"
+    },
+    {
+      "path": "docs/images/history-0.4/report-cloud.png",
+      "softwareVersion": "0.4.0",
+      "scope": "Historical delivery screenshot; not a 0.5.0 combined screenshot",
+      "sha256": "8AC0747D8F19731B93E8B498C03E36E9CD6B76281EB966A9F210F81B944DE89E"
+    }
+  ]
+}

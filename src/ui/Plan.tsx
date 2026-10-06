@@ -12,6 +12,7 @@ import {
   Package,
   Boxes,
   Pencil,
+  TrendingUp,
 } from 'lucide-react';
 import type {
   Group,
@@ -23,6 +24,7 @@ import type {
   TablePreview,
 } from '../shared/model';
 import { groupCounts, sampleName, dimensions } from '../shared/model';
+import { reportInsights } from '../shared/summary';
 import { useWorkspace, unwrap } from './context';
 import { AutoInput, Modal, Empty, FieldInputs, PriorityPill, SearchField } from './components';
 import { ImportDialog } from './importDialog';
@@ -528,12 +530,8 @@ export function Plan() {
       .toLowerCase()
       .includes(search.toLowerCase()),
   );
-  const planned = snapshot.samples.filter((s) => s.experimentId === experimentId).length;
-  const known = groups
-    .filter((g) => g.preparedCount !== null)
-    .reduce((sum, g) => sum + g.preparedCount!, 0);
-  const spareCounts = groups.map((group) => groupCounts(snapshot, group).spare);
-  const spare = spareCounts.reduce<number>((sum, count) => sum + (count ?? 0), 0);
+  const insights = reportInsights(snapshot, experimentId);
+  const preparationUnknown = groups.length > 0 && insights.unknownPreparation === groups.length;
   async function importFile() {
     try {
       const result = await unwrap(window.labrecord.previewFile());
@@ -567,7 +565,7 @@ export function Plan() {
           进入现场记录 <ArrowRight size={17} />
         </button>
       </div>
-      <div className="stats-row">
+      <div className="stats-row plan-stats">
         <div className="stat">
           <Layers size={20} />
           <div>
@@ -582,30 +580,46 @@ export function Plan() {
           <Package size={20} />
           <div>
             <strong>
-              {known}
-              <small>个{groups.some((g) => g.preparedCount === null) ? ' +' : ''}</small>
+              {preparationUnknown ? '未知' : insights.preparedKnown}
+              {!preparationUnknown && <small>个</small>}
             </strong>
             <span>已知准备数量 · 包含备样</span>
+            {insights.unknownPreparation > 0 && (
+              <small className="stat-unknown">{insights.unknownPreparation} 组准备数量未知</small>
+            )}
           </div>
         </div>
         <div className="stat accent">
           <span className="stat-icon">↗</span>
           <div>
             <strong>
-              {planned}
+              {insights.plannedSamples}
               <small>个</small>
             </strong>
             <span>已加入计划的不同样品</span>
           </div>
         </div>
         <div className="stat">
+          <TrendingUp size={20} />
+          <div>
+            <strong>
+              {insights.plannedOperations}
+              <small>项</small>
+            </strong>
+            <span>计划操作</span>
+          </div>
+        </div>
+        <div className="stat">
           <Boxes size={20} />
           <div>
             <strong>
-              {spare}
-              <small>个{spareCounts.some((count) => count === null) ? ' +' : ''}</small>
+              {preparationUnknown ? '未知' : insights.spareKnown}
+              {!preparationUnknown && <small>个</small>}
             </strong>
             <span>备样 · 现场按需启用</span>
+            {insights.unknownPreparation > 0 && (
+              <small className="stat-unknown">{insights.unknownPreparation} 组备样数量未知</small>
+            )}
           </div>
         </div>
       </div>

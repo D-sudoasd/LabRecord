@@ -1,0 +1,460 @@
+/* Field controls extend the existing workspace, without changing global navigation. */
+.live-page .compact-heading {
+  gap: 16px;
+  margin-bottom: 16px;
+}
+.live-page .heading-actions {
+  justify-content: flex-end;
+  max-width: 620px;
+  gap: 7px;
+}
+.live-page .heading-actions .button {
+  min-height: 40px;
+  padding: 8px 12px;
+}
+.live-page .timeline-toggle {
+  display: inline-flex;
+}
+.live-page .focus-toggle[aria-pressed='true'] {
+  color: var(--primary);
+  background: var(--tint);
+  border-color: var(--primary);
+}
+.live-page .current-card {
+  padding: 20px;
+}
+.live-page .current-heading {
+  margin-bottom: 16px;
+}
+.live-page .current-heading p {
+  margin-top: 4px;
+}
+.live-page .operation-actions {
+  margin-bottom: 10px;
+}
+.live-page .start-button,
+.live-page .finish-button {
+  min-height: 54px;
+}
+.live-page .record-section {
+  margin-top: 10px;
+}
+.live-page .section-title {
+  margin-bottom: 7px;
+}
+.live-page .live-notes {
+  min-height: 96px !important;
+}
+.live-page .quick-record-actions {
+  margin: 10px 0 0;
+}
+.live-page .quick-record-actions .button {
+  min-height: 42px;
+}
+.live-page .parameter-summary {
+  margin-top: 14px;
+}
+.live-page kbd {
+  display: inline-block;
+  padding: 2px 5px;
+  font:
+    11px ui-monospace,
+    monospace;
+  border: 1px solid currentColor;
+  border-radius: 5px;
+  color: inherit;
+  opacity: 0.85;
+}
+
+.live-page.is-focused .live-layout {
+  grid-template-columns: minmax(0, 1fr);
+  max-width: 1040px;
+  margin-inline: auto;
+}
+.live-page.is-focused .timeline-desktop {
+  display: none;
+}
+.live-page .more-actions-toggle {
+  display: none;
+}
+.live-page.is-focused {
+  padding: 12px 16px 28px;
+}
+.live-page.is-focused .compact-heading {
+  margin-bottom: 10px;
+}
+.live-page.is-focused .compact-heading > div:first-child {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+.live-page.is-focused .heading-actions {
+  max-width: none;
+  flex-wrap: nowrap;
+  justify-content: flex-start;
+  gap: 6px;
+}
+.live-page.is-focused .heading-actions .button {
+  min-height: 36px;
+  padding: 6px 10px;
+  font-size: 12px;
+}
+.live-page.is-focused .heading-actions .focus-secondary {
+  display: none;
+}
+.live-page.is-focused .more-actions-toggle {
+  display: inline-flex;
+}
+.live-page.is-focused .current-card {
+  display: flex;
+  flex-direction: column;
+}
+.live-page.is-focused .current-card > * {
+  order: 5;
+}
+.live-page.is-focused .current-card > .current-controls {
+  order: 0;
+  position: sticky;
+  top: var(--header-height);
+  z-index: 5;
+  background: var(--surface);
+  padding-block: 6px;
+  border-bottom: 1px solid var(--line);
+}
+.live-page.is-focused .current-card > .quick-record-bar {
+  order: 1;
+}
+.live-page.is-focused .current-card > .record-section {
+  order: 2;
+}
+.live-page.is-focused .current-card > .quick-record-actions {
+  order: 3;
+}
+.live-page.is-focused .current-card > .next-pending-indicator {
+  order: 4;
+}
+.live-page.is-focused .current-heading {
+  margin-bottom: 10px;
+}
+.live-page.is-focused .current-heading h2 {
+  font-size: 36px;
+}
+.live-page.is-focused .start-button,
+.live-page.is-focused .finish-button {
+  min-height: 60px;
+  font-size: 16px !important;
+}
+.live-page.is-focused .live-notes {
+  font-size: 16px;
+}
+.field-more-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.quick-record-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-top: 10px;
+  padding: 8px;
+  background: var(--surface-secondary);
+  border-radius: var(--radius-control);
+}
+.quick-record-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  padding: 8px 10px;
+  min-height: 40px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ink);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  cursor: pointer;
+  transition:
+    background 140ms,
+    border-color 140ms;
+}
+.quick-record-button:hover:not(:disabled) {
+  background: var(--tint);
+  color: var(--primary);
+  border-color: var(--primary);
+}
+.quick-record-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.quick-record-bar.failed {
+  background: #fff1ef;
+  border: 1px solid var(--danger);
+}
+.quick-record-bar.failed .failure-message {
+  flex: 1 1 160px;
+  min-width: 0;
+  color: var(--danger);
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+.quick-record-bar.failed .button {
+  color: var(--danger);
+}
+
+.next-pending-indicator {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 8px 12px;
+  margin-top: 8px;
+  color: var(--ink);
+  background: var(--tint);
+  border-left: 3px solid var(--primary);
+  border-radius: 9px;
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+.next-pending-indicator strong {
+  color: var(--primary);
+}
+.dialog-target {
+  padding: 9px 12px;
+  background: var(--surface-secondary);
+  border-radius: 10px;
+  color: var(--muted);
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+.dialog-target strong {
+  color: var(--ink);
+}
+.issue-template-quick {
+  padding: 0;
+}
+.template-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+.template-card {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 7px;
+  padding: 10px;
+  min-height: 44px;
+  text-align: left;
+  color: var(--ink);
+  background: var(--surface-secondary);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-control);
+  font-size: 13px;
+  cursor: pointer;
+}
+.template-card:hover:not(:disabled),
+.template-card[aria-pressed='true'] {
+  background: var(--tint);
+  color: var(--primary);
+  border-color: var(--primary);
+}
+.template-card:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+.unresolved-issues {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.unresolved-issue-item {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 14px;
+  background: var(--surface-secondary);
+  border-left: 3px solid var(--warning);
+  border-radius: 12px;
+  font-size: 13px;
+}
+.unresolved-issue-item > div {
+  flex: 1 1 100%;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.unresolved-issue-item p {
+  margin-block: 6px;
+  white-space: pre-wrap;
+}
+.unresolved-issue-item small {
+  color: var(--muted);
+}
+
+.live-page .queue-dialog .queue {
+  display: flex;
+  position: static;
+  height: min(480px, 60dvh);
+  min-height: 200px;
+  border: 0;
+  box-shadow: none;
+}
+.live-page .queue-dialog .queue-search {
+  display: flex;
+}
+.live-page .queue-dialog .queue-list {
+  display: block;
+  overflow: auto;
+}
+.live-page .queue-dialog .queue-row {
+  min-width: 0;
+}
+.live-page .queue-dialog .queue-choice {
+  width: 100%;
+}
+.live-page .queue-dialog .queue footer {
+  display: flex;
+}
+
+@media (max-width: 1000px) {
+  .live-page .compact-heading {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+  .live-page .heading-actions {
+    justify-content: flex-start;
+    max-width: none;
+  }
+  .live-page .current-card {
+    padding: 17px;
+  }
+  .live-page .current-heading {
+    margin-bottom: 12px;
+  }
+}
+@media (max-width: 650px) {
+  .live-page.is-focused {
+    padding: 10px 12px 24px;
+  }
+  .live-page.is-focused .compact-heading {
+    margin-bottom: 8px;
+  }
+  .live-page.is-focused .current-card {
+    padding: 10px;
+  }
+  .live-page.is-focused .current-controls {
+    padding-block: 2px;
+  }
+  .live-page.is-focused .current-heading {
+    margin-bottom: 8px;
+  }
+  .live-page.is-focused .current-heading > div:first-child {
+    min-width: 0;
+    flex: 1;
+  }
+  .live-page.is-focused .current-heading h2 {
+    margin-top: 2px;
+    line-height: 1.1;
+  }
+  .live-page.is-focused .current-heading p {
+    margin-top: 2px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    font-size: 11px;
+  }
+  .live-page.is-focused .current-heading .eyebrow {
+    font-size: 10px;
+  }
+  .live-page.is-focused .start-button,
+  .live-page.is-focused .finish-button {
+    min-height: 54px;
+    font-size: 14px !important;
+  }
+  .live-page.is-focused .operation-actions {
+    margin-bottom: 6px;
+  }
+  .live-page.is-focused .quick-record-bar {
+    margin-top: 6px;
+    gap: 5px;
+    padding: 6px;
+  }
+  .live-page.is-focused .quick-record-button {
+    flex: 1 1 auto;
+    min-height: 36px;
+    padding: 6px 8px;
+    font-size: 12px;
+    white-space: nowrap;
+  }
+  .live-page.is-focused .quick-record-button svg {
+    display: none;
+  }
+  .live-page .heading-actions .button {
+    font-size: 12px;
+    padding: 7px 10px;
+  }
+  .live-page .current-heading {
+    gap: 8px;
+  }
+  .live-page .current-state {
+    flex-shrink: 1;
+  }
+  .live-page .current-heading h2,
+  .live-page.is-focused .current-heading h2 {
+    font-size: 27px;
+  }
+  .live-page .current-heading .elapsed-strip {
+    font-size: 12px;
+  }
+  .live-page .operation-actions .button {
+    white-space: normal;
+  }
+  .live-page .finish-button kbd {
+    display: none;
+  }
+  .live-page .quick-record-actions .button {
+    padding-inline: 8px;
+  }
+  .quick-record-button {
+    flex: 1 1 130px;
+  }
+  .live-page .queue-search {
+    display: flex;
+  }
+  .live-page .queue {
+    height: 330px;
+  }
+  .live-page .queue-list {
+    display: block;
+    overflow: auto;
+  }
+  .live-page .queue-row {
+    min-width: 0;
+  }
+  .live-page .form-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .live-page .form-grid .span-2 {
+    grid-column: auto;
+  }
+  .live-page .parameter-summary {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+  .live-page .parameter-summary strong {
+    overflow-wrap: anywhere;
+  }
+  .template-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .quick-record-button {
+    transition: none;
+  }
+}

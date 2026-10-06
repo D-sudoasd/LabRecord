@@ -1,0 +1,63 @@
+/* Extend the existing workspace layout without replacing its controls or typography. */
+.app-shell .workspace-header {
+  gap: 12px;
+}
+
+.workspace-header .experiment-selection {
+  flex: 1;
+  min-width: 0;
+  width: auto;
+}
+
+.workspace-header .experiment-switcher select {
+  min-width: 0;
+}
+
+.workspace-header .overview-open,
+.workspace-header .cloud-open,
+.workspace-header .save-indicator {
+  flex-shrink: 0;
+}
+
+.plan-page .plan-stats {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+
+.plan-stats .stat {
+  min-width: 0;
+}
+
+.plan-stats .stat > div {
+  min-width: 0;
+}
+
+.plan-stats .stat-unknown {
+  display: block;
+  margin-top: 4px;
+  line-height: 1.5;
+}
+
+.plan-page .toolbar-actions {
+  max-width: 100%;
+  min-width: 0;
+}
+
+.plan-page .search-input {
+  max-width: 100%;
+}
+
+@media (max-width: 1100px) {
+  .plan-page .plan-stats {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 800px) {
+  .app-shell .workspace-header {
+    gap: 8px;
+  }
+
+  .plan-page .plan-stats {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
