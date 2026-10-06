@@ -1,8 +1,22 @@
 import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
-import { X, Check, AlertCircle, ChevronDown } from 'lucide-react';
+import { X, Check, AlertCircle, ChevronDown, Search, Timer } from 'lucide-react';
 import type { Field, Value, Values, Status } from '../shared/model';
 import { STATUS_LABEL } from '../shared/model';
 import { useWorkspace } from './context';
+
+export function useModalDialog() {
+  const ref = useRef<HTMLDialogElement>(null);
+  useEffect(() => {
+    const dialog = ref.current;
+    const trigger = document.activeElement;
+    dialog?.showModal();
+    return () => {
+      dialog?.close();
+      if (trigger instanceof HTMLElement && trigger.isConnected) trigger.focus();
+    };
+  }, []);
+  return ref;
+}
 
 export function Modal({
   title,
@@ -10,22 +24,21 @@ export function Modal({
   onClose,
   wide = false,
   closeDisabled = false,
+  className = '',
 }: {
   title: string;
   children: ReactNode;
   onClose: () => void;
   wide?: boolean;
   closeDisabled?: boolean;
+  className?: string;
 }) {
-  const ref = useRef<HTMLDialogElement>(null),
+  const ref = useModalDialog(),
     id = useId();
-  useEffect(() => {
-    ref.current?.showModal();
-  }, []);
   return (
     <dialog
       ref={ref}
-      className={`modal ${wide ? 'wide' : ''}`}
+      className={`modal ${wide ? 'wide' : ''} ${className}`}
       aria-labelledby={id}
       onCancel={(event) => {
         event.preventDefault();
@@ -45,6 +58,90 @@ export function Modal({
       </header>
       <div className="modal-body">{children}</div>
     </dialog>
+  );
+}
+export function SearchField({
+  label,
+  placeholder,
+  value,
+  onChange,
+  className = '',
+}: {
+  label: string;
+  placeholder: string;
+  value: string;
+  onChange: (value: string) => void;
+  className?: string;
+}) {
+  const input = useRef<HTMLInputElement>(null);
+  return (
+    <div className={`search-input ${className}`}>
+      <Search size={16} aria-hidden="true" />
+      <input
+        ref={input}
+        aria-label={label}
+        placeholder={placeholder}
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+      />
+      {value && (
+        <button
+          type="button"
+          className="search-clear"
+          aria-label={`清除${label}`}
+          onClick={() => {
+            onChange('');
+            input.current?.focus();
+          }}
+        >
+          <X size={14} />
+        </button>
+      )}
+    </div>
+  );
+}
+
+export function ElapsedTime({
+  startedAt,
+  endedAt,
+  running,
+}: {
+  startedAt: string | null;
+  endedAt: string | null;
+  running: boolean;
+}) {
+  const [now, setNow] = useState(Date.now);
+  useEffect(() => {
+    if (!running || !startedAt || endedAt) return;
+    setNow(Date.now());
+    const timer = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, [running, startedAt, endedAt]);
+  // The display is derived from recorded timestamps, including across midnight and restarts.
+  const seconds =
+    startedAt && (endedAt || running)
+      ? Math.max(
+          0,
+          Math.floor(((endedAt ? Date.parse(endedAt) : now) - Date.parse(startedAt)) / 1000),
+        )
+      : null;
+  const duration =
+    seconds === null
+      ? '—'
+      : [Math.floor(seconds / 3600), Math.floor(seconds / 60) % 60, seconds % 60]
+          .map((part) => String(part).padStart(2, '0'))
+          .join(':');
+  return (
+    <div className={`elapsed-strip ${running ? 'is-running' : ''}`} aria-live="off">
+      <Timer size={18} aria-hidden="true" />
+      <span>本次用时</span>
+      <output aria-label="本次操作用时" aria-live="off">
+        {duration}
+      </output>
+      <small>
+        {running ? '正在计时' : endedAt ? '已结束' : startedAt ? '时间待补全' : '开始后自动计时'}
+      </small>
+    </div>
   );
 }
 export function StatusPill({ status }: { status: Status }) {

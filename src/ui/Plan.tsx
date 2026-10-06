@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import {
   Plus,
   Copy,
@@ -8,8 +8,9 @@ import {
   Upload,
   SlidersHorizontal,
   ArrowRight,
-  Search,
   Layers,
+  Package,
+  Boxes,
   Pencil,
 } from 'lucide-react';
 import type {
@@ -23,7 +24,7 @@ import type {
 } from '../shared/model';
 import { groupCounts, sampleName, dimensions } from '../shared/model';
 import { useWorkspace, unwrap } from './context';
-import { AutoInput, Modal, Empty, FieldInputs, PriorityPill } from './components';
+import { AutoInput, Modal, Empty, FieldInputs, PriorityPill, SearchField } from './components';
 import { ImportDialog } from './importDialog';
 import { QuickAdd } from './QuickAdd';
 
@@ -497,6 +498,7 @@ export function Plan() {
     .filter((g) => g.experimentId === experimentId)
     .sort((a, b) => a.order - b.order);
   const [quickAdd, setQuickAdd] = useState(false);
+  const quickAddTrigger = useRef<HTMLButtonElement>(null);
   useEffect(() => {
     const listener = (event: KeyboardEvent) => {
       if (
@@ -505,6 +507,7 @@ export function Plan() {
         !document.querySelector('dialog[open]')
       ) {
         event.preventDefault();
+        quickAddTrigger.current?.focus();
         setQuickAdd(true);
       }
     };
@@ -529,6 +532,8 @@ export function Plan() {
   const known = groups
     .filter((g) => g.preparedCount !== null)
     .reduce((sum, g) => sum + g.preparedCount!, 0);
+  const spareCounts = groups.map((group) => groupCounts(snapshot, group).spare);
+  const spare = spareCounts.reduce<number>((sum, count) => sum + (count ?? 0), 0);
   async function importFile() {
     try {
       const result = await unwrap(window.labrecord.previewFile());
@@ -546,7 +551,7 @@ export function Plan() {
     <div className="page plan-page">
       <div className="page-heading">
         <div>
-          <div className="eyebrow">EXPERIMENT PLAN</div>
+          <div className="eyebrow">01 / 实验规划</div>
           <h1>实验前，把样品安排好</h1>
           <p>按状态整理准备情况，把要测试的样品加入待测队列。</p>
         </div>
@@ -570,11 +575,11 @@ export function Plan() {
               {groups.length}
               <small>组</small>
             </strong>
-            <span>样品状态</span>
+            <span>样品组</span>
           </div>
         </div>
         <div className="stat">
-          <span className="stat-icon">▤</span>
+          <Package size={20} />
           <div>
             <strong>
               {known}
@@ -593,10 +598,15 @@ export function Plan() {
             <span>已加入计划的不同样品</span>
           </div>
         </div>
-        <div className="stat-note">
-          P0 优先安排
-          <br />
-          <span>备样不进入完成进度</span>
+        <div className="stat">
+          <Boxes size={20} />
+          <div>
+            <strong>
+              {spare}
+              <small>个{spareCounts.some((count) => count === null) ? ' +' : ''}</small>
+            </strong>
+            <span>备样 · 现场按需启用</span>
+          </div>
         </div>
       </div>
       <section className="card planning-card">
@@ -606,15 +616,12 @@ export function Plan() {
             <span>{groups.length} 个样品组</span>
           </div>
           <div className="toolbar-actions">
-            <div className="search-input">
-              <Search size={15} />
-              <input
-                aria-label="搜索样品组"
-                placeholder="搜索名称、状态或备注"
-                value={search}
-                onChange={(event) => setSearch(event.target.value)}
-              />
-            </div>
+            <SearchField
+              label="搜索样品组"
+              placeholder="名称、状态或备注"
+              value={search}
+              onChange={setSearch}
+            />
             <button className="button" onClick={importFile}>
               <Upload size={16} />
               导入表格
@@ -623,7 +630,11 @@ export function Plan() {
               <ClipboardPaste size={16} />
               粘贴多行
             </button>
-            <button className="button primary" onClick={() => setQuickAdd(true)}>
+            <button
+              ref={quickAddTrigger}
+              className="button primary"
+              onClick={() => setQuickAdd(true)}
+            >
               <Plus size={17} />
               新增样品
             </button>
@@ -677,6 +688,17 @@ export function Plan() {
                 </tr>
               </thead>
               <tbody>
+                {!visible.length && (
+                  <tr>
+                    <td colSpan={6}>
+                      <Empty title="没有找到样品" description="试试其他名称、状态或备注。">
+                        <button className="button" onClick={() => setSearch('')}>
+                          清除筛选
+                        </button>
+                      </Empty>
+                    </td>
+                  </tr>
+                )}
                 {visible.map((group) => {
                   const counts = groupCounts(snapshot, group);
                   const samples = snapshot.samples.filter((s) => s.groupId === group.id);

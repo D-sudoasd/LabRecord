@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react';
-import { Plus, Copy } from 'lucide-react';
+import { Plus, Copy, Layers, Ruler, Package, CheckCircle2 } from 'lucide-react';
 import type { GroupPatch, Mode } from '../shared/model';
 import { useWorkspace } from './context';
 import { Modal, FieldInputs } from './components';
@@ -26,11 +26,25 @@ export function QuickAdd({ onClose }: { onClose: () => void }) {
     [prefix, setPrefix] = useState('S');
   const [busy, setBusy] = useState(false),
     [error, setError] = useState(''),
-    [added, setAdded] = useState(0);
+    [added, setAdded] = useState(0),
+    [copied, setCopied] = useState(false);
+  const planned = count.trim() ? Number(count) : null;
+  const prepared = patch.preparedCount ?? null;
+  const validCounts =
+    planned !== null &&
+    Number.isInteger(planned) &&
+    planned >= 0 &&
+    planned <= 1000 &&
+    (prepared === null ||
+      (Number.isInteger(prepared) && prepared >= 0 && prepared <= 10000 && planned <= prepared));
+  const spare = validCounts && prepared !== null ? prepared - planned! : null;
   const nameInput = useRef<HTMLInputElement>(null);
+  const submitting = useRef(false);
   const set = (key: keyof GroupPatch, value: unknown) =>
     setPatch((old) => ({ ...old, [key]: value }));
   async function submit(continueAdding: boolean) {
+    if (submitting.current || !validCounts) return;
+    submitting.current = true;
     setBusy(true);
     setError('');
     try {
@@ -53,11 +67,12 @@ export function QuickAdd({ onClose }: { onClose: () => void }) {
     } catch (failure) {
       setError((failure as Error).message);
     } finally {
+      submitting.current = false;
       setBusy(false);
     }
   }
   return (
-    <Modal title="添加样品" onClose={onClose}>
+    <Modal title="添加样品" onClose={onClose} className="quick-add-modal">
       <form
         className="form-grid quick-add-form"
         onSubmit={(event) => {
@@ -72,7 +87,7 @@ export function QuickAdd({ onClose }: { onClose: () => void }) {
         }}
       >
         <div className="quick-add-intro span-2">
-          <p>填写名称即可添加。编号自动连续生成，准备数量与测试数量可分别调整。</p>
+          <p>名称必填，其余按需补充。样品编号自动生成。</p>
           {latest && (
             <button
               type="button"
@@ -106,6 +121,8 @@ export function QuickAdd({ onClose }: { onClose: () => void }) {
                   values,
                 }));
                 setCount('1');
+                setCopied(true);
+                nameInput.current?.focus();
               }}
             >
               <Copy size={14} />
@@ -113,96 +130,140 @@ export function QuickAdd({ onClose }: { onClose: () => void }) {
             </button>
           )}
         </div>
-        <label className="field span-2">
-          <span>样品名称 *</span>
-          <input
-            ref={nameInput}
-            autoFocus
-            required
-            value={patch.name || ''}
-            onChange={(e) => set('name', e.target.value)}
-            placeholder="例如 Ti2448 拉伸试样 / 合金 A"
-          />
-        </label>
-        <label className="field span-2">
-          <span>样品状态</span>
-          <input
-            value={patch.state || ''}
-            onChange={(e) => set('state', e.target.value)}
-            placeholder="例如 400 °C 时效 / Ti-demo-reference，可留空"
-          />
-        </label>
-        <label className="field">
-          <span>准备数量</span>
-          <input
-            type="number"
-            min="0"
-            max="10000"
-            value={patch.preparedCount ?? ''}
-            onChange={(e) =>
-              set('preparedCount', e.target.value.trim() ? Number(e.target.value) : null)
-            }
-          />
-        </label>
-        <label className="field">
-          <span>计划测试数量</span>
-          <input
-            type="number"
-            required
-            min="0"
-            max="1000"
-            aria-label="计划测试数量"
-            value={count}
-            onChange={(e) => setCount(e.target.value)}
-          />
-          <small>添加后直接进入待测队列；仅备样填 0。</small>
-        </label>
-        <div className="dimension-fields span-2">
-          <label className="field">
-            <span>厚度</span>
-            <input
-              value={patch.thickness || ''}
-              onChange={(e) => set('thickness', e.target.value)}
-              inputMode="decimal"
-              placeholder="未填写"
-            />
-          </label>
-          <label className="field">
-            <span>厚度单位</span>
-            <select
-              value={patch.thicknessUnit || ''}
-              onChange={(event) => set('thicknessUnit', event.target.value)}
-            >
-              <option value="">未指定</option>
-              {['mm', 'μm', 'nm', 'cm'].map((unit) => (
-                <option key={unit}>{unit}</option>
-              ))}
-            </select>
-          </label>
-          <label className="field">
-            <span>宽度</span>
-            <input
-              value={patch.width || ''}
-              onChange={(e) => set('width', e.target.value)}
-              inputMode="decimal"
-              placeholder="未填写"
-            />
-          </label>
-          <label className="field">
-            <span>宽高单位</span>
-            <select
-              value={patch.dimensionUnit || ''}
-              onChange={(e) => {
-                set('dimensionUnit', e.target.value);
-              }}
-            >
-              <option value="">未指定</option>
-              {['mm', 'μm', 'nm', 'cm'].map((unit) => (
-                <option key={unit}>{unit}</option>
-              ))}
-            </select>
-          </label>
-        </div>
+        {copied && (
+          <p className="template-feedback span-2" role="status">
+            <CheckCircle2 size={15} />
+            已沿用上一组参数，请确认本组数量。
+          </p>
+        )}
+        <fieldset className="form-section span-2">
+          <legend>
+            <Layers size={16} />
+            样品信息
+          </legend>
+          <div className="form-grid">
+            <label className="field">
+              <span>样品名称 *</span>
+              <input
+                ref={nameInput}
+                autoFocus
+                required
+                value={patch.name || ''}
+                onChange={(e) => set('name', e.target.value)}
+                placeholder="例如 Ti2448 拉伸试样 / 合金 A"
+              />
+            </label>
+            <label className="field">
+              <span>样品状态</span>
+              <input
+                value={patch.state || ''}
+                onChange={(e) => set('state', e.target.value)}
+                placeholder="例如 400 °C 时效 / Ti-demo-reference，可留空"
+              />
+            </label>
+          </div>
+        </fieldset>
+        <fieldset className="form-section span-2">
+          <legend>
+            <Package size={16} />
+            准备与测试
+          </legend>
+          <div className="form-grid">
+            <label className="field">
+              <span>准备数量</span>
+              <input
+                type="number"
+                min="0"
+                max="10000"
+                value={patch.preparedCount ?? ''}
+                onChange={(e) =>
+                  set('preparedCount', e.target.value.trim() ? Number(e.target.value) : null)
+                }
+              />
+            </label>
+            <label className="field">
+              <span>计划测试数量</span>
+              <input
+                type="number"
+                required
+                min="0"
+                max="1000"
+                aria-label="计划测试数量"
+                value={count}
+                onChange={(e) => setCount(e.target.value)}
+              />
+              <small>仅准备备样时填 0。</small>
+            </label>
+          </div>
+          <div className="quantity-preview" aria-label="样品数量预览" role="status">
+            <span>
+              <strong>{prepared ?? '—'}</strong>准备
+            </span>
+            <span>
+              <strong>{planned ?? '—'}</strong>计划测试
+            </span>
+            <span>
+              <strong>{spare ?? '—'}</strong>备样
+            </span>
+          </div>
+          {!validCounts && (
+            <p className="error-text quantity-hint">
+              计划测试数量应为 0–1000 的整数，且不超过准备数量；准备数量未知可留空。
+            </p>
+          )}
+        </fieldset>
+        <fieldset className="form-section span-2">
+          <legend>
+            <Ruler size={16} />
+            样品尺寸 <small>可稍后补充</small>
+          </legend>
+          <div className="dimension-fields">
+            <label className="field">
+              <span>厚度</span>
+              <input
+                value={patch.thickness || ''}
+                onChange={(e) => set('thickness', e.target.value)}
+                inputMode="decimal"
+                placeholder="未填写"
+              />
+            </label>
+            <label className="field">
+              <span>厚度单位</span>
+              <select
+                value={patch.thicknessUnit || ''}
+                onChange={(event) => set('thicknessUnit', event.target.value)}
+              >
+                <option value="">未指定</option>
+                {['mm', 'μm', 'nm', 'cm'].map((unit) => (
+                  <option key={unit}>{unit}</option>
+                ))}
+              </select>
+            </label>
+            <label className="field">
+              <span>宽度</span>
+              <input
+                value={patch.width || ''}
+                onChange={(e) => set('width', e.target.value)}
+                inputMode="decimal"
+                placeholder="未填写"
+              />
+            </label>
+            <label className="field">
+              <span>宽高单位</span>
+              <select
+                value={patch.dimensionUnit || ''}
+                onChange={(e) => {
+                  set('dimensionUnit', e.target.value);
+                }}
+              >
+                <option value="">未指定</option>
+                {['mm', 'μm', 'nm', 'cm'].map((unit) => (
+                  <option key={unit}>{unit}</option>
+                ))}
+              </select>
+            </label>
+          </div>
+        </fieldset>
         <details className="span-2 quick-add-extra">
           <summary>更多信息 · 高度、制备、条件与备注</summary>
           <div className="form-grid">
@@ -275,19 +336,20 @@ export function QuickAdd({ onClose }: { onClose: () => void }) {
           </p>
         )}
         <footer className="modal-actions span-2">
+          <span className="shortcut-hint">Ctrl + Enter 连续添加</span>
           <button
             type="button"
             className="button"
-            disabled={busy}
+            disabled={busy || !validCounts}
             onClick={() => {
               void submit(true);
             }}
           >
             保存并继续添加
           </button>
-          <button className="button primary" disabled={busy}>
+          <button className="button primary" disabled={busy || !validCounts}>
             <Plus size={16} />
-            {busy ? '添加中…' : '添加并安排测试'}
+            {busy ? '添加中…' : planned === 0 ? '添加为备样' : '添加并安排测试'}
           </button>
         </footer>
       </form>

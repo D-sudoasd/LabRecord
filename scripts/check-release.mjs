@@ -38,6 +38,17 @@ const testOutput = join(
   'test-results/desktop-Windows-desktop-pl-d8707-complete-backup-and-restore',
 );
 const runtime = JSON.parse(await readFile(join(testOutput, 'runtime.json'), 'utf8'));
+const desktopReport = JSON.parse(
+  await readFile(join(root, 'test-results/desktop-report.json'), 'utf8'),
+);
+if (
+  !desktopReport.stats.expected ||
+  desktopReport.stats.unexpected ||
+  desktopReport.stats.skipped ||
+  desktopReport.stats.flaky ||
+  desktopReport.errors.length
+)
+  throw new Error('打包程序的完整桌面检查没有全部通过。');
 if (!runtime.packaged || runtime.version !== packageInfo.version || runtime.platform !== 'win32')
   throw new Error('缺少本版本 Windows 打包程序的运行证据。');
 if (resolve(runtime.appPath) !== resolve(join(release, 'win-unpacked/resources/app.asar')))
@@ -59,7 +70,8 @@ for (const file of reportManifest.files) {
   if (bytes.length !== file.bytes || sha256(bytes) !== file.sha256)
     throw new Error('演示报告校验失败：' + file.path);
 }
-await cp(exampleReport, join(release, '演示实验报告'), { recursive: true });
+const demoDirectory = `演示实验报告-${packageInfo.version}`;
+await cp(exampleReport, join(release, demoDirectory), { recursive: true });
 const archiveOutput = (await readdir(join(root, 'test-results'))).find((name) =>
   name.startsWith('desktop-report-archive'),
 );
@@ -82,7 +94,8 @@ const manifest = {
   archiveFileCount: Object.values(zip.files).filter((entry) => !entry.dir).length,
   verifiedAgainstTestedDirectory: files,
   runtime: { ...runtime, appPath: 'resources/app.asar' },
-  exampleReport: { path: '演示实验报告', manifest: reportManifest },
+  desktopChecks: desktopReport.stats,
+  exampleReport: { path: demoDirectory, manifest: reportManifest },
 };
 await writeFile(join(release, 'delivery-manifest.json'), JSON.stringify(manifest, null, 2) + '\n');
 await writeFile(join(release, 'SHA256SUMS.txt'), `${manifest.archive.sha256}  ${filename}\n`);
@@ -92,7 +105,7 @@ console.log(
       archive: manifest.archive,
       archiveFileCount: manifest.archiveFileCount,
       matchedFiles: files.length,
-      screenshots: ['planning', 'live', 'review', 'quick-add', 'planning-small'],
+      screenshots: ['planning', 'live', 'review', 'quick-add', 'planning-small', 'report-cloud'],
       runtime,
     },
     null,

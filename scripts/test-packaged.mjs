@@ -7,10 +7,18 @@ if (process.platform !== 'win32' || !existsSync(executable))
   throw new Error('Run npm run package on Windows first.');
 const result = spawnSync(
   process.execPath,
-  [fileURLToPath(new URL('../node_modules/@playwright/test/cli.js', import.meta.url)), 'test'],
+  [
+    fileURLToPath(new URL('../node_modules/@playwright/test/cli.js', import.meta.url)),
+    'test',
+    '--reporter=list,json',
+  ],
   {
     stdio: 'inherit',
-    env: { ...process.env, LABRECORD_EXECUTABLE: executable },
+    env: {
+      ...process.env,
+      LABRECORD_EXECUTABLE: executable,
+      PLAYWRIGHT_JSON_OUTPUT_FILE: resolve('test-results/desktop-report.json'),
+    },
   },
 );
 if (result.error) throw result.error;

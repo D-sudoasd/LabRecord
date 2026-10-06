@@ -60,7 +60,19 @@ async function nativeFiles(
   }, paths);
 }
 async function capture(application: ElectronApplication, path: string) {
-  await (await application.firstWindow()).screenshot({ path, animations: 'disabled' });
+  await (
+    await application.firstWindow()
+  ).evaluate(
+    () =>
+      new Promise<void>((resolve) =>
+        requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+      ),
+  );
+  const png = await application.evaluate(async ({ BrowserWindow }) => {
+    const image = await BrowserWindow.getAllWindows()[0].webContents.capturePage();
+    return image.toPNG().toString('base64');
+  });
+  await writeFile(path, Buffer.from(png, 'base64'));
 }
 let directory: string, application: ElectronApplication, page: Page;
 test.beforeEach(async () => {
@@ -114,6 +126,10 @@ test('Windows desktop: plan → notes/problem/image → finish → export → co
   await expect(page.getByRole('button', { name: '完成并切换下一项' })).toBeVisible();
   const notesBox = await page.getByLabel('现场备注', { exact: true }).boundingBox();
   expect(notesBox!.y + notesBox!.height).toBeLessThanOrEqual(
+    await page.evaluate(() => innerHeight),
+  );
+  const quickActions = await page.getByRole('group', { name: '现场快速记录' }).boundingBox();
+  expect(quickActions!.y + quickActions!.height).toBeLessThanOrEqual(
     await page.evaluate(() => innerHeight),
   );
   await page.getByLabel('现场备注', { exact: true }).fill('试样对中后信号稳定；尺寸复核完成。');
@@ -274,10 +290,134 @@ test('failed save retains input, shows failure and can retry through the desktop
   expect((await snapshot(page)).runs[0].notes).toBe('');
   await page.getByRole('button', { name: '实验规划', exact: true }).click();
   await expect(page.getByRole('heading', { name: '专注当前样品' })).toBeVisible();
+  await page.keyboard.press('Control+1');
+  await expect(page.getByRole('heading', { name: '专注当前样品' })).toBeVisible();
   await application.evaluate(() => (globalThis as any).restoreSaveHandler());
   await page.locator('.save-indicator').getByRole('button', { name: '重试' }).click();
   await expect(page.locator('.save-indicator')).toContainText('已保存到本机');
   expect((await snapshot(page)).runs[0].notes).toBe('未保存的中文记录');
+});
+
+test('workspace shortcuts, quantity guidance and clear search keep the workflow predictable', async ({}, info) => {
+  await page.getByRole('button', { name: '载入演示实验' }).click();
+  await expect(page.getByRole('button', { name: '现场记录', exact: true })).toBeEnabled();
+  await page.keyboard.press('Control+2');
+  await expect(page.getByRole('button', { name: '现场记录', exact: true })).toHaveAttribute(
+    'aria-current',
+    'page',
+  );
+  await page.getByRole('button', { name: '开始操作', exact: true }).click();
+  await page.getByLabel('现场备注', { exact: true }).fill('切换页面前立即保留的观察记录');
+  await page.keyboard.press('Control+1');
+  await expect(page.getByRole('heading', { name: '实验前，把样品安排好' })).toBeVisible();
+  expect((await snapshot(page)).runs[0].notes).toBe('切换页面前立即保留的观察记录');
+
+  await page.keyboard.press('Alt+n');
+  const modal = page.getByRole('dialog');
+  await page.keyboard.press('Control+3');
+  await expect(modal).toBeVisible();
+  await modal.getByLabel('样品名称 *', { exact: true }).fill('演示：尺寸核对试样');
+  await modal.getByLabel('准备数量', { exact: true }).fill('6');
+  await modal.getByLabel('计划测试数量', { exact: true }).fill('7');
+  await expect(modal.getByRole('button', { name: '添加并安排测试', exact: true })).toBeDisabled();
+  await expect(modal.locator('.quantity-hint')).toContainText('不超过准备数量');
+  await page.keyboard.press('Control+Enter');
+  expect((await snapshot(page)).groups).toHaveLength(2);
+  await modal.getByLabel('计划测试数量', { exact: true }).fill('4');
+  await expect(modal.getByRole('button', { name: '添加并安排测试', exact: true })).toBeEnabled();
+  await expect(modal.getByLabel('样品数量预览')).toContainText('6准备4计划测试2备样');
+  await modal.getByLabel('准备数量', { exact: true }).fill('');
+  await expect(modal.getByLabel('样品数量预览')).toContainText('—准备4计划测试—备样');
+  await modal.getByLabel('准备数量', { exact: true }).fill('6');
+  await modal.getByLabel('计划测试数量', { exact: true }).fill('0');
+  await expect(modal.getByRole('button', { name: '添加为备样', exact: true })).toBeEnabled();
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('button', { name: '新增样品', exact: true })).toBeFocused();
+
+  await page.getByLabel('搜索样品组', { exact: true }).fill('不存在的样品');
+  await expect(page.getByRole('heading', { name: '没有找到样品' })).toBeVisible();
+  await page.getByRole('button', { name: '清除搜索样品组', exact: true }).click();
+  await expect(page.getByLabel('搜索样品组', { exact: true })).toBeFocused();
+  await expect(page.locator('.plan-table tbody > tr')).toHaveCount(2);
+  await page.keyboard.press('Control+2');
+  await page.getByLabel('搜索待测样品', { exact: true }).fill('TA-03');
+  await expect(page.locator('.queue-row')).toHaveCount(1);
+  await page.getByRole('button', { name: '清除搜索待测样品', exact: true }).click();
+  await expect(page.locator('.queue-row')).toHaveCount(4);
+  await expect(page.getByLabel('搜索待测样品', { exact: true })).toBeFocused();
+
+  const contrast = await page.evaluate(() => {
+    const luminance = (color: string) => {
+      const rgb = color
+        .match(/\d+(?:\.\d+)?/g)!
+        .slice(0, 3)
+        .map(Number)
+        .map((v) => {
+          v /= 255;
+          return v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4;
+        });
+      return rgb[0] * 0.2126 + rgb[1] * 0.7152 + rgb[2] * 0.0722;
+    };
+    return ['.finish-button', '.status-pill.running', '.save-indicator'].map((selector) => {
+      const style = getComputedStyle(document.querySelector(selector)!);
+      const a = luminance(style.color),
+        b = luminance(style.backgroundColor);
+      return { selector, ratio: (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05) };
+    });
+  });
+  for (const pair of contrast) expect(pair.ratio, pair.selector).toBeGreaterThanOrEqual(4.5);
+  await writeFile(info.outputPath('ui-contrast.json'), JSON.stringify(contrast, null, 2));
+  await page.keyboard.press('Control+3');
+  await expect(page.getByRole('heading', { name: '回看实验，把记录带走' })).toBeVisible();
+  await page.getByLabel('搜索操作记录', { exact: true }).fill('TA-01');
+  await expect(page.locator('.review-table tbody tr')).toHaveCount(1);
+  await page.getByRole('button', { name: '清除搜索操作记录', exact: true }).click();
+  await expect(page.locator('.review-table tbody tr')).toHaveCount(4);
+});
+
+test('operation duration uses recorded timestamps across midnight, corrections and restart', async () => {
+  await page.getByRole('button', { name: '载入演示实验' }).click();
+  const item = (await snapshot(page)).items[0];
+  await command(page, {
+    type: 'times',
+    itemId: item.id,
+    startedAt: '2026-10-05T15:59:00.000Z',
+    endedAt: '2026-10-06T16:02:00.000Z',
+    reason: '合成跨日时段',
+  });
+  await page.reload();
+  await page.keyboard.press('Control+2');
+  await page.getByRole('button', { name: '选择样品 TA-01 操作 1', exact: true }).click();
+  await expect(page.getByLabel('本次操作用时', { exact: true })).toHaveText('24:03:00');
+  await expect(page.getByRole('progressbar', { name: '完成进度' })).toHaveAttribute('value', '1');
+  await command(page, {
+    type: 'times',
+    itemId: item.id,
+    startedAt: '2026-10-05T15:59:00.000Z',
+    endedAt: '2026-10-05T16:02:00.000Z',
+    reason: '合成时间修正',
+  });
+  await application.close();
+  ({ application, page } = await launch(directory));
+  await page.keyboard.press('Control+2');
+  await page.getByRole('button', { name: '选择样品 TA-01 操作 1', exact: true }).click();
+  await expect(page.getByLabel('本次操作用时', { exact: true })).toHaveText('00:03:00');
+  expect((await snapshot(page)).events.filter((event) => event.type === 'correction')).toHaveLength(
+    2,
+  );
+  await page.getByRole('button', { name: '选择样品 TA-02 操作 2', exact: true }).click();
+  await expect(page.getByLabel('本次操作用时', { exact: true })).toHaveText('—');
+  await page.getByRole('button', { name: '开始操作', exact: true }).click();
+  await expect(page.getByLabel('本次操作用时', { exact: true })).toHaveText(/00:00:0[1-9]/, {
+    timeout: 4000,
+  });
+  const recorded = (await snapshot(page)).runs.find((run) => run.itemId !== item.id)!;
+  await application.close();
+  ({ application, page } = await launch(directory));
+  await page.keyboard.press('Control+2');
+  await expect(page.locator('.current-heading')).toContainText('TA-02');
+  await expect(page.getByLabel('本次操作用时', { exact: true })).not.toHaveText('—');
+  expect((await snapshot(page)).runs.find((run) => run.id === recorded.id)!.endedAt).toBeNull();
 });
 
 test('keyboard operation, small window and display zoom keep current controls usable', async ({}, info) => {
@@ -305,6 +445,15 @@ test('keyboard operation, small window and display zoom keep current controls us
       () => document.documentElement.scrollWidth > window.innerWidth + 1,
     );
     expect(horizontalOverflow).toBe(false);
+    for (const selector of ['.experiment-switcher select', '.cloud-open', '.save-indicator']) {
+      const bounds = await page.locator(selector).boundingBox();
+      expect(bounds!.x).toBeGreaterThanOrEqual(0);
+      expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(await page.evaluate(() => innerWidth));
+    }
+    await page.getByRole('button', { name: '开始操作', exact: true }).scrollIntoViewIfNeeded();
+    await expect(page.getByRole('button', { name: '开始操作', exact: true })).toBeInViewport({
+      ratio: 1,
+    });
     await capture(application, info.outputPath(`live-${width}-${zoom}.png`));
   }
   await page.getByRole('button', { name: '时间线', exact: true }).click();

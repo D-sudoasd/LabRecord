@@ -1,14 +1,14 @@
 import { useState } from 'react';
 import {
   Download,
-  Search,
   ClipboardCheck,
   AlertTriangle,
   Clock,
   FileSpreadsheet,
+  FileText,
 } from 'lucide-react';
 import { useWorkspace, unwrap } from './context';
-import { StatusPill, Empty, timeText, Modal, eventLabel } from './components';
+import { StatusPill, Empty, timeText, Modal, eventLabel, SearchField } from './components';
 import { TimesDialog } from './Live';
 import { sampleName } from '../shared/model';
 import { reportInsights } from '../shared/summary';
@@ -71,7 +71,7 @@ export function Review() {
     <div className="page review-page">
       <div className="page-heading">
         <div>
-          <div className="eyebrow">EXPERIMENT RECORDS</div>
+          <div className="eyebrow">03 / 回看导出</div>
           <h1>回看实验，把记录带走</h1>
           <p>核对计划与实际操作，按样品、文件名或备注查找记录。</p>
         </div>
@@ -87,7 +87,11 @@ export function Review() {
         </button>
       </div>
       <section className="card report-action-card">
-        <div>
+        <div className="report-art" aria-hidden="true">
+          <FileText size={28} />
+          <span>PDF · HTML</span>
+        </div>
+        <div className="report-action-copy">
           <h3>一键生成实验报告</h3>
           <p>PDF + 独立 HTML + 结构化 JSON + agent 说明 + 现场图片</p>
           <small className="hint">
@@ -192,15 +196,12 @@ export function Review() {
             <span>{visible.length} 项</span>
           </div>
           <div className="toolbar-actions">
-            <div className="search-input">
-              <Search size={15} />
-              <input
-                aria-label="搜索操作记录"
-                value={search}
-                onChange={(event) => setSearch(event.target.value)}
-                placeholder="样品 / 文件名 / 备注"
-              />
-            </div>
+            <SearchField
+              label="搜索操作记录"
+              placeholder="样品 / 文件名 / 备注"
+              value={search}
+              onChange={setSearch}
+            />
             <label className="checkbox-label">
               <input
                 type="checkbox"

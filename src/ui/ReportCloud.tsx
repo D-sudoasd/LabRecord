@@ -65,7 +65,8 @@ export function ReportCloud({
       </p>
       {status?.connected && (
         <>
-          <label className="check">
+          <label className="archive-toggle">
+            <span>生成报告后保存到私人库</span>
             <input
               type="checkbox"
               checked={status.reportArchiveEnabled}
@@ -85,7 +86,6 @@ export function ReportCloud({
                 });
               }}
             />
-            生成报告后保存到私人库
           </label>
           <div className="backup-actions">
             <button
