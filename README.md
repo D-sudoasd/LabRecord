@@ -10,15 +10,17 @@
 
 _LabRecord is an offline-first Windows app for experiment planning, live sample records, and traceable reports. Source code is public; experimental records and reports belong in your own private repository._
 
+**v0.4.0：更清晰、更从容的实验工作空间。** 采用受 iOS 启发的浅色界面、圆角卡片和柔和层次；宽窗口显示完整导航，窄窗口自动收紧。准备、计划与备样一眼可见，现场操作保留大按钮和持续可见的保存状态。
+
 ## 现场记录，专注当前样品
 
-队列、当前样品和时间线在同一页。点击开始与完成，自动保存起止时间；备注、实际尺寸、问题和图片随时补充。忘记点击时可修正时间，并保留原值和修改历史。
+队列、当前样品和时间线在同一页。点击开始与完成，自动保存起止时间并显示本次用时；完成进度随记录更新。备注、实际尺寸、问题和图片随时补充。忘记点击时可修正时间，并保留原值和修改历史。
 
 ![真实现场界面：当前样品、大按钮、现场备注和操作时间线；使用合成演示数据](docs/images/live.png)
 
 ## 少填几次，多记录一点
 
-填写名称即可添加样品并安排测试。厚度与宽度直接录入，高度和其他参数按需展开；“保存并继续添加”沿用上一组参数，编号自动连续。
+填写名称即可添加样品并安排测试。信息、数量和尺寸分别填写，实时预览准备 / 测试 / 备样；数量不合适时直接提示。厚度与宽度直接录入，高度和其他参数按需展开；“保存并继续添加”保留参数，编号自动连续。
 
 ![真实快速添加界面：样品名称、准备数量、测试数量、厚度与宽度](docs/images/quick-add.png)
 
@@ -34,7 +36,7 @@ _LabRecord is an offline-first Windows app for experiment planning, live sample 
 ## 三步完成一次实验
 
 1. **下载并解压。** 从 [Releases](https://github.com/D-sudoasd/LabRecord/releases/latest) 下载 Windows x64 ZIP，解压整个文件夹，双击 `LabRecord.exe`。无需安装 Node、Python、Excel 或数据库。首次打开可载入演示实验。
-2. **规划并记录。** 规划页添加样品；`Alt+N` 打开快速添加，`Ctrl+Enter` 提交。现场点击开始、完成，随手补充变化。重新打开软件，未结束的操作仍保留。
+2. **规划并记录。** 规划页添加样品；`Alt+N` 打开快速添加，`Ctrl+Enter` 保存并继续添加。`Ctrl+1 / 2 / 3` 切换规划、现场和回看页，切换前保存当前输入。现场点击开始、完成，随手补充变化。重新打开软件，未结束的操作仍保留。
 3. **生成报告。** 回看页点击“导出实验报告”并选择目录。报告先保存到本机；已连接私人库时，后台继续归档，可在“云同步”查看状态、重试或下载。
 
 ```text

@@ -18,6 +18,7 @@ import {
   Trash2,
   FilePlus2,
   BookOpen,
+  Cloud,
 } from 'lucide-react';
 import { useWorkspace, unwrap } from './context';
 import { Plan } from './Plan';
@@ -431,28 +432,67 @@ export function App() {
       .then(action)
       .catch((error) => notify(error.message, true));
   }
+  useEffect(() => {
+    const listener = (event: KeyboardEvent) => {
+      if (
+        !experiment ||
+        !event.ctrlKey ||
+        event.altKey ||
+        event.shiftKey ||
+        event.isComposing ||
+        document.querySelector('dialog[open]')
+      )
+        return;
+      const next = ({ '1': 'plan', '2': 'live', '3': 'review' } as const)[
+        event.key as '1' | '2' | '3'
+      ];
+      if (!next) return;
+      event.preventDefault();
+      void flush()
+        .then(() => setPage(next))
+        .catch((error) => notify(error.message, true));
+    };
+    window.addEventListener('keydown', listener);
+    return () => window.removeEventListener('keydown', listener);
+  }, [experiment, flush, setPage, notify]);
   const nav = [
-    { id: 'plan' as const, label: '实验规划', icon: LayoutList },
-    { id: 'live' as const, label: '现场记录', icon: NotebookPen },
-    { id: 'review' as const, label: '回看导出', icon: ClipboardCheck },
+    { id: 'plan' as const, label: '实验规划', detail: '样品与测试安排', icon: LayoutList },
+    { id: 'live' as const, label: '现场记录', detail: '操作与现场观察', icon: NotebookPen },
+    { id: 'review' as const, label: '回看导出', detail: '核对与实验报告', icon: ClipboardCheck },
   ];
   return (
     <div className="app-shell">
       <aside className="app-rail">
-        <div className="brand-mark" title="LabRecord">
-          <FlaskConical size={27} />
+        <div className="rail-brand">
+          <div className="brand-mark" title="LabRecord">
+            <FlaskConical size={25} />
+          </div>
+          <div className="rail-brand-copy">
+            <strong>LabRecord</strong>
+            <span>让实验记录井然有序</span>
+          </div>
         </div>
+        <p className="rail-section-label">实验工作空间</p>
         <nav aria-label="主要导航">
-          {nav.map(({ id, label, icon: Icon }) => (
+          {nav.map(({ id, label, detail, icon: Icon }, index) => (
             <button
               key={id}
               className={page === id ? 'active' : ''}
               disabled={!experiment}
+              aria-label={label}
               aria-current={page === id ? 'page' : undefined}
+              aria-keyshortcuts={`Control+${index + 1}`}
+              title={`${label} · Ctrl + ${index + 1}`}
               onClick={() => navigate(() => setPage(id))}
             >
-              <Icon size={22} />
-              <span>{label}</span>
+              <Icon size={21} />
+              <span className="nav-copy">
+                <strong>{label}</strong>
+                <small>{detail}</small>
+              </span>
+              <span className="nav-step" aria-hidden="true">
+                {index + 1}
+              </span>
             </button>
           ))}
         </nav>
@@ -466,57 +506,66 @@ export function App() {
               );
             }}
           >
-            <BookOpen size={22} />
+            <BookOpen size={19} />
+            <span>使用说明</span>
           </button>
           <button
             aria-label="打开设置"
             title="实验设置与本地数据"
-            onClick={() => setSettings(true)}
+            onClick={() => navigate(() => setSettings(true))}
           >
-            <Settings size={22} />
+            <Settings size={19} />
+            <span>实验设置</span>
           </button>
-          <small>
-            离线
-            <br />
-            本地保存
-          </small>
+          <div className="rail-storage">
+            <HardDrive size={18} />
+            <div>
+              <strong>离线可用</strong>
+              <small>记录自动保存到本机</small>
+            </div>
+          </div>
+          <small className="rail-shortcut">Ctrl + 1 / 2 / 3 切换页面</small>
         </div>
       </aside>
-      <div className="app-main">
+      <main className="app-main">
         <header className="app-header">
-          <div className="brand-text">
-            LabRecord<span>实验规划与现场记录</span>
-          </div>
           <div className="experiment-switcher">
-            <select
-              aria-label="选择实验"
-              value={experimentId}
-              onChange={(event) => {
-                const id = event.target.value;
-                navigate(() => setExperimentId(id));
-              }}
-            >
-              {snapshot.experiments.length ? (
-                snapshot.experiments.map((e) => (
-                  <option key={e.id} value={e.id}>
-                    {e.name} · {e.code}
-                  </option>
-                ))
-              ) : (
-                <option value="">尚未建立实验</option>
-              )}
-            </select>
+            <div className="experiment-symbol">
+              <FlaskConical size={19} aria-hidden="true" />
+            </div>
+            <div className="experiment-selection">
+              <span className="header-caption">当前实验</span>
+              <select
+                aria-label="选择实验"
+                value={experimentId}
+                onChange={(event) => {
+                  const id = event.target.value;
+                  navigate(() => setExperimentId(id));
+                }}
+              >
+                {snapshot.experiments.length ? (
+                  snapshot.experiments.map((e) => (
+                    <option key={e.id} value={e.id}>
+                      {e.name} · {e.code}
+                    </option>
+                  ))
+                ) : (
+                  <option value="">尚未建立实验</option>
+                )}
+              </select>
+            </div>
             <button
               className="icon-button"
               aria-label="新建实验"
               title="新建实验"
-              onClick={() => setNewExperiment(true)}
+              onClick={() => navigate(() => setNewExperiment(true))}
             >
               <Plus size={19} />
             </button>
           </div>
           <button
             className="button small cloud-open"
+            aria-label="云同步"
             onClick={() =>
               navigate(() => {
                 setCloudFirst(true);
@@ -524,7 +573,8 @@ export function App() {
               })
             }
           >
-            云同步
+            <Cloud size={17} />
+            <span>云同步</span>
           </button>
           <div className={`save-indicator ${failedCount ? 'failed' : ''}`} role="status">
             {failedCount ? (
@@ -617,7 +667,7 @@ export function App() {
             {page === 'plan' ? <Plan /> : page === 'live' ? <Live /> : <Review />}
           </div>
         )}
-      </div>
+      </main>
       {alert && (
         <div
           className={`toast ${alert.error ? 'error' : ''}`}

@@ -5,7 +5,6 @@ import {
   ArrowRight,
   ArrowUp,
   ArrowDown,
-  Search,
   SkipForward,
   RotateCcw,
   AlertTriangle,
@@ -34,6 +33,9 @@ import {
   localInput,
   eventLabel,
   Details,
+  SearchField,
+  ElapsedTime,
+  useModalDialog,
 } from './components';
 import { ArrangeDialog } from './Plan';
 import { QuickAdd } from './QuickAdd';
@@ -299,10 +301,7 @@ function TimelineDrawer({
   experimentId: string;
   onClose: () => void;
 }) {
-  const ref = useRef<HTMLDialogElement>(null);
-  useEffect(() => {
-    ref.current?.showModal();
-  }, []);
+  const ref = useModalDialog();
   return (
     <dialog
       ref={ref}
@@ -458,12 +457,15 @@ export function Live() {
     <div className="page live-page">
       <div className="page-heading compact-heading">
         <div>
-          <div className="eyebrow">LIVE RECORD</div>
+          <div className="eyebrow">02 / 现场记录</div>
           <h1>专注当前样品</h1>
-          <p>
-            完成 {completed}/{items.length} · 待测 {pending}
-            {skipped ? ` · 跳过 ${skipped}` : ''}
-            {interrupted ? ` · 中断 ${interrupted}` : ''}
+          <p className="live-progress">
+            <progress aria-label="完成进度" value={completed} max={Math.max(1, items.length)} />
+            <span>
+              完成 {completed}/{items.length} · 待测 {pending}
+              {skipped ? ` · 跳过 ${skipped}` : ''}
+              {interrupted ? ` · 中断 ${interrupted}` : ''}
+            </span>
           </p>
         </div>
         <div className="heading-actions">
@@ -519,27 +521,31 @@ export function Live() {
             </h2>
             <span>{items.length} 项</span>
           </header>
-          <div className="queue-search search-input">
-            <Search size={15} />
-            <input
-              aria-label="搜索待测样品"
-              value={search}
-              onChange={(event) => setSearch(event.target.value)}
-              placeholder="查找样品"
-            />
-          </div>
-          <div className="queue-filters">
-            <button className={filter === 'all' ? 'active' : ''} onClick={() => setFilter('all')}>
+          <SearchField
+            className="queue-search"
+            label="搜索待测样品"
+            placeholder="查找样品"
+            value={search}
+            onChange={setSearch}
+          />
+          <div className="queue-filters" role="group" aria-label="队列筛选">
+            <button
+              aria-pressed={filter === 'all'}
+              className={filter === 'all' ? 'active' : ''}
+              onClick={() => setFilter('all')}
+            >
               全部
             </button>
             <button
               className={filter === 'pending' ? 'active' : ''}
+              aria-pressed={filter === 'pending'}
               onClick={() => setFilter('pending')}
             >
               待测
             </button>
             <button
               className={filter === 'completed' ? 'active' : ''}
+              aria-pressed={filter === 'completed'}
               onClick={() => setFilter('completed')}
             >
               已完成
@@ -630,7 +636,14 @@ export function Live() {
                   {displayedGroup.name ? ` · ${displayedGroup.state}` : ''}
                 </p>
               </div>
-              <StatusPill status={selected.status} />
+              <div className="current-state">
+                <StatusPill status={selected.status} />
+                <ElapsedTime
+                  startedAt={run?.startedAt || null}
+                  endedAt={run?.endedAt || null}
+                  running={selected.status === 'running'}
+                />
+              </div>
             </header>
             <div className="parameter-summary">
               <div>
@@ -720,6 +733,31 @@ export function Live() {
                 </button>
               )}
             </div>
+            <div className="quick-record-actions" role="group" aria-label="现场快速记录">
+              <button className="button issue-button" onClick={() => setEventType('issue')}>
+                <AlertTriangle size={17} />
+                记录问题
+              </button>
+              <button className="button" onClick={() => setEventType('note')}>
+                <Plus size={16} />
+                添加时间线记录
+              </button>
+              <button
+                className="button"
+                disabled={!run}
+                onClick={() => {
+                  if (run)
+                    void unwrap(window.labrecord.addAttachment(run.id))
+                      .then((data) => {
+                        if (data) workspaceReplace(data);
+                      })
+                      .catch((error) => notify(error.message, true));
+                }}
+              >
+                <ImagePlus size={17} />
+                添加图片
+              </button>
+            </div>
             {(displayedGroup.preparation || displayedGroup.notes) && (
               <details className="plan-reference">
                 <summary>
@@ -781,31 +819,6 @@ export function Live() {
                   </button>
                 </div>
               )}
-              <div className="quick-record-actions">
-                <button className="button issue-button" onClick={() => setEventType('issue')}>
-                  <AlertTriangle size={17} />
-                  记录问题
-                </button>
-                <button className="button" onClick={() => setEventType('note')}>
-                  <Plus size={16} />
-                  添加时间线记录
-                </button>
-                <button
-                  className="button"
-                  disabled={!run}
-                  onClick={() => {
-                    if (run)
-                      void unwrap(window.labrecord.addAttachment(run.id))
-                        .then((data) => {
-                          if (data) workspaceReplace(data);
-                        })
-                        .catch((error) => notify(error.message, true));
-                  }}
-                >
-                  <ImagePlus size={17} />
-                  添加图片
-                </button>
-              </div>
             </div>
             <div className="filename-card">
               <div>
