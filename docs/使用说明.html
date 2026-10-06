@@ -1,0 +1,531 @@
+<!doctype html>
+<html lang="zh-CN">
+  <meta charset="UTF-8" /><meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>LabRecord 使用说明</title>
+  <style>
+    :root {
+      font-family: 'Segoe UI', 'Microsoft YaHei', sans-serif;
+      color: #284336;
+      background: #f4f7f4;
+      line-height: 1.9;
+    }
+    body {
+      max-width: 1000px;
+      margin: 0 auto;
+      padding: 44px 28px 80px;
+    }
+    h1 {
+      font-size: 38px;
+      margin: 8px 0;
+    }
+    h2 {
+      font-size: 23px;
+      margin: 40px 0 16px;
+      border-bottom: 1px solid #d5e2db;
+      padding-bottom: 10px;
+    }
+    h3 {
+      font-size: 18px;
+      margin-top: 25px;
+    }
+    p,
+    li {
+      font-size: 15px;
+    }
+    a {
+      color: #176b62;
+    }
+    header,
+    .panel {
+      background: #fff;
+      border: 1px solid #e1e9e2;
+      border-radius: 14px;
+      padding: 24px 30px;
+      margin-bottom: 20px;
+    }
+    .brand {
+      color: #176b62;
+      font-weight: 700;
+      letter-spacing: 1px;
+    }
+    .hint {
+      color: #607568;
+    }
+    .steps {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 14px;
+      margin: 22px 0;
+    }
+    .step {
+      background: #edf6ef;
+      padding: 16px 20px;
+      border-radius: 10px;
+    }
+    .step b {
+      display: block;
+      color: #176b62;
+    }
+    .step p {
+      font-size: 13px;
+      margin: 5px 0;
+    }
+    nav {
+      display: flex;
+      gap: 18px;
+      flex-wrap: wrap;
+      font-size: 14px;
+    }
+    table {
+      border-collapse: collapse;
+      width: 100%;
+      font-size: 14px;
+      background: #fff;
+    }
+    th,
+    td {
+      border: 1px solid #e1e9e2;
+      padding: 12px 16px;
+      text-align: left;
+      vertical-align: top;
+    }
+    th {
+      background: #edf6ef;
+    }
+    code {
+      font-family: Consolas, monospace;
+      overflow-wrap: anywhere;
+      font-size: 14px;
+      background: #eef3ee;
+      border-radius: 4px;
+      padding: 2px 5px;
+    }
+    .callout {
+      border-left: 4px solid #176b62;
+      background: #edf6ef;
+      padding: 12px 20px;
+      margin: 20px 0;
+    }
+    kbd {
+      border: 1px solid #cddbd3;
+      border-bottom-width: 2px;
+      border-radius: 4px;
+      padding: 1px 6px;
+      background: #fff;
+      font-size: 13px;
+    }
+    li + li {
+      margin-top: 7px;
+    }
+    footer {
+      margin-top: 40px;
+      border-top: 1px solid #d5e2db;
+      padding-top: 20px;
+      color: #607568;
+      font-size: 13px;
+    }
+    @media (max-width: 700px) {
+      body {
+        padding: 25px 15px;
+      }
+      .steps {
+        grid-template-columns: 1fr;
+      }
+      h1 {
+        font-size: 30px;
+      }
+      header,
+      .panel {
+        padding: 20px;
+      }
+      table {
+        font-size: 12px;
+      }
+      th,
+      td {
+        padding: 9px;
+      }
+    }
+    @media print {
+      body {
+        background: #fff;
+        max-width: none;
+        padding: 0;
+      }
+      nav {
+        display: none;
+      }
+      .panel,
+      header {
+        border: 0;
+        padding: 0;
+      }
+      h2 {
+        break-after: avoid;
+      }
+      tr {
+        break-inside: avoid;
+      }
+    }
+  </style>
+  <header>
+    <div class="brand">LabRecord · 使用说明</div>
+    <h1>提前规划，现场随手记录。</h1>
+    <p class="hint">
+      中文界面，离线记录。快速填写名称与尺寸，现场记录起止时间和变化，结束后一键生成报告，也可通过私人仓库换电脑接续。
+    </p>
+    <div class="steps">
+      <div class="step">
+        <b>01 实验规划</b>
+        <p>一次录入名称、尺寸和测试数量</p>
+      </div>
+      <div class="step">
+        <b>02 现场记录</b>
+        <p>开始、完成、备注、问题和图片</p>
+      </div>
+      <div class="step">
+        <b>03 回看导出</b>
+        <p>生成 PDF / HTML，备份或云同步</p>
+      </div>
+    </div>
+    <nav>
+      <a href="#start">开始使用</a><a href="#plan">实验规划</a><a href="#live">现场记录</a
+      ><a href="#change">临时变化与时间修正</a><a href="#exchange">导入导出</a
+      ><a href="#backup">保存与备份</a><a href="#report">实验报告</a><a href="#cloud">换电脑接续</a>
+    </nav>
+  </header>
+  <section id="start">
+    <h2>1. 开始使用</h2>
+    <ol>
+      <li>
+        将 Windows ZIP <strong>完整解压</strong>，双击其中的
+        <strong>LabRecord.exe</strong>。运行时不需要网络、Excel、Node 或
+        Python。项目源码目录内也可以双击“启动LabRecord.cmd”。
+      </li>
+      <li>点击“新建第一个实验”，填写名称和唯一的实验编号；以后用顶栏切换实验。</li>
+      <li>
+        也可以先点击“载入演示实验”。Ti-A-热处理组准备 6 个，安排 4 个，保留 2
+        个备样。演示数值不代表真实实验。
+      </li>
+    </ol>
+    <p>
+      界面左侧依次是实验规划、现场记录和回看导出。底部书本按钮打开本说明，齿轮进入实验设置、保存与备份、云同步。顶栏可直接进入云同步，并一直显示本机保存状态。
+    </p>
+  </section>
+  <section id="plan">
+    <h2>2. 实验前安排样品</h2>
+    <p>
+      一个样品组表示同一批次或相同参数的试样。样品名称用于辨认材料或用途，状态记录热处理、制备或当前状态，例如
+      Ti-demo-375C-aged。两者分别保存；具体待测样品使用独立编号。旧记录没有名称时仍显示原始状态，不会改写旧数据。
+    </p>
+    <ol>
+      <li>
+        在“实验规划”点击<strong>“新增样品”</strong>，或按 <kbd>Alt</kbd> +
+        <kbd>N</kbd>。只填样品名称即可创建一项待测样品；准备数量和计划测试数量默认均为
+        1，可一起调整。状态、厚度和宽度按需要填写，单位默认 mm，也可更改或留空。
+      </li>
+      <li>
+        连续录入时用<strong>“保存并继续添加”</strong>，或 <kbd>Ctrl</kbd> +
+        <kbd>Enter</kbd
+        >；尺寸、数量和实验条件继续保留，只需填写下一组名称与状态。需要复制已有参数时点击“沿用上一组参数”。仅准备备样时将计划测试数量填
+        0；准备总数未知可留空。
+      </li>
+      <li>
+        展开“更多参数”可填高度（可选）、制备/试剂、In situ/Ex
+        situ、优先级、编号前缀、备注和自定义参数。点击保存即生成连续编号并进入队列。已有样品组仍可用“安排测试”增加待测样品；展开行首箭头可逐个修改名称、编号、尺寸和参数。
+      </li>
+      <li>
+        规划表直接编辑名称、准备数量、厚度、宽度和备注，修改自动保存。编辑按钮可调整状态与完整参数；复制按钮复制样品组。选择多组后，“批量设置参数”只修改勾选的字段。
+      </li>
+      <li>
+        在齿轮“实验设置”中添加文本、数值、选项字段及单位，例如成分、温度、浓度或载荷。数值字段不能保存非数值，选项字段从设定列表选择。厚度和宽高单位分别填写，不会自动换算数值；高度不要求填写。
+      </li>
+    </ol>
+    <div class="callout">
+      <strong>准备 6 个，安排 4 个，就显示 2 个备样。</strong
+      ><br />准备数量包含备样。计划测试样品数按不同物理样品统计；计划操作数另行统计，重测增加操作而不增加物理样品。降低准备数量后若少于已安排数量，表中显示“准备不足”，请核对实际情况。
+    </div>
+    <h3>文件命名</h3>
+    <p>
+      默认规则为 <code>{experiment}_{sample}_{run:03}</code>，例如
+      <code>EXP-01_NO-01_001</code
+      >。序号在实验内连续，开始时确定。现场可预览并一键复制，再补充仪器实际保存的文件名和扫描编号。
+    </p>
+    <p>
+      规则支持实验编号、样品编号和操作序号。样品状态仍保存原文；生成文件名时将 Windows
+      不支持的字符替换为下划线。开始前检查重复名称；规则重复时会保留待测状态并提示修改。
+    </p>
+  </section>
+  <section id="live">
+    <h2>3. 现场快速记录</h2>
+    <p>
+      左侧选择待测样品，中间操作当前样品，右侧查看时间线。较窄窗口用右上角“时间线”打开侧栏；可以滚动当前样品卡片，顶栏保存状态始终可见。
+    </p>
+    <ol>
+      <li>
+        核对编号、状态和计划参数，点击<strong>“开始操作”</strong>。软件立即保存开始时间，全库同一时间只允许一个操作进行中。
+      </li>
+      <li>
+        在“现场备注”中直接输入观察、变化和处理方式。停顿或离开输入框后自动保存；点击“记录问题”，选择类别、填写内容，提交时自动记录时间。问题处理后可标记“已处理”。
+      </li>
+      <li>“添加图片”会复制 PNG、JPEG、WebP 或 GIF 到本地数据目录。单张不超过 10 MB。</li>
+      <li>
+        展开“实际参数与数据文件”，修改实际名称、厚度、宽度、高度或实验条件，补充仪器实际文件名、扫描编号及路径。实际参数初始沿用计划，不代表独立测量结果；已有记录保留开始时的计划和现场修改历史。
+      </li>
+      <li>
+        操作结束后点击<strong>“完成并切换下一项”</strong>，立即保存结束时间并选中下一项。下一项需要再次点击开始。
+      </li>
+      <li>
+        全部计划项结束、跳过或中断后，右上角出现<strong>“导出本次报告”</strong>。也可随时在“回看导出”生成当前实验报告，未记录的信息会在报告中列出。
+      </li>
+    </ol>
+    <p>
+      键盘可以用 <kbd>Tab</kbd> 移动焦点、<kbd>Enter</kbd> 或空格操作按钮、<kbd>Esc</kbd>
+      关闭对话框。问题或时间线记录填写完后用 <kbd>Ctrl</kbd> + <kbd>Enter</kbd> 快速提交。
+    </p>
+    <div class="callout">
+      起止时间用于和仪器数据大致对应。精确时间仍查看仪器文件。软件记录完整日期，跨午夜不会把结束时间误认为早于开始时间。
+    </div>
+  </section>
+  <section id="change">
+    <h2>4. 临时变化与遗漏记录</h2>
+    <table>
+      <tr>
+        <th>现场情况</th>
+        <th>操作及结果</th>
+      </tr>
+      <tr>
+        <td>需要用备样</td>
+        <td>点击“启用备样”，选择样品组和数量。生成新样品编号，加入待测计划；备样数量随之减少。</td>
+      </tr>
+      <tr>
+        <td>增加临时样品</td>
+        <td>点击“临时样品”，使用同一个快速录入窗口，填写名称与本次测试数量后直接加入队列。</td>
+      </tr>
+      <tr>
+        <td>改变顺序</td>
+        <td>选择左侧样品，用“上移”“下移”调整测试顺序。</td>
+      </tr>
+      <tr>
+        <td>这项暂时不做</td>
+        <td>开始前点击“跳过”。保留原计划和跳过状态，可用“恢复到待测队列”重新安排。</td>
+      </tr>
+      <tr>
+        <td>已经开始但无法完成</td>
+        <td>点击“中断”，记录实际结束时间，状态单独显示为中断。</td>
+      </tr>
+      <tr>
+        <td>需要重测</td>
+        <td>
+          选择已完成或中断的操作，点击“安排重测”。同一物理样品新增操作，关联原操作；原记录不覆盖。
+        </td>
+      </tr>
+      <tr>
+        <td>忘记开始或结束</td>
+        <td>
+          点击“补录时间”或“修正时间”，填写日期和时间及修改说明。未知的开始或结束可留空，至少填写一个时间。
+        </td>
+      </tr>
+    </table>
+    <p>
+      自动记录的原始时间与每次修改前的值都会保留，可在时间线或回看页的历史中检查。仅补录结束时间也可以保留未知的开始时间。关闭、异常退出或重启不会自动补上结束时间；未结束操作在下次打开时继续显示。
+    </p>
+    <p>
+      完成进度为<strong>已完成操作数 / 全部计划操作数</strong
+      >，跳过和中断单独列出。未启用备样不计入；重测增加计划操作数。
+    </p>
+  </section>
+  <section id="exchange">
+    <h2>5. 从旧表导入，导出实验记录</h2>
+    <h3>导入</h3>
+    <p>
+      “导入表格”支持 XLSX、UTF-8 CSV、TSV；XLSX 读取第一张工作表。也可在 Excel
+      或飞书中一起复制表头和多行记录，点击“粘贴多行”。一次最多 10,000 行、100 列，文件不超过 20 MB。
+    </p>
+    <p>
+      先预览和核对字段映射，再确认导入。“数量”映射到准备数量；“已完成”和旧“实验时间”只作为历史信息。空白时间仍为空，导入后不会生成操作或自动安排全部准备样品。其余列可作为自定义文本字段保留，再按需要设置单位和类型。软件导出的
+      XLSX 含参数定义，重新导入规划时可以保留自定义字段类型、单位和空值。
+    </p>
+    <p>
+      软件包“示例表格”中有旧格式合成演示“旧格式演示.tsv”以及纯演示“演示规划.tsv”。旧表未补造时间。
+    </p>
+    <h3>导出</h3>
+    <p>
+      在“回看导出”搜索名称、编号、文件名或备注，核对问题和历史。用“一键生成实验报告”得到可阅读的 PDF
+      / HTML 和完整结构化记录；也可选择 Excel、CSV 或
+      JSON。搜索与“只看有问题”不会删减导出；导出包含当前实验的全部规划与操作。
+    </p>
+    <table>
+      <tr>
+        <th>格式</th>
+        <th>内容与用途</th>
+      </tr>
+      <tr>
+        <td>Excel（XLSX）</td>
+        <td>
+          规划、操作记录、时间线与修改历史、附件清单、参数定义。含起止及原始时间、计划/实际参数、单位、问题和文件引用。样品与扫描编号为文本，前导零保留。
+        </td>
+      </tr>
+      <tr>
+        <td>CSV</td>
+        <td>
+          UTF-8，按“记录类型”区分样品组、操作、事件、附件，含未安排样品及历史。空值为空字段；直接用
+          Excel 打开可能被自动识别为数字，查看前导零编号优先选 XLSX。
+        </td>
+      </tr>
+      <tr>
+        <td>JSON</td>
+        <td>
+          LabRecord 格式版本 1，保留稳定 ID、字段定义、单位、null 和完整历史，便于后续数据处理。
+        </td>
+      </tr>
+    </table>
+    <p>
+      修改单位或字段名称后，旧操作导出时仍使用当时的字段定义和单位，不自动换算。JSON
+      和表格用于数据交换；恢复软件中的全部数据使用下节的完整备份。
+    </p>
+  </section>
+  <section id="backup">
+    <h2>6. 保存、备份与恢复</h2>
+    <p>
+      所有数据保存在当前 Windows 用户的 <code>%APPDATA%\LabRecord</code>，数据库在
+      <code>workspace\records.sqlite</code>，现场图片在
+      <code>workspace\attachments</code>。具体路径可在“设置 →
+      保存与备份”查看，点击“打开数据目录”定位。
+    </p>
+    <ul>
+      <li>
+        <strong>正在保存：</strong
+        >当前还有输入等待写入。切换页面、样品、开始/完成和正常关闭前会先保存。
+      </li>
+      <li><strong>已保存到本机：</strong>当前修改已写入本地数据库。</li>
+      <li>
+        <strong>保存失败：</strong
+        >输入保留在界面。检查磁盘空间或目录权限，再用“重试”保存；如果某项操作按钮失败，修正问题后重新点击该操作。失败输入未保存时，页面切换和关闭会保留当前界面。
+      </li>
+    </ul>
+    <p>
+      每天首次打开或保存实验后创建一份完整自动备份；长时间运行也会检查日期。保留最近 10
+      份自动备份；手动备份和恢复前备份不自动清理。
+    </p>
+    <ol>
+      <li>
+        <strong>手动备份：</strong>在“设置 → 保存与备份”点击“备份全部数据与附件”，选择文件位置，得到
+        <code>.labrecord</code> 完整备份。可复制到其他硬盘保存。
+      </li>
+      <li>
+        <strong>恢复：</strong>点击“恢复完整备份”，选择文件。软件先校验数据库、数据关联、文件清单与
+        SHA-256；校验通过后选择“恢复”。
+      </li>
+      <li>
+        切换前自动为当前全部数据制作
+        <code>before-restore-*.labrecord</code
+        >，并保留旧工作目录。恢复失败时回到原目录；成功后检查实验、备注、时间和图片即可继续记录。
+      </li>
+    </ol>
+    <div class="callout">
+      完整备份包含全部实验、修改历史和现场图片，展开内容最多 512
+      MB。仪器数据文件引用保存为路径；仪器原始文件仍在原位置，需要另行复制。软件更新时替换软件包，实验数据仍保留在用户数据目录。
+    </div>
+    <p>
+      Windows x64 便携程序未进行代码签名。系统如询问来源，应先核对收到的软件包和提供的
+      SHA-256。软件无需管理员权限。
+    </p>
+  </section>
+  <section id="report">
+    <h2>7. 实验结束后一键生成报告</h2>
+    <ol>
+      <li>
+        在“回看导出”点击<strong>“一键生成实验报告”</strong>，或在现场全部操作结束后点击“导出本次报告”。
+      </li>
+      <li>
+        选择保存位置。软件自动建立本实验的独立报告文件夹，不要求逐个选择格式，也不会覆盖之前的报告。
+      </li>
+      <li>
+        阅读 PDF 或
+        HTML，核对缺少的起止时间、数据文件关联和待处理问题。报告展示开始时的计划与实际记录；未知值显示未记录。
+      </li>
+    </ol>
+    <table>
+      <tr>
+        <th>文件</th>
+        <th>用途</th>
+      </tr>
+      <tr>
+        <td>report.pdf</td>
+        <td>打印、分享和归档；包含尺寸、操作、问题、时间与历史。</td>
+      </tr>
+      <tr>
+        <td>report.html</td>
+        <td>双击离线阅读，图片已嵌入；可单独发送给他人。</td>
+      </tr>
+      <tr>
+        <td>records.json</td>
+        <td>
+          完整实验实体和稳定 ID，保留单位、空值、原始时间及全部修改历史，供后续 agent
+          或数据处理读取。
+        </td>
+      </tr>
+      <tr>
+        <td>README-agent.md</td>
+        <td>说明文件和字段含义、完成情况、待核对信息及读取顺序。</td>
+      </tr>
+      <tr>
+        <td>images 与 manifest.json</td>
+        <td>现场图片原文件及 SHA-256 清单，便于确认报告内容完整。</td>
+      </tr>
+    </table>
+    <p>
+      将<strong>整个报告文件夹</strong>交给后续 agent，先阅读 README-agent.md，再根据 records.json
+      核对明细。报告只是已保存实验记录的整理；尚未记录的时间、测量值和科学结论不会自动生成。报告用于阅读和分析，软件恢复仍使用
+      .labrecord 完整备份。
+    </p>
+  </section>
+  <section id="cloud">
+    <h2>8. 通过 GitHub 私人仓库换电脑接续</h2>
+    <p>
+      云同步是可选功能。离线仍可完成规划、现场记录、报告和备份；联网后手动点击同步即可。同步包含全部实验、历史和现场图片，仪器原始文件仍需另行复制。
+    </p>
+    <ol>
+      <li>
+        点击顶栏<strong>“云同步”</strong>。填写自己的私人仓库
+        <code>你的账号/实验数据仓库</code>；也可填写自己的
+        <code>账号/私人仓库</code>。软件每次验证仓库确为私人仓库。
+      </li>
+      <li>
+        已登录 GitHub CLI 的电脑可直接连接。其他电脑可登录 GitHub CLI，或填写 GitHub
+        细粒度访问令牌，仅授予选定私人仓库
+        <strong>Contents 读写</strong>权限。令牌加密保存在该电脑，未写入实验备份、报告或仓库。
+      </li>
+      <li>
+        本机修改保存后点击<strong>“同步实验记录”</strong>。新电脑连接同一仓库，第一次同步接收实验和图片，之后即可离线继续。
+      </li>
+      <li>
+        只有一端有变化时，软件自动判断上传或接收。两端分别修改时出现两项选择：“使用云端，本机留备份”或“使用本机，云端留历史”。先核对两边的实验与操作数量再选择。
+      </li>
+    </ol>
+    <div class="callout">
+      接收前先为本机制作
+      <code>before-cloud-*.labrecord</code>
+      完整备份；上传不会删除旧快照。本机有进行中的操作时，需要先完成或中断才能接收云端。两份记录不会自动逐字段合并。
+    </div>
+    <p>
+      图片较多时自动分段上传，完整备份及展开内容上限 512
+      MiB。连接或传输失败保留本机数据，可联网后重试；不会把失败显示为同步完成。另一电脑需独立登录，同步不会迁移登录凭据。本机“已保存”与云端“同步完成”分别表示本地和云端状态。
+    </p>
+  </section>
+  <section>
+    <h2>9. 报告云端归档</h2>
+    <p>
+      连接私人库后，默认在生成报告时同时安排后台归档。报告先保存到本机，再上传
+      PDF、HTML、JSON、图片和 agent
+      说明；上传期间可继续现场记录。云同步页可关闭自动归档、重试、刷新云端报告、查看私人库目录或下载完整报告。
+    </p>
+    <p>
+      离线或失败保留待上传任务；启动、重新连接或同步时重试。任务绑定原仓库，更换仓库不会转移旧任务。本机已保存和云端已归档分别显示。每次导出保存为独立版本，下载时校验
+      SHA-256；大于 20 MiB 的文件分段保存并在下载时重组。单份报告上限 2 GiB。后续 agent 先读
+      README-agent.md 再核对 records.json。
+    </p>
+  </section>
+  <footer>LabRecord 0.3.0 · 本说明无需联网。演示与工程检查不代表实际实验数据的科学验收。</footer>
+</html>

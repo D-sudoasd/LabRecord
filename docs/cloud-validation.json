@@ -1,0 +1,33 @@
+{
+  "checkedAt": "2026-10-06T07:01:49.036Z",
+  "repository": "(private repository)",
+  "private": true,
+  "runtime": {
+    "version": "0.3.0",
+    "packaged": true,
+    "appPath": "(packaged application)"
+  },
+  "profiles": 2,
+  "stages": [
+    "uploaded",
+    "report-archived",
+    "downloaded",
+    "report-downloaded-verified",
+    "uploaded",
+    "downloaded",
+    "unchanged",
+    "conflict"
+  ],
+  "imageBytesVerified": true,
+  "localBackupVerified": true,
+  "conflictPreservedBoth": true,
+  "encryptedTokenVerified": true,
+  "isolatedRemotePrefix": "(isolated synthetic test directory)",
+  "backendSha256": {
+    "main.js": "37a773e8d1efa40d98dd6fcf7d05a0c47560fe7b334a8bf9a4b2f85c03eaa281",
+    "report-archive.js": "02a80f2404b88bc6aebea14894884995032606a68f5f11fe5358b14e98b191a6",
+    "github-sync.js": "e298c1b6c9721fc8b12efa7142b8c147485e7de56f9c361c8d26b304e9da797d",
+    "cloud-credentials.js": "5631961a57ea5780ee0b666b0032eb1c5dd13649a5188d4e623a2690480bbc2a",
+    "reports.js": "6375edacd0040a2c143c326d633d0e9d4443ea6d5209b9a82ec36962814673d1"
+  }
+}

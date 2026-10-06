@@ -1,0 +1,7 @@
+# README 主视觉
+
+`hero.png` 由内置 imagegen 当前图像模型生成，2026-10-06。它是品牌概念插图；实际界面与软件行为以 README 中的真实截图和使用说明为准。没有指定或宣称底层模型版本。
+
+## 最终提示词
+
+Create a polished wide landscape README hero illustration for an open-source Windows app named LabRecord. Category: materials laboratory experiment planning, live sample records, and private report archiving. Use a restrained warm-white background (#F5F8F5), deep teal (#196B63), charcoal-green text, and a tiny amber accent. Editorial product illustration with carefully rendered metallic tensile specimens and thin plates, a precise caliper showing thickness and width without invented measurement numbers, a short orderly operation timeline with start/finish markers, and a stack of experiment report pages flowing into a small private archive box marked with a lock. One coherent composition with generous whitespace, realistic brushed metal details and crisp flat information graphics, subtle depth, no people, no busy dashboard grid, no generic neon AI imagery. Exact prominent title text: 'LabRecord'. Exact smaller Chinese subtitle: '实验规划 · 现场记录 · 报告归档'. These are the only required words. Emphasize the title and samples, with the timeline and reports supporting the story; all text should remain clearly readable when scaled to 900 pixels wide. Approximately 2:1 landscape aspect ratio. This is a clearly conceptual brand illustration, not a screenshot. Attractive and professional for researchers, high-quality materials-science software identity.

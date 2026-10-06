@@ -1,0 +1,6 @@
+* text=auto eol=lf
+*.png binary
+*.ico binary
+*.zip binary
+# TSV trailing tabs represent empty cells in the source table.
+*.tsv whitespace=-blank-at-eol

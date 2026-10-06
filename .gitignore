@@ -1,0 +1,17 @@
+node_modules/
+dist/
+release/
+test-results/
+playwright-report/
+local_artifacts/
+*.sqlite*
+*.labrecord
+*.log
+.env*
+!.env.example
+cloud-credentials.json
+cloud-state.json
+report-archive/
+*-实验报告-*/
+LabRecord-报告-*/
+userdata/

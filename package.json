@@ -1,0 +1,91 @@
+{
+  "name": "labrecord",
+  "version": "0.3.0",
+  "description": "离线实验规划与现场记录",
+  "private": true,
+  "license": "MIT",
+  "type": "module",
+  "main": "dist/desktop/main.js",
+  "scripts": {
+    "dev": "npm run build && node scripts/start.mjs",
+    "build": "tsc -p tsconfig.desktop.json && vite build",
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.desktop.json --noEmit",
+    "test": "tsx --test tests/*.test.ts",
+    "test:desktop": "playwright test",
+    "test:packaged": "node scripts/test-packaged.mjs",
+    "verify": "npm run typecheck && npm test && npm run build && npm run test:desktop",
+    "format": "prettier --write src tests scripts *.json *.ts index.html *.md docs/*.md",
+    "format:check": "prettier --check src tests scripts/*.mjs *.json *.ts index.html *.md docs/*.md",
+    "package": "npm run build && electron-builder --win dir",
+    "dist": "npm run build && electron-builder --win zip"
+  },
+  "dependencies": {
+    "exceljs": "4.4.0",
+    "jszip": "3.10.1",
+    "lucide-react": "1.52.0",
+    "react": "19.3.0",
+    "react-dom": "19.3.0",
+    "zod": "4.6.5"
+  },
+  "overrides": {
+    "exceljs": {
+      "uuid": "11.1.1"
+    }
+  },
+  "devDependencies": {
+    "@playwright/test": "1.63.0",
+    "@types/node": "26.6.4",
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
+    "electron": "44.5.1",
+    "electron-builder": "26.15.3",
+    "prettier": "3.9.9",
+    "tsx": "4.23.15",
+    "typescript": "7.0.2",
+    "vite": "8.3.2"
+  },
+  "build": {
+    "appId": "cn.labrecord.desktop",
+    "productName": "LabRecord",
+    "directories": {
+      "output": "release"
+    },
+    "extraFiles": [
+      {
+        "from": "docs/使用说明.html",
+        "to": "使用说明.html"
+      },
+      {
+        "from": "examples",
+        "to": "示例表格",
+        "filter": [
+          "*.tsv"
+        ]
+      },
+      {
+        "from": "LICENSE",
+        "to": "LabRecord-LICENSE.txt"
+      }
+    ],
+    "files": [
+      "dist/**/*",
+      "package.json"
+    ],
+    "win": {
+      "target": [
+        "zip"
+      ],
+      "icon": "assets/icon.ico",
+      "signAndEditExecutable": true
+    },
+    "artifactName": "LabRecord-${version}-Windows-${arch}.${ext}"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/D-sudoasd/LabRecord.git"
+  },
+  "homepage": "https://github.com/D-sudoasd/LabRecord",
+  "bugs": {
+    "url": "https://github.com/D-sudoasd/LabRecord/issues"
+  }
+}
