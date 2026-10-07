@@ -1,18 +1,22 @@
 # LabRecord
 
-![LabRecord：材料样品、操作时间线与私人报告归档的概念插图](assets/readme/hero.png)
+**规划材料样品、记录现场操作，再导出可追溯的实验报告。**
 
-**从实验规划到现场记录，再到可追溯的实验报告。** 中文 Windows 软件，断网也能使用；换电脑时，把记录和报告保存到自己的 GitHub 私人库。
+中文 Windows 应用，实验规划、现场记录和报告可离线使用；换电脑时可连接自己的 GitHub 私人数据仓库。公开源码与私人实验记录分别保存。
 
-[**下载 Windows 版**](https://github.com/D-sudoasd/LabRecord/releases/latest) · [快速开始](#三步完成一次实验) · [私人库设置](#把实验保存在自己的私人库) · [使用说明](docs/使用说明.html)
+[下载 Windows 版](https://github.com/D-sudoasd/LabRecord/releases/latest) · [三步完成一次实验](#三步完成一次实验) · [私人库设置](#把实验保存在自己的私人库) · [离线使用说明](docs/使用说明.html)
 
-![Windows x64](https://img.shields.io/badge/Windows-x64-196B63) ![离线使用](https://img.shields.io/badge/记录与报告-支持离线-196B63) [![MIT License](https://img.shields.io/badge/License-MIT-196B63)](LICENSE)
+![Windows x64](https://img.shields.io/badge/Windows-x64-196B63) [![MIT](https://img.shields.io/badge/License-MIT-196B63)](LICENSE)
 
-_LabRecord is an offline-first Windows app for experiment planning, live sample records, and traceable reports. Source code is public; experimental records and reports belong in your own private repository._
+![真实现场记录界面：当前样品、常用记录和操作时间线；使用合成演示数据](docs/images/live.png)
 
-**工作区升级版 0.5.0：更便捷的现场记录与实验概览。** 常用记录一键保存，问题模板预填待检查内容，专注模式放大当前样品与控制按钮。顶栏持续显示保存状态，并可查看实验进度与未处理问题。上方下载链接指向 GitHub 已发布版本；本地工作区升级版的验证与交付状态见[验收记录](docs/verification.md)。
+| 实验前 | 实验中 | 实验后 |
+| --- | --- | --- |
+| 添加样品、尺寸与计划操作 | 开始/完成、现场备注、问题与图片 | 导出 PDF、独立 HTML、完整 JSON 与校验清单 |
 
-下方界面截图来自 2026-10-06 的 0.5.0 combined 实现者自检，使用合成实验与独立临时数据。[截图来源与摘要](docs/images/sources.json)保留版本和历史图范围。
+**下载版与截图版本：** 已发布 Windows 版为 `v0.4.0`；当前源码与下方截图为 `0.5.0`，包含专注记录、常用快记与实验概览。截图来自合成实验和独立临时数据；[截图来源](docs/images/sources.json)与[验证记录](docs/verification.md)保留适用范围。
+
+_LabRecord is an offline-first Windows app for experiment planning, live sample records, and traceable reports. Experimental records and reports can be synchronized to your own private repository._
 
 ## 现场记录，专注当前样品
 
