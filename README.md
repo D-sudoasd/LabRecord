@@ -1,3 +1,5 @@
+![LabRecord：材料样品、操作时间线与私人报告归档的概念插图](assets/readme/hero.png)
+
 # LabRecord
 
 **规划材料样品、记录现场操作，再导出可追溯的实验报告。**
