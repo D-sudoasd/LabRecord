@@ -20,6 +20,18 @@
 
 _LabRecord is an offline-first Windows app for experiment planning, live sample records, and traceable reports. Experimental records and reports can be synchronized to your own private repository._
 
+## 原理示意 / Principle schematic
+
+<p align="center">
+  <img src="assets/readme/principle.png" width="100%" alt="样品稳定关联、重测操作与可追溯报告 — conceptual schematic / 概念示意图">
+</p>
+
+*概念示意：同一样品 ID 可关联原计划与重测，实际记录保存开始时快照及事件历史，报告目录同时交付可读文档、完整记录、图片与校验清单。不是实际实验记录或界面截图。*
+
+*Conceptual schematic: a stable sample ID links planned and repeat operations; runs preserve start snapshots and event history, and reports include readable documents, complete records, images and checksums. This is not an actual experiment record or UI screenshot.*
+
+[查看完整示意图 / View full-size schematic](assets/readme/principle.png)
+
 ## 现场记录，专注当前样品
 
 队列、当前样品和时间线在同一页。点击“专注当前样品”切换为单列，将编号、主按钮和常用快记放在前面，滚动或输入时仍可看到编号与主按钮。“队列与搜索”可查找其他样品，“更多操作”可打开时间线、问题和临时安排，“退出专注”恢复完整布局。“正在操作”与“正在查看”分别显示当前操作和查看对象。下一项始终取完整排序中最靠前的待测操作；完成只选中它，需要再次点击开始。
