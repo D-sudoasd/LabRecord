@@ -28,6 +28,7 @@ import {
   MODE_OPTIONS,
   PROTOCOL_PLACEHOLDER,
 } from '../shared/model';
+import { folderNameNote } from '../shared/measurement';
 import {
   useWorkspace,
   unwrap,
@@ -56,6 +57,13 @@ import { MaterialPreparationSummary } from './MaterialPreparation';
 import { materialSummary } from '../shared/materials';
 import { QuickRecordBar, IssueTemplateDialog } from './QuickRecord';
 import { MeasurementDialog } from './MeasurementPlanner';
+import {
+  DeleteConfirm,
+  itemsDeleteReason,
+  itemsDeleteRequest,
+  useContextMenu,
+  type PendingDelete,
+} from './rowMenu';
 import {
   measurementFor,
   measurementSummary,
@@ -517,6 +525,8 @@ export function Live() {
     actionTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const [actionGuard, setActionGuard] = useState(false);
   const [exporting, setExporting] = useState(false);
+  const [pendingDelete, setPendingDelete] = useState<PendingDelete | null>(null);
+  const { open: openMenu, menu: rowMenu } = useContextMenu();
   const filesWorking = useRef(false);
   const composing = useRef(false);
   const [fileBusy, setFileBusy] = useState(false);
@@ -696,7 +706,7 @@ export function Live() {
       const name = record?.filename || item?.plannedName;
       if (!name) throw new Error('尚未预留测量名称，请先配置命名。');
       await unwrap(window.labrecord.copyName(name));
-      notify('预期文件名已复制。');
+      notify('数据文件夹名称已复制。');
     } catch (error) {
       notify(error instanceof Error ? error.message : '无法复制，请选中文件名后手动复制。', true);
     }
@@ -801,7 +811,42 @@ export function Live() {
             history?.snapshot.group || snapshot.groups.find((g) => g.id === sample.groupId)!;
           const repeated = !!item.repeatOf;
           return (
-            <div className={`queue-row ${selected?.id === item.id ? 'current' : ''}`} key={item.id}>
+            <div
+              className={`queue-row ${selected?.id === item.id ? 'current' : ''}`}
+              key={item.id}
+              onContextMenu={(event) => {
+                const reason = itemsDeleteReason(snapshot, [item.id]);
+                const index = items.findIndex((entry) => entry.id === item.id);
+                openMenu(event, [
+                  { kind: 'item', label: '选择', onSelect: () => choose(item.id) },
+                  {
+                    kind: 'item',
+                    label: '上移',
+                    disabled: index <= 0,
+                    onSelect: () => void move(item, -1),
+                  },
+                  {
+                    kind: 'item',
+                    label: '下移',
+                    disabled: index < 0 || index >= items.length - 1,
+                    onSelect: () => void move(item, 1),
+                  },
+                  { kind: 'separator' },
+                  {
+                    kind: 'item',
+                    label: reason
+                      ? item.status === 'running'
+                        ? '删除未开始的测量（进行中）'
+                        : '删除未开始的测量（已有记录）'
+                      : '删除未开始的测量',
+                    disabled: !!reason,
+                    danger: true,
+                    title: reason || undefined,
+                    onSelect: () => setPendingDelete(itemsDeleteRequest(snapshot, [item.id])),
+                  },
+                ]);
+              }}
+            >
               <button
                 className="queue-choice"
                 aria-label={`选择样品 ${sample.code} 操作 ${item.order + 1}`}
@@ -846,6 +891,16 @@ export function Live() {
                     <ArrowDown size={13} />
                     下移
                   </button>
+                  <button
+                    type="button"
+                    className="danger"
+                    aria-label={`删除未开始的测量 ${sample.code}`}
+                    title={itemsDeleteReason(snapshot, [item.id]) || '删除这项还没开始的测量'}
+                    disabled={!!itemsDeleteReason(snapshot, [item.id])}
+                    onClick={() => setPendingDelete(itemsDeleteRequest(snapshot, [item.id]))}
+                  >
+                    删除
+                  </button>
                 </div>
               )}
             </div>
@@ -855,7 +910,7 @@ export function Live() {
       </div>
       <footer>
         <span className="pulse-dot neutral" />
-        备样不在队列中
+        备样不在队列中 · 右键可调整顺序或删除还没开始的测量
       </footer>
     </aside>
   );
@@ -1282,6 +1337,15 @@ export function Live() {
                   数据文件夹名 / 预期前缀{!run && <small> · 计划中预留，开始后固定</small>}
                 </span>
                 <code>{proposed}</code>
+                {sample && (run?.filename || selected?.plannedName) && (
+                  <small className="folder-name-note">
+                    {folderNameNote(
+                      experiment.namingPattern,
+                      sample.code,
+                      run?.filename || selected?.plannedName,
+                    )}
+                  </small>
+                )}
               </div>
               <button
                 className="icon-button"
@@ -1492,6 +1556,8 @@ export function Live() {
           {queue}
         </Modal>
       )}
+      {rowMenu}
+      <DeleteConfirm pending={pendingDelete} onClose={() => setPendingDelete(null)} />
       {moreTarget && (
         <Modal title="更多现场操作" onClose={() => setMoreTarget(null)}>
           <div className="field-more-actions">

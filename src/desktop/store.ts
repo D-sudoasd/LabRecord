@@ -4,6 +4,7 @@ import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import {
   DEFAULT_PATTERN,
+  LEGACY_PATTERN,
   effectiveProtocol,
   filenameFor,
   planSpecimens,
@@ -87,6 +88,7 @@ export class Store {
       CREATE TABLE IF NOT EXISTS attachments(id TEXT PRIMARY KEY, experiment_id TEXT NOT NULL REFERENCES experiments(id), run_id TEXT NOT NULL REFERENCES runs(id), json TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS requests(id TEXT PRIMARY KEY, fingerprint TEXT NOT NULL, result TEXT NOT NULL);
       PRAGMA user_version=1;`);
+    this.adoptPlainFolderNames();
   }
   close() {
     this.db.close();
@@ -121,6 +123,24 @@ export class Store {
         `INSERT INTO ${table}(id,json${names.map((n) => ',' + n).join('')}) VALUES(?,?${names.map(() => ',?').join('')}) ON CONFLICT(id) DO UPDATE SET json=excluded.json${names.map((n) => `,${n}=excluded.${n}`).join('')}`,
       )
       .run(value.id, JSON.stringify(value), ...names.map((n) => data[columns[table][n]] ?? null));
+  }
+  private deleteIds(table: Table, ids: readonly string[]) {
+    for (let index = 0; index < ids.length; index += 400) {
+      const chunk = ids.slice(index, index + 400);
+      if (!chunk.length) continue;
+      this.db
+        .prepare(`DELETE FROM ${table} WHERE id IN (${chunk.map(() => '?').join(',')})`)
+        .run(...chunk);
+    }
+  }
+  private deleteItemEvents(itemIds: readonly string[]) {
+    for (let index = 0; index < itemIds.length; index += 400) {
+      const chunk = itemIds.slice(index, index + 400);
+      if (!chunk.length) continue;
+      this.db
+        .prepare(`DELETE FROM events WHERE item_id IN (${chunk.map(() => '?').join(',')})`)
+        .run(...chunk);
+    }
   }
   snapshot(): Snapshot {
     return {
@@ -285,6 +305,44 @@ export class Store {
     this.event(group.experimentId, 'plan', `安排 ${count} 个样品进行测试`);
     return { experimentId: group.experimentId, itemId: firstId };
   }
+  private adoptPlainFolderNames() {
+    const pending = this.list('experiments').filter(
+      (experiment) =>
+        experiment.namingPattern === LEGACY_PATTERN && !this.folderRuleWasChosen(experiment.id),
+    );
+    if (!pending.length) return;
+    this.transaction(() => {
+      for (const experiment of pending) {
+        this.put('experiments', { ...experiment, namingPattern: DEFAULT_PATTERN });
+        this.clearAutomaticFolderNames(experiment.id);
+        this.refreshNames(experiment.id);
+        this.event(experiment.id, 'plan', '文件夹名改为按样品编号', null, null, {
+          previous: LEGACY_PATTERN,
+          namingPattern: DEFAULT_PATTERN,
+          automatic: true,
+        });
+      }
+    });
+  }
+  private folderRuleWasChosen(experimentId: string) {
+    return this.list('events').some(
+      (event) =>
+        event.experimentId === experimentId &&
+        (event.data.explicit === true ||
+          (event.text === '修改自动命名规则' && event.data.namingPattern === LEGACY_PATTERN)),
+    );
+  }
+  private clearAutomaticFolderNames(experimentId: string) {
+    const recorded = new Set(this.list('runs').map((run) => run.itemId));
+    for (const item of this.list('items')) {
+      if (item.experimentId !== experimentId || recorded.has(item.id)) continue;
+      if (!['pending', 'skipped'].includes(item.status)) continue;
+      if (item.measurement?.customName?.trim() || !item.plannedName) continue;
+      const next = { ...item };
+      delete next.plannedName;
+      this.put('items', next);
+    }
+  }
   private refreshNames(experimentId: string, ids?: string[]) {
     const snapshot = this.snapshot();
     const recorded = new Set(snapshot.runs.map((run) => run.itemId));
@@ -417,7 +475,14 @@ export class Store {
         this.checkPattern(experiment.namingPattern, experiment.code);
         this.checkFields(experiment.fields);
         this.put('experiments', experiment);
-        this.event(experiment.id, 'plan', '建立实验规划');
+        this.event(
+          experiment.id,
+          'plan',
+          '建立实验规划',
+          null,
+          null,
+          command.namingPattern ? { namingPattern: command.namingPattern, explicit: true } : {},
+        );
         return { experimentId: experiment.id };
       }
       case 'updateExperiment': {
@@ -426,7 +491,12 @@ export class Store {
           this.checkPattern(command.namingPattern, experiment.code);
         if (command.fields) this.checkFields(command.fields);
         const { type: _type, id: _id, ...patch } = command;
+        const leavingRunSerial =
+          command.namingPattern !== undefined &&
+          /\{run(?::0[1-9])?\}/.test(experiment.namingPattern) &&
+          !/\{run(?::0[1-9])?\}/.test(command.namingPattern);
         this.put('experiments', { ...experiment, ...patch });
+        if (leavingRunSerial) this.clearAutomaticFolderNames(experiment.id);
         if (
           command.namingPattern !== undefined &&
           command.namingPattern !== experiment.namingPattern
@@ -496,6 +566,107 @@ export class Store {
         } = original;
         this.createGroup(original.experimentId, patch);
         return { experimentId: original.experimentId };
+      }
+      case 'deleteGroups': {
+        if (new Set(command.ids).size !== command.ids.length) throw new Error('操作选择重复。');
+        const groups = command.ids.map((id) => this.get('groups', id));
+        const experimentId = groups[0].experimentId;
+        if (groups.some((group) => group.experimentId !== experimentId))
+          throw new Error('一次只能删除同一实验的样品组。');
+        const groupIds = new Set(command.ids);
+        const samples = this.list('samples').filter((sample) => groupIds.has(sample.groupId));
+        const sampleIds = new Set(samples.map((sample) => sample.id));
+        const items = this.list('items').filter((item) => sampleIds.has(item.sampleId));
+        const itemIds = items.map((item) => item.id);
+        const itemIdSet = new Set(itemIds);
+        if (
+          this.list('runs').some((run) => sampleIds.has(run.sampleId) || itemIdSet.has(run.itemId))
+        )
+          throw new Error('样品组里已有实际记录，不能整组删除。尚未开始的样品可以单独移出计划。');
+        // Events point at items. Remove those events before the items, samples and group.
+        this.deleteItemEvents(itemIds);
+        this.deleteIds('items', itemIds);
+        this.deleteIds('samples', [...sampleIds]);
+        this.deleteIds('groups', command.ids);
+        this.event(experimentId, 'plan', '删除样品组', null, null, {
+          groups: groups.map((group) => ({ id: group.id, state: group.state, name: group.name })),
+          sampleIds: [...sampleIds],
+          itemIds,
+        });
+        return { experimentId };
+      }
+      case 'deleteSamples': {
+        if (new Set(command.ids).size !== command.ids.length) throw new Error('操作选择重复。');
+        const samples = command.ids.map((id) => this.get('samples', id));
+        const experimentId = samples[0].experimentId;
+        if (samples.some((sample) => sample.experimentId !== experimentId))
+          throw new Error('一次只能移出同一实验的样品。');
+        const sampleIds = new Set(command.ids);
+        const items = this.list('items').filter((item) => sampleIds.has(item.sampleId));
+        const itemIds = items.map((item) => item.id);
+        const itemIdSet = new Set(itemIds);
+        if (
+          this.list('runs').some((run) => sampleIds.has(run.sampleId) || itemIdSet.has(run.itemId))
+        )
+          throw new Error('这件样品已有实际记录，不能移出计划。');
+        this.deleteItemEvents(itemIds);
+        this.deleteIds('items', itemIds);
+        this.deleteIds('samples', command.ids);
+        this.event(experimentId, 'plan', '移出未开始的样品', null, null, {
+          samples: samples.map((sample) => ({
+            id: sample.id,
+            code: sample.code,
+            groupId: sample.groupId,
+          })),
+          itemIds,
+        });
+        return { experimentId };
+      }
+      case 'deleteItems': {
+        if (new Set(command.ids).size !== command.ids.length) throw new Error('操作选择重复。');
+        const items = command.ids.map((id) => this.get('items', id));
+        const experimentId = items[0].experimentId;
+        if (items.some((item) => item.experimentId !== experimentId))
+          throw new Error('一次只能删除同一实验的测量。');
+        const recorded = new Set(this.list('runs').map((run) => run.itemId));
+        for (const item of items) {
+          if (item.status === 'running')
+            throw new Error('进行中的测量不能删除。请先完成或中断；已有记录的测量保留。');
+          if (recorded.has(item.id) || !['pending', 'skipped'].includes(item.status))
+            throw new Error('已经开始或完成的测量保留记录，不能删除。');
+        }
+        const itemIds = items.map((item) => item.id);
+        const sampleIds = [...new Set(items.map((item) => item.sampleId))];
+        this.deleteItemEvents(itemIds);
+        this.deleteIds('items', itemIds);
+        // A sample with no measurements and no run returns to the spare count. Names of what remains stay put.
+        const removedSampleIds = sampleIds.filter(
+          (sampleId) =>
+            !this.list('items').some((item) => item.sampleId === sampleId) &&
+            !this.list('runs').some((run) => run.sampleId === sampleId),
+        );
+        this.deleteIds('samples', removedSampleIds);
+        this.event(experimentId, 'plan', '删除未开始的测量', null, null, {
+          itemIds,
+          sampleIds,
+          removedSampleIds,
+        });
+        return { experimentId };
+      }
+      case 'deleteExperiment': {
+        const experiment = this.get('experiments', command.id);
+        if (this.list('runs').some((run) => run.experimentId === experiment.id))
+          throw new Error('本实验已有实际记录，不能删除。');
+        const owned = (rows: { id: string; experimentId: string }[]) =>
+          rows.filter((row) => row.experimentId === experiment.id).map((row) => row.id);
+        this.deleteIds('attachments', owned(this.list('attachments')));
+        this.deleteIds('events', owned(this.list('events')));
+        this.deleteIds('runs', owned(this.list('runs')));
+        this.deleteIds('items', owned(this.list('items')));
+        this.deleteIds('samples', owned(this.list('samples')));
+        this.deleteIds('groups', owned(this.list('groups')));
+        this.deleteIds('experiments', [experiment.id]);
+        return {};
       }
       case 'arrange':
         return this.arrange(

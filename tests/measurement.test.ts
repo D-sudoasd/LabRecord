@@ -181,7 +181,7 @@ test('an appended regime keeps inheriting a group protocol that was still blank'
   assert.equal(extra.measurement?.protocol, undefined);
   assert.equal(measurementFor(snapshot, source).protocol, '室温静置 10 min');
   assert.equal(measurementFor(snapshot, extra).protocol, '室温静置 10 min');
-  assert.equal(source.plannedName, extra.plannedName?.replace(/_M\d+$/, ''));
+  assert.equal(source.plannedName, extra.plannedName?.replace(/_\d{2,}$/, ''));
 });
 
 test('per-operation parameters and historical names stay frozen; true repeat reuses the source snapshot', (t) => {

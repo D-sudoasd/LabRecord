@@ -12,11 +12,19 @@ import { StatusPill, Empty, timeText, Modal, eventLabel, SearchField } from './c
 import { TimesDialog } from './Live';
 import { sampleName } from '../shared/model';
 import { reportInsights } from '../shared/summary';
-import { measurementFor, measurementSummary } from '../shared/measurement';
+import { folderNameNote, measurementFor, measurementSummary } from '../shared/measurement';
 import { materialSummary } from '../shared/materials';
 import { MaterialPreparationSummary } from './MaterialPreparation';
+import {
+  DeleteConfirm,
+  itemsDeleteReason,
+  itemsDeleteRequest,
+  useContextMenu,
+  type PendingDelete,
+} from './rowMenu';
 export function Review() {
   const { snapshot, experimentId, notify, flush, setItemId, setPage, execute } = useWorkspace();
+  const experiment = snapshot.experiments.find((entry) => entry.id === experimentId);
   const items = snapshot.items
     .filter((i) => i.experimentId === experimentId)
     .sort((a, b) => a.order - b.order);
@@ -24,7 +32,9 @@ export function Review() {
     [problemsOnly, setProblemsOnly] = useState(false),
     [history, setHistory] = useState<string | null>(null),
     [times, setTimes] = useState<EventTarget | null>(null),
-    [exporting, setExporting] = useState(false);
+    [exporting, setExporting] = useState(false),
+    [pendingDelete, setPendingDelete] = useState<PendingDelete | null>(null);
+  const { open: openMenu, menu } = useContextMenu();
   const issues = snapshot.events.filter(
       (e) => e.experimentId === experimentId && e.type === 'issue',
     ),
@@ -257,8 +267,48 @@ export function Review() {
                     ...snapshot.groups.find((g) => g.id === sample.groupId)!,
                     ...sample.parameters,
                   };
+                  const deleteReason = itemsDeleteReason(snapshot, [item.id]);
                   return (
-                    <tr key={item.id}>
+                    <tr
+                      key={item.id}
+                      onContextMenu={(event) =>
+                        openMenu(event, [
+                          {
+                            kind: 'item',
+                            label: '查看',
+                            onSelect: () => {
+                              setItemId(item.id);
+                              setPage('live');
+                            },
+                          },
+                          {
+                            kind: 'item',
+                            label: '时间',
+                            onSelect: () =>
+                              setTimes({
+                                itemId: item.id,
+                                experimentId: item.experimentId,
+                                runId: run?.id,
+                              }),
+                          },
+                          { kind: 'item', label: '历史', onSelect: () => setHistory(item.id) },
+                          { kind: 'separator' },
+                          {
+                            kind: 'item',
+                            label: deleteReason
+                              ? item.status === 'running'
+                                ? '删除未开始的测量（进行中）'
+                                : '删除未开始的测量（已有记录）'
+                              : '删除未开始的测量',
+                            disabled: !!deleteReason,
+                            danger: true,
+                            title: deleteReason || undefined,
+                            onSelect: () =>
+                              setPendingDelete(itemsDeleteRequest(snapshot, [item.id])),
+                          },
+                        ])
+                      }
+                    >
                       <td>
                         <strong>{sample.code}</strong>
                         <small>
@@ -275,6 +325,15 @@ export function Review() {
                         {(run?.filename || item.plannedName) && (
                           <small className="review-folder-name">
                             {run?.filename || item.plannedName}
+                          </small>
+                        )}
+                        {experiment && (run?.filename || item.plannedName) && (
+                          <small>
+                            {folderNameNote(
+                              experiment.namingPattern,
+                              sample.code,
+                              run?.filename || item.plannedName,
+                            )}
                           </small>
                         )}
                       </td>
@@ -328,6 +387,18 @@ export function Review() {
                           <button className="text-button" onClick={() => setHistory(item.id)}>
                             历史
                           </button>
+                          <button
+                            type="button"
+                            className="text-button danger"
+                            aria-label={`删除测量 ${sample.code}`}
+                            title={deleteReason || '删除这项还没开始的测量'}
+                            disabled={!!deleteReason}
+                            onClick={() =>
+                              setPendingDelete(itemsDeleteRequest(snapshot, [item.id]))
+                            }
+                          >
+                            删除
+                          </button>
                         </div>
                       </td>
                     </tr>
@@ -344,7 +415,7 @@ export function Review() {
         )}
         <div className="table-footer">
           <span>计划内容在开始操作时保存 · 修改历史可追溯</span>
-          <span>导出包含全部操作，不受当前筛选影响</span>
+          <span>右键可查看、改时间或删除还没开始的测量 · 导出不受筛选影响</span>
         </div>
       </section>
       {history && (
@@ -367,6 +438,8 @@ export function Review() {
         </Modal>
       )}
       {times && <TimesDialog {...times} onClose={() => setTimes(null)} />}
+      {menu}
+      <DeleteConfirm pending={pendingDelete} onClose={() => setPendingDelete(null)} />
     </div>
   );
 }

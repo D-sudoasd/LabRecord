@@ -29,6 +29,14 @@ import { Modal, useCommandClose } from './components';
 import { CloudPanel } from './CloudPanel';
 import { ExperimentOverview } from './ExperimentOverview';
 import {
+  DeleteConfirm,
+  experimentDeleteReason,
+  experimentDeleteRequest,
+  useContextMenu,
+  type MenuEntry,
+  type PendingDelete,
+} from './rowMenu';
+import {
   DEFAULT_PATTERN,
   DETAILED_PATTERN,
   filenameFor,
@@ -175,7 +183,8 @@ function SettingsDialog({
     [cloudWorking, setCloudWorking] = useState(false),
     [tab, setTab] = useState<'experiment' | 'data' | 'cloud'>(
       dataFirst ? 'cloud' : experiment ? 'experiment' : 'data',
-    );
+    ),
+    [removing, setRemoving] = useState(false);
   useEffect(() => {
     unwrap(window.labrecord.info())
       .then(setInfo)
@@ -246,291 +255,315 @@ function SettingsDialog({
       setWorking(false);
     }
   }
+  const removeRequest =
+    removing && experiment ? { ...experimentDeleteRequest(experiment), onDone: onClose } : null;
   return (
-    <Modal
-      title="实验设置与本地数据"
-      onClose={onClose}
-      wide
-      closeDisabled={working || cloudWorking}
-    >
-      <div className="dialog-tabs">
-        {experiment && (
+    <>
+      <Modal
+        title="实验设置与本地数据"
+        onClose={onClose}
+        wide
+        closeDisabled={working || cloudWorking || removing}
+      >
+        <div className="dialog-tabs">
+          {experiment && (
+            <button
+              className={tab === 'experiment' ? 'active' : ''}
+              disabled={working || cloudWorking}
+              onClick={() => setTab('experiment')}
+            >
+              实验设置
+            </button>
+          )}
           <button
-            className={tab === 'experiment' ? 'active' : ''}
+            className={tab === 'data' ? 'active' : ''}
             disabled={working || cloudWorking}
-            onClick={() => setTab('experiment')}
+            onClick={() => setTab('data')}
           >
-            实验设置
+            保存与备份
           </button>
-        )}
-        <button
-          className={tab === 'data' ? 'active' : ''}
-          disabled={working || cloudWorking}
-          onClick={() => setTab('data')}
-        >
-          保存与备份
-        </button>
-        <button
-          className={tab === 'cloud' ? 'active' : ''}
-          disabled={working || cloudWorking}
-          onClick={() => setTab('cloud')}
-        >
-          云同步
-        </button>
-      </div>
-      {tab === 'experiment' && experiment ? (
-        <form onSubmit={save} className="form-stack">
-          <div className="form-grid">
+          <button
+            className={tab === 'cloud' ? 'active' : ''}
+            disabled={working || cloudWorking}
+            onClick={() => setTab('cloud')}
+          >
+            云同步
+          </button>
+        </div>
+        {tab === 'experiment' && experiment ? (
+          <form onSubmit={save} className="form-stack">
+            <div className="form-grid">
+              <label className="field">
+                <span>实验名称</span>
+                <input required value={name} onChange={(event) => setName(event.target.value)} />
+              </label>
+              <label className="field">
+                <span>实验编号</span>
+                <input value={experiment.code} readOnly />
+              </label>
+            </div>
             <label className="field">
-              <span>实验名称</span>
-              <input required value={name} onChange={(event) => setName(event.target.value)} />
+              <span>实验说明</span>
+              <textarea
+                rows={2}
+                value={description}
+                onChange={(event) => setDescription(event.target.value)}
+              />
+            </label>
+            <div className="section-title">
+              <h3>数据文件夹与预期前缀命名</h3>
+            </div>
+            <div className="measurement-toolbar">
+              <button
+                type="button"
+                className="button small"
+                onClick={() => setPattern(DETAILED_PATTERN)}
+              >
+                含材料与制度
+              </button>
+              <button
+                type="button"
+                className="button small"
+                onClick={() => setPattern(DEFAULT_PATTERN)}
+              >
+                简洁编号
+              </button>
+              <button
+                type="button"
+                className="button small"
+                onClick={() =>
+                  setPattern('{experiment}_{material}_{sample}_{technique}_{regime}_{batch}')
+                }
+              >
+                按技术与制度
+              </button>
+            </div>
+            {historicalPatterns.size > 1 && (
+              <label className="field">
+                <span>复用历史命名规则</span>
+                <select
+                  aria-label="复用历史命名规则"
+                  defaultValue=""
+                  onChange={(event) => {
+                    if (event.target.value) setPattern(event.target.value);
+                  }}
+                >
+                  <option value="">选择已有规则…</option>
+                  {[...historicalPatterns].map(([rule, label]) => (
+                    <option key={rule} value={rule}>
+                      {label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
+            <label className="field">
+              <span>规则</span>
+              <input
+                aria-label="规则"
+                value={pattern}
+                onChange={(event) => setPattern(event.target.value)}
+              />
+              <small>
+                支持 {'{experiment}'} 实验编号、{'{material}'} 材料、{'{state}'} 原始状态、
+                {'{sample}'} 样品编号、{'{mode}'} IS/ES、{'{technique}'} 技术、{'{regime}'} 制度、
+                {'{batch}'} 批次、{'{run:03}'} 全表计划序号。
+                空字段自动省略；特殊字符只在生成名称中替换，原始文字保留。保存时更新尚未开始的自动名称；临时名称与已有实际记录保持固定。
+              </small>
+            </label>
+            <div className="filename-preview">
+              <span>预览</span>
+              <code>{preview}</code>
+            </div>
+            <p className="hint">
+              {/\{run(?::0[1-9])?\}/.test(pattern)
+                ? '末尾数字是本实验全部计划的连号：第 1 项为 001，第 2 项为 002，和样品编号不是一回事。普通测量请用“简洁编号”。'
+                : preview.startsWith('命名规则') || preview.startsWith('预期文件名')
+                  ? '修正规则后，文件夹名按实验编号和样品编号生成。同一件样品的第 2 次测量才加 _02。'
+                  : `文件夹名是实验编号加样品编号，例如 ${preview}。同一件样品的第 2 次测量写成 ${preview}_02，只给这件样品计数。已经开始的记录保持原名。`}
+            </p>
+            <div className="section-title">
+              <h3>自定义实验参数</h3>
+              <button
+                type="button"
+                className="button small"
+                onClick={() =>
+                  setFields((old) => [
+                    ...old,
+                    { id: crypto.randomUUID(), label: '', type: 'text', unit: '', options: [] },
+                  ])
+                }
+              >
+                <Plus size={14} />
+                添加字段
+              </button>
+            </div>
+            <p className="hint">
+              字段可以填写尺寸、成分、温度、浓度、载荷等。已有操作保留开始时的字段与单位。
+            </p>
+            <div className="field-definition-list">
+              {fields.map((field, index) => (
+                <div className="field-definition" key={field.id}>
+                  <input
+                    aria-label={`字段 ${index + 1} 名称`}
+                    required
+                    placeholder="参数名称"
+                    value={field.label}
+                    onChange={(event) => patchField(field.id, { label: event.target.value })}
+                  />
+                  <select
+                    aria-label={`字段 ${index + 1} 类型`}
+                    value={field.type}
+                    onChange={(event) =>
+                      patchField(field.id, { type: event.target.value as Field['type'] })
+                    }
+                  >
+                    <option value="text">文本</option>
+                    <option value="number">数值</option>
+                    <option value="select">选项</option>
+                  </select>
+                  <input
+                    aria-label={`字段 ${index + 1} 单位`}
+                    placeholder="单位（可空）"
+                    value={field.unit}
+                    onChange={(event) => patchField(field.id, { unit: event.target.value })}
+                  />
+                  <button
+                    type="button"
+                    className="icon-button"
+                    aria-label={`移除字段 ${index + 1}`}
+                    onClick={() => setFields((old) => old.filter((f) => f.id !== field.id))}
+                  >
+                    <Trash2 size={16} />
+                  </button>
+                  {field.type === 'select' && (
+                    <input
+                      className="span-4"
+                      aria-label={`字段 ${index + 1} 选项`}
+                      placeholder="选项用逗号分隔，例如 纵向,横向,45°"
+                      value={field.options.join(',')}
+                      onChange={(event) =>
+                        patchField(field.id, {
+                          options: event.target.value
+                            .split(/[,，]/)
+                            .map((s) => s.trim())
+                            .filter(Boolean),
+                        })
+                      }
+                    />
+                  )}
+                </div>
+              ))}
+            </div>
+            {error && (
+              <p className="error-text" role="alert">
+                {error}
+              </p>
+            )}
+            <div className="settings-delete">
+              <p>
+                {experimentDeleteReason(snapshot, experiment.id) ||
+                  '没有实际记录时可以删除。样品组和还没开始的测量会一起去掉。'}
+              </p>
+              <button
+                type="button"
+                className="button danger"
+                disabled={working || !!experimentDeleteReason(snapshot, experiment.id)}
+                title={experimentDeleteReason(snapshot, experiment.id) || '删除这个实验'}
+                onClick={() => setRemoving(true)}
+              >
+                <Trash2 size={16} />
+                删除这个实验
+              </button>
+            </div>
+            <footer className="modal-actions">
+              <button type="button" className="button" onClick={onClose}>
+                取消
+              </button>
+              <button disabled={working} className="button primary">
+                保存实验设置
+              </button>
+            </footer>
+          </form>
+        ) : tab === 'cloud' ? (
+          <CloudPanel onBusyChange={setCloudWorking} />
+        ) : (
+          <div className="form-stack">
+            <div className="data-summary">
+              <HardDrive size={28} />
+              <div>
+                <h3>所有记录保存在这台电脑</h3>
+                <p>离线可用。软件包和实验数据分别保存，更新软件不会覆盖记录。</p>
+              </div>
+            </div>
+            <label className="field">
+              <span>数据目录</span>
+              <code className="path-display">{info?.dataPath || '读取中…'}</code>
             </label>
             <label className="field">
-              <span>实验编号</span>
-              <input value={experiment.code} readOnly />
+              <span>自动备份目录</span>
+              <code className="path-display">{info?.backupPath || '读取中…'}</code>
+              <small>
+                每天首次打开或保存实验后创建一份完整备份，保留最近 10
+                份自动备份；手动备份不自动清理。
+              </small>
             </label>
-          </div>
-          <label className="field">
-            <span>实验说明</span>
-            <textarea
-              rows={2}
-              value={description}
-              onChange={(event) => setDescription(event.target.value)}
-            />
-          </label>
-          <div className="section-title">
-            <h3>数据文件夹与预期前缀命名</h3>
-          </div>
-          <div className="measurement-toolbar">
-            <button
-              type="button"
-              className="button small"
-              onClick={() => setPattern(DETAILED_PATTERN)}
-            >
-              含材料与制度
-            </button>
-            <button
-              type="button"
-              className="button small"
-              onClick={() => setPattern(DEFAULT_PATTERN)}
-            >
-              简洁编号
-            </button>
-            <button
-              type="button"
-              className="button small"
-              onClick={() =>
-                setPattern('{experiment}_{material}_{sample}_{technique}_{regime}_{batch}')
-              }
-            >
-              按技术与制度
-            </button>
-          </div>
-          {historicalPatterns.size > 1 && (
-            <label className="field">
-              <span>复用历史命名规则</span>
-              <select
-                aria-label="复用历史命名规则"
-                defaultValue=""
-                onChange={(event) => {
-                  if (event.target.value) setPattern(event.target.value);
+            {info?.automaticBackupError && (
+              <p className="error-text" role="alert">
+                自动备份未成功：{info.automaticBackupError}。请检查存储目录，并使用手动备份重试。
+              </p>
+            )}
+            <div className="backup-actions">
+              <button
+                className="button primary"
+                disabled={working}
+                onClick={() => {
+                  void backup();
                 }}
               >
-                <option value="">选择已有规则…</option>
-                {[...historicalPatterns].map(([rule, label]) => (
-                  <option key={rule} value={rule}>
-                    {label}
-                  </option>
-                ))}
-              </select>
-            </label>
-          )}
-          <label className="field">
-            <span>规则</span>
-            <input
-              aria-label="规则"
-              value={pattern}
-              onChange={(event) => setPattern(event.target.value)}
-            />
-            <small>
-              支持 {'{experiment}'} 实验编号、{'{material}'} 材料、{'{state}'} 原始状态、
-              {'{sample}'} 样品编号、{'{mode}'} IS/ES、{'{technique}'} 技术、{'{regime}'} 制度、
-              {'{batch}'} 批次、{'{run:03}'} 计划命名序号。
-              空字段自动省略；特殊字符只在生成名称中替换，原始文字保留。保存时更新尚未开始的自动名称；临时名称与已有实际记录保持固定。
-            </small>
-          </label>
-          <div className="filename-preview">
-            <span>预览</span>
-            <code>{preview}</code>
-          </div>
-          <p className="hint">
-            推荐使用“实验编号_S01、S02、S03”，普通测量不再追加
-            001。只有同一名称再次用于另一项测量时，才加 M02、M03
-            区分；样品编号不变。已有实验可点击“简洁编号”后保存，已开始的记录保持原名。
-          </p>
-          <div className="section-title">
-            <h3>自定义实验参数</h3>
-            <button
-              type="button"
-              className="button small"
-              onClick={() =>
-                setFields((old) => [
-                  ...old,
-                  { id: crypto.randomUUID(), label: '', type: 'text', unit: '', options: [] },
-                ])
-              }
-            >
-              <Plus size={14} />
-              添加字段
-            </button>
-          </div>
-          <p className="hint">
-            字段可以填写尺寸、成分、温度、浓度、载荷等。已有操作保留开始时的字段与单位。
-          </p>
-          <div className="field-definition-list">
-            {fields.map((field, index) => (
-              <div className="field-definition" key={field.id}>
-                <input
-                  aria-label={`字段 ${index + 1} 名称`}
-                  required
-                  placeholder="参数名称"
-                  value={field.label}
-                  onChange={(event) => patchField(field.id, { label: event.target.value })}
-                />
-                <select
-                  aria-label={`字段 ${index + 1} 类型`}
-                  value={field.type}
-                  onChange={(event) =>
-                    patchField(field.id, { type: event.target.value as Field['type'] })
-                  }
-                >
-                  <option value="text">文本</option>
-                  <option value="number">数值</option>
-                  <option value="select">选项</option>
-                </select>
-                <input
-                  aria-label={`字段 ${index + 1} 单位`}
-                  placeholder="单位（可空）"
-                  value={field.unit}
-                  onChange={(event) => patchField(field.id, { unit: event.target.value })}
-                />
-                <button
-                  type="button"
-                  className="icon-button"
-                  aria-label={`移除字段 ${index + 1}`}
-                  onClick={() => setFields((old) => old.filter((f) => f.id !== field.id))}
-                >
-                  <Trash2 size={16} />
-                </button>
-                {field.type === 'select' && (
-                  <input
-                    className="span-4"
-                    aria-label={`字段 ${index + 1} 选项`}
-                    placeholder="选项用逗号分隔，例如 纵向,横向,45°"
-                    value={field.options.join(',')}
-                    onChange={(event) =>
-                      patchField(field.id, {
-                        options: event.target.value
-                          .split(/[,，]/)
-                          .map((s) => s.trim())
-                          .filter(Boolean),
-                      })
-                    }
-                  />
-                )}
-              </div>
-            ))}
-          </div>
-          {error && (
-            <p className="error-text" role="alert">
-              {error}
-            </p>
-          )}
-          <footer className="modal-actions">
-            <button type="button" className="button" onClick={onClose}>
-              取消
-            </button>
-            <button disabled={working} className="button primary">
-              保存实验设置
-            </button>
-          </footer>
-        </form>
-      ) : tab === 'cloud' ? (
-        <CloudPanel onBusyChange={setCloudWorking} />
-      ) : (
-        <div className="form-stack">
-          <div className="data-summary">
-            <HardDrive size={28} />
-            <div>
-              <h3>所有记录保存在这台电脑</h3>
-              <p>离线可用。软件包和实验数据分别保存，更新软件不会覆盖记录。</p>
+                <Download size={17} />
+                备份全部数据与附件
+              </button>
+              <button
+                className="button"
+                disabled={working}
+                onClick={() => {
+                  void restore();
+                }}
+              >
+                <Upload size={17} />
+                恢复完整备份
+              </button>
+              <button
+                className="button"
+                onClick={() => {
+                  void unwrap(window.labrecord.revealData()).catch((error) =>
+                    setError(error.message),
+                  );
+                }}
+              >
+                <FolderOpen size={17} />
+                打开数据目录
+              </button>
             </div>
+            <div className="callout">
+              <p>
+                完整备份包含全部实验、修改历史和现场图片。恢复前会检查数据库、文件清单与
+                SHA-256，并备份当前数据。
+              </p>
+              <p>实验数据文件引用保存为路径；仪器数据保存在原来的位置。</p>
+            </div>
+            <p className="hint">LabRecord {info?.version || ''} · 起止时间用于大致对应仪器数据</p>
+            {error && (
+              <p className="error-text" role="alert">
+                {error}
+              </p>
+            )}
           </div>
-          <label className="field">
-            <span>数据目录</span>
-            <code className="path-display">{info?.dataPath || '读取中…'}</code>
-          </label>
-          <label className="field">
-            <span>自动备份目录</span>
-            <code className="path-display">{info?.backupPath || '读取中…'}</code>
-            <small>
-              每天首次打开或保存实验后创建一份完整备份，保留最近 10 份自动备份；手动备份不自动清理。
-            </small>
-          </label>
-          {info?.automaticBackupError && (
-            <p className="error-text" role="alert">
-              自动备份未成功：{info.automaticBackupError}。请检查存储目录，并使用手动备份重试。
-            </p>
-          )}
-          <div className="backup-actions">
-            <button
-              className="button primary"
-              disabled={working}
-              onClick={() => {
-                void backup();
-              }}
-            >
-              <Download size={17} />
-              备份全部数据与附件
-            </button>
-            <button
-              className="button"
-              disabled={working}
-              onClick={() => {
-                void restore();
-              }}
-            >
-              <Upload size={17} />
-              恢复完整备份
-            </button>
-            <button
-              className="button"
-              onClick={() => {
-                void unwrap(window.labrecord.revealData()).catch((error) =>
-                  setError(error.message),
-                );
-              }}
-            >
-              <FolderOpen size={17} />
-              打开数据目录
-            </button>
-          </div>
-          <div className="callout">
-            <p>
-              完整备份包含全部实验、修改历史和现场图片。恢复前会检查数据库、文件清单与
-              SHA-256，并备份当前数据。
-            </p>
-            <p>实验数据文件引用保存为路径；仪器数据保存在原来的位置。</p>
-          </div>
-          <p className="hint">LabRecord {info?.version || ''} · 起止时间用于大致对应仪器数据</p>
-          {error && (
-            <p className="error-text" role="alert">
-              {error}
-            </p>
-          )}
-        </div>
-      )}
-    </Modal>
+        )}
+      </Modal>
+      <DeleteConfirm pending={removeRequest} onClose={() => setRemoving(false)} />
+    </>
   );
 }
 export function App() {
@@ -553,7 +586,9 @@ export function App() {
   const [cloudFirst, setCloudFirst] = useState(false);
   const [newExperiment, setNewExperiment] = useState(false),
     [settings, setSettings] = useState(false),
-    [overview, setOverview] = useState(false);
+    [overview, setOverview] = useState(false),
+    [pendingDelete, setPendingDelete] = useState<PendingDelete | null>(null);
+  const { open: openMenu, menu } = useContextMenu();
   const experiment = snapshot.experiments.find((e) => e.id === experimentId);
   function navigate(action: () => void) {
     void flush()
@@ -657,7 +692,43 @@ export function App() {
       </aside>
       <main className="app-main">
         <header className="app-header workspace-header">
-          <div className="experiment-switcher">
+          <div
+            className="experiment-switcher"
+            onContextMenu={(event) => {
+              const entries: MenuEntry[] = [
+                {
+                  kind: 'item',
+                  label: '新建实验',
+                  onSelect: () => navigate(() => setNewExperiment(true)),
+                },
+              ];
+              if (experiment) {
+                const reason = experimentDeleteReason(snapshot, experiment.id);
+                entries.push(
+                  {
+                    kind: 'item',
+                    label: '实验设置',
+                    onSelect: () => navigate(() => setSettings(true)),
+                  },
+                  {
+                    kind: 'item',
+                    label: '实验概览',
+                    onSelect: () => navigate(() => setOverview(true)),
+                  },
+                  { kind: 'separator' },
+                  {
+                    kind: 'item',
+                    label: reason ? '删除当前实验（已有记录）' : '删除当前实验',
+                    disabled: !!reason,
+                    danger: true,
+                    title: reason || undefined,
+                    onSelect: () => setPendingDelete(experimentDeleteRequest(experiment)),
+                  },
+                );
+              }
+              openMenu(event, entries);
+            }}
+          >
             <div className="experiment-symbol">
               <FlaskConical size={19} aria-hidden="true" />
             </div>
@@ -831,6 +902,8 @@ export function App() {
       {overview && experiment && (
         <ExperimentOverview experiment={experiment} onClose={() => setOverview(false)} />
       )}
+      {menu}
+      <DeleteConfirm pending={pendingDelete} onClose={() => setPendingDelete(null)} />
     </div>
   );
 }

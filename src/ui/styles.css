@@ -353,6 +353,15 @@ a {
   border-color: var(--primary-hover);
   box-shadow: 0 4px 12px #13766e26;
 }
+.button.danger {
+  background: var(--danger);
+  color: #fff;
+  border-color: var(--danger);
+}
+.button.danger:hover:not(:disabled) {
+  background: #9c332e;
+  border-color: #9c332e;
+}
 .button.small {
   font-size: 12px;
   min-height: 38px;
@@ -384,6 +393,10 @@ a {
   color: var(--primary);
   background: var(--tint);
 }
+.icon-button.danger:hover:not(:disabled) {
+  color: var(--danger);
+  background: #fdeceb;
+}
 .text-button {
   color: var(--primary);
   display: inline-flex;
@@ -395,6 +408,9 @@ a {
   min-height: 32px;
   font-size: 12px;
   padding: 4px 2px;
+}
+.text-button.danger {
+  color: var(--danger);
 }
 .text-button:hover {
   text-decoration: underline;
@@ -1211,6 +1227,9 @@ a {
   min-height: 28px;
   font-size: 11px;
 }
+.queue-order button.danger {
+  color: var(--danger);
+}
 .queue footer {
   border-top: 1px solid var(--line);
   padding: 13px 17px;
@@ -1485,6 +1504,10 @@ a {
 .filename-card small {
   font-size: 11px;
   color: var(--muted);
+}
+.filename-card .folder-name-note {
+  display: block;
+  margin-top: 4px;
 }
 .filename-card code {
   color: var(--primary);
@@ -2066,6 +2089,66 @@ a {
   max-width: min(760px, calc(100vw - var(--rail-width) - 40px));
   box-shadow: 0 8px 32px #202b3826;
   backdrop-filter: blur(20px);
+}
+.context-menu {
+  position: fixed;
+  z-index: 120;
+  min-width: 196px;
+  max-width: min(320px, calc(100vw - 16px));
+  margin: 0;
+  padding: 6px;
+  background: #fff;
+  color: var(--ink);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  box-shadow: var(--shadow-overlay);
+}
+.context-menu button {
+  display: flex;
+  width: 100%;
+  min-height: 36px;
+  align-items: center;
+  text-align: left;
+  border: 0;
+  background: transparent;
+  border-radius: 8px;
+  padding: 6px 10px;
+  font: inherit;
+  font-size: 13px;
+  color: var(--ink);
+}
+.context-menu button[data-active='true'],
+.context-menu button:hover:not(:disabled) {
+  background: var(--tint);
+}
+.context-menu button:focus-visible {
+  outline: 2px solid var(--primary);
+}
+.context-menu button.danger:not(:disabled) {
+  color: var(--danger);
+}
+.context-menu button.danger:hover:not(:disabled),
+.context-menu button.danger[data-active='true']:not(:disabled) {
+  background: #fdeceb;
+}
+.context-menu hr {
+  border: 0;
+  border-top: 1px solid var(--line);
+  margin: 4px 6px;
+}
+.settings-delete {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: center;
+  border-top: 1px solid var(--line);
+  padding-top: 16px;
+}
+.settings-delete p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.6;
 }
 .toast.error {
   background: #993f38f5;

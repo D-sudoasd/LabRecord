@@ -89,12 +89,35 @@ export function uniqueName(name: string, taken: Set<string>, marker = '') {
   return result;
 }
 
+const RUN_TOKEN = /\{run(?::0[1-9])?\}/;
+
 function keepsReservedName(kept: string, candidate: string, marker: string) {
   const current = kept.toLowerCase();
   const base = candidate.toLowerCase();
   if (current === base) return true;
-  const prefix = `${base}_${marker.toLowerCase()}`;
-  return current.startsWith(prefix) && /^\d{2,}$/.test(current.slice(prefix.length));
+  if (!current.startsWith(`${base}_`)) return false;
+  const rest = current.slice(base.length + 1);
+  // `M` keeps names reserved before repeats were written as `_02`.
+  for (const mark of new Set([marker.toLowerCase(), 'm'])) {
+    const digits = mark && rest.startsWith(mark) ? rest.slice(mark.length) : mark ? '' : rest;
+    if (/^\d{2,}$/.test(digits)) return true;
+  }
+  return false;
+}
+
+export function folderNameNote(pattern: string, sampleCode: string, name?: string) {
+  if (!name) return '保存后可复制到数据文件夹';
+  if (RUN_TOKEN.test(pattern)) {
+    const serial = name.match(/_(\d+)$/);
+    return serial
+      ? `计划序号 ${serial[1]}，按本实验全部计划连号，不是样品编号`
+      : '名称中的数字是计划序号，不是样品编号';
+  }
+  const legacy = name.match(/_(\d{3,})$/);
+  if (legacy) return `旧的全表序号 ${legacy[1]}，已经开始的名称保持不变`;
+  const repeat = name.match(/_(?:M)?(\d{2})$/);
+  if (repeat) return `样品 ${sampleCode} 的第 ${Number(repeat[1])} 次测量`;
+  return `样品 ${sampleCode}`;
 }
 
 // Used both by dialog previews and the transaction that reserves the same names.
@@ -120,7 +143,7 @@ export function reserveMeasurementNames(
       .filter((entry) => entry.experimentId === experimentId)
       .map((entry) => entry.number),
   );
-  const marker = /\{run(?::0[1-9])?\}/.test(experiment.namingPattern) ? '' : 'M';
+  const marker = '';
   // New plan numbers follow queue order. Existing numbers stay put, so a later reorder cannot renumber them.
   const prepared = [...targets]
     .sort((a, b) => a.order - b.order)

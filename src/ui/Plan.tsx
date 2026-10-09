@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, type MouseEvent } from 'react';
 import {
   Plus,
   Copy,
@@ -13,6 +13,7 @@ import {
   Boxes,
   Pencil,
   TrendingUp,
+  Trash2,
 } from 'lucide-react';
 import type {
   Group,
@@ -49,6 +50,17 @@ import { QuickAdd } from './QuickAdd';
 import { MeasurementPlanner, MeasurementFields } from './MeasurementPlanner';
 import { MaterialPreparationFields, MaterialPreparationSummary } from './MaterialPreparation';
 import { MATERIAL_FIELDS, materialSummary } from '../shared/materials';
+import {
+  DeleteConfirm,
+  groupDeleteRequest,
+  groupsDeleteReason,
+  sampleDeleteReason,
+  sampleDeleteRequest,
+  useContextMenu,
+  type DeleteRequest,
+  type MenuEntry,
+  type PendingDelete,
+} from './rowMenu';
 
 export function GroupForm({
   group,
@@ -843,6 +855,19 @@ export function Plan() {
   const [paste, setPaste] = useState(false),
     [text, setText] = useState(''),
     [preview, setPreview] = useState<TablePreview | null>(null);
+  const [pendingDelete, setPendingDelete] = useState<PendingDelete | null>(null);
+  const { open: openMenu, menu } = useContextMenu();
+  function askDelete(request: DeleteRequest, ids: string[] = []) {
+    setPendingDelete({
+      ...request,
+      onDone: () =>
+        setSelected((current) => {
+          const next = new Set(current);
+          for (const id of ids) next.delete(id);
+          return next;
+        }),
+    });
+  }
   const visible = groups.filter((g) =>
     `${g.name || ''} ${g.material || ''} ${g.state} ${materialSummary(g)} ${g.preparation} ${g.notes}`
       .toLowerCase()
@@ -979,6 +1004,23 @@ export function Plan() {
               <SlidersHorizontal size={14} />
               批量设置参数
             </button>
+            <button
+              type="button"
+              className="button small danger"
+              disabled={!!groupsDeleteReason(snapshot, [...selected])}
+              title={groupsDeleteReason(snapshot, [...selected]) || '删除所选样品组'}
+              onClick={() => {
+                const chosen = groups.filter((group) => selected.has(group.id));
+                if (!chosen.length) return;
+                askDelete(
+                  groupDeleteRequest(chosen),
+                  chosen.map((group) => group.id),
+                );
+              }}
+            >
+              <Trash2 size={14} />
+              删除所选样品组
+            </button>
             <button className="text-button" onClick={() => setSelected(new Set())}>
               取消选择
             </button>
@@ -1062,6 +1104,9 @@ export function Plan() {
                           .catch((error) => notify(error.message, true));
                       }}
                       onSample={setSample}
+                      openMenu={openMenu}
+                      askDelete={askDelete}
+                      selectedIds={selected.has(group.id) ? [...selected] : [group.id]}
                       onLive={(sampleId) => {
                         void workspace
                           .flush()
@@ -1081,7 +1126,7 @@ export function Plan() {
         )}
         <div className="table-footer">
           <span>修改自动保存 · 数量未知时可以留空</span>
-          <span>Alt + N 添加样品 · 展开查看编号和更多参数</span>
+          <span>右键可编辑、复制、安排或删除 · Alt + N 添加样品</span>
         </div>
       </section>
       <MeasurementPlanner />
@@ -1143,6 +1188,8 @@ export function Plan() {
         </Modal>
       )}
       {preview && <ImportDialog preview={preview} onClose={() => setPreview(null)} />}
+      {menu}
+      <DeleteConfirm pending={pendingDelete} onClose={() => setPendingDelete(null)} />
     </div>
   );
 }
@@ -1160,6 +1207,9 @@ function GroupRows({
   onEdit,
   onCopy,
   onSample,
+  openMenu,
+  askDelete,
+  selectedIds,
   onLive,
 }: {
   group: Group;
@@ -1175,16 +1225,48 @@ function GroupRows({
   onEdit: () => void;
   onCopy: () => void;
   onSample: (sample: Sample) => void;
+  openMenu: (event: MouseEvent, entries: MenuEntry[]) => void;
+  askDelete: (request: DeleteRequest, ids?: string[]) => void;
+  selectedIds: string[];
   onLive: (sampleId: string) => void;
 }) {
-  const { execute } = useWorkspace();
+  const { execute, snapshot } = useWorkspace();
   const title = sampleName(group);
+  const groupReason = groupsDeleteReason(snapshot, selectedIds);
   function saveSpecimen(id: string, parameters: GroupPatch) {
     return execute({ type: 'updateSamples', ids: [id], parameters }, false);
   }
+  function removeGroups() {
+    const chosen = selectedIds
+      .map((id) => snapshot.groups.find((entry) => entry.id === id))
+      .filter((entry): entry is Group => !!entry);
+    if (chosen.length) askDelete(groupDeleteRequest(chosen), selectedIds);
+  }
   return (
     <>
-      <tr className={selected ? 'selected-row' : ''}>
+      <tr
+        className={selected ? 'selected-row' : ''}
+        onContextMenu={(event) =>
+          openMenu(event, [
+            { kind: 'item', label: '编辑', onSelect: onEdit },
+            { kind: 'item', label: '复制样品组', onSelect: onCopy },
+            { kind: 'item', label: '安排测试', onSelect: onArrange },
+            { kind: 'separator' },
+            {
+              kind: 'item',
+              label: groupReason
+                ? '删除样品组（已有记录）'
+                : selectedIds.length > 1
+                  ? `删除所选 ${selectedIds.length} 个样品组`
+                  : '删除样品组',
+              disabled: !!groupReason,
+              danger: true,
+              title: groupReason || undefined,
+              onSelect: removeGroups,
+            },
+          ])
+        }
+      >
         <td className="sticky-cell state-cell">
           <input
             type="checkbox"
@@ -1326,6 +1408,16 @@ function GroupRows({
             >
               <Copy size={14} />
             </button>
+            <button
+              type="button"
+              className="icon-button danger"
+              aria-label={`删除样品组 ${title}`}
+              title={groupsDeleteReason(snapshot, [group.id]) || '删除样品组'}
+              disabled={!!groupsDeleteReason(snapshot, [group.id])}
+              onClick={() => askDelete(groupDeleteRequest([group]), [group.id])}
+            >
+              <Trash2 size={14} />
+            </button>
           </div>
         </td>
       </tr>
@@ -1375,7 +1467,26 @@ function GroupRows({
                     group.mode !== '未定' ||
                     !!(sample.parameters.protocol?.trim() || group.protocol?.trim());
                   return (
-                    <div className="sample-strip" key={sample.id}>
+                    <div
+                      className="sample-strip"
+                      key={sample.id}
+                      onContextMenu={(event) => {
+                        const reason = sampleDeleteReason(snapshot, sample);
+                        openMenu(event, [
+                          { kind: 'item', label: '编辑样品参数', onSelect: () => onSample(sample) },
+                          { kind: 'item', label: '现场记录', onSelect: () => onLive(sample.id) },
+                          { kind: 'separator' },
+                          {
+                            kind: 'item',
+                            label: reason ? '移出计划（已有记录）' : '移出计划',
+                            disabled: !!reason,
+                            danger: true,
+                            title: reason || '移出后准备数量不变，这件回到备样',
+                            onSelect: () => askDelete(sampleDeleteRequest(sample)),
+                          },
+                        ]);
+                      }}
+                    >
                       <div>
                         <code>{sample.code}</code>
                         <small className="sample-note">
@@ -1409,6 +1520,19 @@ function GroupRows({
                         </button>
                         <button className="text-button" onClick={() => onLive(sample.id)}>
                           现场记录 <ArrowRight size={13} />
+                        </button>
+                        <button
+                          type="button"
+                          className="text-button danger"
+                          aria-label={`移出计划 ${sample.code}`}
+                          title={
+                            sampleDeleteReason(snapshot, sample) ||
+                            '移出后准备数量不变，这件回到备样'
+                          }
+                          disabled={!!sampleDeleteReason(snapshot, sample)}
+                          onClick={() => askDelete(sampleDeleteRequest(sample))}
+                        >
+                          移出计划
                         </button>
                       </div>
                     </div>
