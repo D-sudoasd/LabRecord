@@ -5,6 +5,7 @@ import { readFile } from 'node:fs/promises';
 import ExcelJS from 'exceljs';
 import { fixture } from './helpers.js';
 import { DEFAULT_PATTERN, DETAILED_PATTERN, groupCounts } from '../src/shared/model.js';
+import { folderNameNote } from '../src/shared/measurement.js';
 import { MATERIAL_FIELDS } from '../src/shared/materials.js';
 import { archiveSchema } from '../src/desktop/archive-validation.js';
 import { createBackup, unpackBackup } from '../src/desktop/backups.js';
@@ -69,7 +70,7 @@ test('default sample numbers continue across groups, arranged spares and tempora
   assert.equal(groupCounts(snapshot, group).spare, 1);
 });
 
-test('same-sample measurements only add M02 when needed; queue changes and out-of-order starts keep reserved names and identities', (t) => {
+test('same-sample measurements only add _02 when needed; queue changes and out-of-order starts keep reserved names and identities', (t) => {
   const { store, experimentId } = setup(t);
   const first = store.command({
     type: 'addSamples',
@@ -81,7 +82,7 @@ test('same-sample measurements only add M02 when needed; queue changes and out-o
   let snapshot = store.snapshot();
   assert.deepEqual(
     snapshot.items.map((item) => item.plannedName),
-    ['METAL_S01', 'METAL_S02', 'METAL_S01_M02', 'METAL_S01_M03'],
+    ['METAL_S01', 'METAL_S02', 'METAL_S01_02', 'METAL_S01_03'],
   );
   const identities = snapshot.samples;
   const names = snapshot.items.map((item) => item.plannedName);
@@ -112,11 +113,80 @@ test('same-sample measurements only add M02 when needed; queue changes and out-o
     snapshot.items.slice(0, 4).map((item) => item.plannedName),
     names,
   );
-  assert.equal(snapshot.items.at(-1)!.plannedName, 'METAL_S02_M02');
+  assert.equal(snapshot.items.at(-1)!.plannedName, 'METAL_S02_02');
   assert.equal(snapshot.items.at(-1)!.sampleId, original.sampleId);
   assert.equal(snapshot.items.at(-1)!.repeatOf, second);
   assert.deepEqual(snapshot.runs[0], original);
   assert.equal(groupCounts(snapshot, snapshot.groups[0]).spare, 1);
+});
+
+test('an untouched old default drops the global serial; an explicitly saved serial rule stays', (t) => {
+  const data = fixture(t);
+  const legacyId = data.store.command({
+    type: 'createExperiment',
+    code: 'EXP-20261006',
+    name: '旧默认',
+  }).experimentId!;
+  data.store.put('experiments', {
+    ...data.store.get('experiments', legacyId),
+    namingPattern: '{experiment}_{sample}_{run:03}',
+  });
+  const first = data.store.command({
+    type: 'addSamples',
+    experimentId: legacyId,
+    count: 2,
+    patch: { state: '原态', preparedCount: 2 },
+  }).itemId!;
+  data.store.command({ type: 'start', itemId: first });
+  data.store.command({ type: 'finish', itemId: first });
+  const run = structuredClone(data.store.snapshot().runs[0]);
+  assert.equal(run.filename, 'EXP-20261006_S01_001');
+  assert.equal(data.store.snapshot().items[1].plannedName, 'EXP-20261006_S02_002');
+  const chosenId = data.store.command({
+    type: 'createExperiment',
+    code: 'KEEP',
+    name: '特意保留流水号',
+    namingPattern: '{experiment}_{sample}_{run:03}',
+  }).experimentId!;
+  data.store.command({
+    type: 'addSamples',
+    experimentId: chosenId,
+    count: 1,
+    patch: { state: '原态', preparedCount: 1 },
+  });
+  const reopened = data.reopen();
+  const migrated = reopened.snapshot();
+  assert.equal(
+    migrated.experiments.find((entry) => entry.id === legacyId)!.namingPattern,
+    DEFAULT_PATTERN,
+  );
+  assert.deepEqual(migrated.runs[0], run);
+  assert.equal(
+    migrated.items.find((item) => item.experimentId === legacyId && item.status === 'pending')!
+      .plannedName,
+    'EXP-20261006_S02',
+  );
+  assert.equal(
+    migrated.experiments.find((entry) => entry.id === chosenId)!.namingPattern,
+    '{experiment}_{sample}_{run:03}',
+  );
+  assert.equal(
+    migrated.items.find((item) => item.experimentId === chosenId)!.plannedName,
+    'KEEP_S01_001',
+  );
+  assert.equal(folderNameNote(DEFAULT_PATTERN, 'S02', 'EXP-20261006_S02'), '样品 S02');
+  assert.equal(
+    folderNameNote(DEFAULT_PATTERN, 'S01', 'EXP-20261006_S01_02'),
+    '样品 S01 的第 2 次测量',
+  );
+  assert.equal(
+    folderNameNote('{experiment}_{sample}_{run:03}', 'S01', 'KEEP_S01_001'),
+    '计划序号 001，按本实验全部计划连号，不是样品编号',
+  );
+  assert.equal(
+    folderNameNote(DEFAULT_PATTERN, 'S01', run.filename),
+    '旧的全表序号 001，已经开始的名称保持不变',
+  );
 });
 
 test('changing an existing template is explicit and only renames unstarted automatic plans', (t) => {

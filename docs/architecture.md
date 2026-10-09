@@ -22,7 +22,7 @@ SQLite 包含独立实体表、外键、状态约束、样品和预期文件名�
 
 Group 的 composition、processing、heatTreatment、otherTreatment 为可选文本字段，分别保存成分、加工工艺、热处理制度与其他工艺，单字段最多 3000 字符。没有填写与明确“无”分别保留。Sample.parameters 可逐件覆盖，开始时经 plannedGroup 写入 Run.snapshot.group；后改样品组和覆盖值不回写历史。旧 state、preparation 和自定义值保留，不据此推断新字段。备份校验同时检查当前组、样品覆盖和历史快照中的可选字段；没有表格式或版本迁移。
 
-planSpecimens 的默认及空前缀统一使用 S，跨组避开已用样品号。新实验默认 `{experiment}_{sample}`；既有命名规则继续保留。无需流水号的自动名称碰撞时以 `_M02` 等区分，显式含 run 占位符的规则仍保留原有数字后缀行为。去除空命名字段时整段处理连续空字段，避免无 run 后缀的模板留下末尾分隔符。样品代码是安排时的物理身份；Run.number 表示实际记录顺序，二者不会因重排互相覆盖。
+planSpecimens 的默认及空前缀统一使用 S，跨组避开已用样品号。新实验默认 `{experiment}_{sample}`。同一件样品的重复自动名称加 `_02`、`_03`，早前预留的 `_M02` 在规则不变时继续保留。打开资料库时，未经设置明确保存的旧默认 `{experiment}_{sample}_{run:03}` 改为简洁规则，并只重算没有实际记录的自动名称；显式含 run 占位符的规则仍按全表计划序号生成末尾数字。去除空命名字段时整段处理连续空字段，避免无 run 后缀的模板留下末尾分隔符。样品代码是安排时的物理身份；Run.number 表示实际记录顺序，二者不会因重排互相覆盖。
 
 表格新增材料字段映射和导出列。规划导出中与内置映射同名的自定义列加“自定义”前缀，参数定义继续保留原字段 ID、名称和单位。XLSX 读取参数定义时兼容旧列名，并取消对应列的内置自动映射，避免旧自定义“成分”被误当新字段。没有材料列的旧表不填造制备经历，也不创建实际操作。
 
@@ -33,6 +33,8 @@ planSpecimens 的默认及空前缀统一使用 S，跨组避开已用样品号�
 `plannedGroup` 和 `measurementFor` 统一解析规划与历史快照。`reserveMeasurementNames` 为预览和主进程事务分配相同的名称；`PlanItem.nameNumber` 是稳定计划序号，`Run.number` 仍是实际记录序号。排队、重排和开始顺序不会重新分配已有名称。自动名称避开本机已预留和实际名称；手动名称冲突明确拒绝。更新命名规则、相关样品信息或尚未开始的操作配置时才重新计算受影响的名称。
 
 `scheduleMeasurements` 只新增 PlanItem，并沿用 Sample ID；不同制度不设置 repeatOf。`repeat` 保留 repeatOf，继承源 Run.snapshot 的测量制度，清除临时名称后另行预留。开始时将有效 mode/protocol 放入 Group 快照，并将 measurement 原样另存 Run.snapshot.measurement。配置命令拒绝修改已开始或已有实际记录的计划；开始、结束和时间修正保留原有事务与原始时间规则。
+
+`deleteGroups`、`deleteSamples` 和 `deleteItems` 只移除没有 Run 的计划。指向这些测量的事件先于测量删除。已有 Run、进行中、已完成和已中断的记录拒绝整次命令，不改 plannedName、nameNumber、顺序、Run.snapshot 或原始时间。删光一件样品的未开始测量后，该样品回到备样，preparedCount 不变；删除整组才去掉该组的准备数量。`deleteExperiment` 只删除没有任何 Run 的实验。这些命令不改表结构或 user_version。
 
 新建实验、快速添加、安排测试和测量配置表单捕获命令与 request ID，结果未知时只重试原请求。Store 在输入校验失败或确认事务回滚后抛 CommandRejectedError，主进程返回可选 rejected 标记；提交后快照读取异常或传输异常不作此标记。renderer 据此分别允许修正草稿或固定重试内容。useCommandClose 在未知结果下统一先读取主进程快照，再丢弃请求和关闭；刷新失败保留原请求与弹窗。
 

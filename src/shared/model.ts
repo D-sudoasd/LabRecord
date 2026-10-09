@@ -240,6 +240,10 @@ export type Command =
   | { type: 'temporary'; experimentId: string; patch: GroupPatch }
   | { type: 'updateGroups'; ids: string[]; patch: GroupPatch }
   | { type: 'copyGroup'; id: string }
+  | { type: 'deleteGroups'; ids: string[] }
+  | { type: 'deleteSamples'; ids: string[] }
+  | { type: 'deleteItems'; ids: string[] }
+  | { type: 'deleteExperiment'; id: string }
   | {
       type: 'arrange';
       groupId: string;

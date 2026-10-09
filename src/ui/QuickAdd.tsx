@@ -552,6 +552,7 @@ function QuickNamePreview({
       status: 'pending',
       measurement: { ...measurement, mode: patch.mode },
     }));
+    const experiment = snapshot.experiments.find((entry) => entry.id === experimentId);
     const names = reserveMeasurementNames(
       {
         ...snapshot,
@@ -568,6 +569,11 @@ function QuickNamePreview({
           <code key={item.id}>{item.plannedName}</code>
         ))}
         {count > 3 && <small>其余 {count - 3} 项按相同规则连续生成。</small>}
+        <small>
+          {experiment && /\{run(?::0[1-9])?\}/.test(experiment.namingPattern)
+            ? '末尾数字是本实验的计划序号，不是样品编号。'
+            : '同一件样品的第 2 次测量才在末尾加 _02，不和其他样品连号。'}
+        </small>
       </div>
     );
   } catch (error) {

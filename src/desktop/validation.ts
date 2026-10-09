@@ -96,6 +96,16 @@ const schemas: Record<string, z.ZodType> = {
     .object({ type: z.literal('updateGroups'), ids: z.array(id).min(1).max(1000), patch })
     .strict(),
   copyGroup: z.object({ type: z.literal('copyGroup'), id }).strict(),
+  deleteGroups: z
+    .object({ type: z.literal('deleteGroups'), ids: z.array(id).min(1).max(1000) })
+    .strict(),
+  deleteSamples: z
+    .object({ type: z.literal('deleteSamples'), ids: z.array(id).min(1).max(1000) })
+    .strict(),
+  deleteItems: z
+    .object({ type: z.literal('deleteItems'), ids: z.array(id).min(1).max(1000) })
+    .strict(),
+  deleteExperiment: z.object({ type: z.literal('deleteExperiment'), id }).strict(),
   arrange: z
     .object({
       type: z.literal('arrange'),

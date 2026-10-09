@@ -325,9 +325,9 @@ test('filename rules preserve the source name, disambiguate repeats and refuse W
   const repeat = store.command({ type: 'repeat', itemId });
   assert.equal(store.get('items', repeat.itemId!).status, 'pending');
   const source = store.snapshot().runs[0];
-  assert.equal(store.get('items', repeat.itemId!).plannedName, source.filename + '_M02');
+  assert.equal(store.get('items', repeat.itemId!).plannedName, source.filename + '_02');
   store.command({ type: 'start', itemId: repeat.itemId });
-  assert.equal(store.snapshot().runs[1].filename, source.filename + '_M02');
+  assert.equal(store.snapshot().runs[1].filename, source.filename + '_02');
   assert.equal(store.snapshot().runs[1].sampleId, source.sampleId);
   assert.deepEqual(store.snapshot().runs[0], source);
   assert.equal(

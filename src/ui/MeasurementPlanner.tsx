@@ -1,8 +1,9 @@
 import { useId, useRef, useState } from 'react';
-import { Copy, Plus, SlidersHorizontal } from 'lucide-react';
+import { Copy, Plus, SlidersHorizontal, Trash2 } from 'lucide-react';
 import type { MeasurementPlan, PlanItem } from '../shared/model';
 import { MODE_OPTIONS } from '../shared/model';
 import {
+  folderNameNote,
   measurementFor,
   measurementSummary,
   REGIMES,
@@ -10,6 +11,14 @@ import {
 } from '../shared/measurement';
 import { useWorkspace, unwrap, DesktopReplyError } from './context';
 import { Modal, SearchField, StatusPill, useCommandClose } from './components';
+import {
+  DeleteConfirm,
+  itemsDeleteReason,
+  itemsDeleteRequest,
+  useContextMenu,
+  type DeleteRequest,
+  type PendingDelete,
+} from './rowMenu';
 
 export function MeasurementFields({
   value,
@@ -309,9 +318,20 @@ export function MeasurementDialog({
         )}
         <div className="measurement-name-preview" aria-label="测量名称预览" aria-live="polite">
           <strong>文件夹名称预览</strong>
-          {names.slice(0, 5).map((item) => (
-            <code key={item.id}>{item.plannedName}</code>
-          ))}
+          {names.slice(0, 5).map((item) => {
+            const sample = snapshot.samples.find((entry) => entry.id === item.sampleId);
+            const pattern = snapshot.experiments.find(
+              (entry) => entry.id === experimentId,
+            )?.namingPattern;
+            return (
+              <div key={item.id}>
+                <code>{item.plannedName}</code>
+                {pattern && sample && (
+                  <small>{folderNameNote(pattern, sample.code, item.plannedName)}</small>
+                )}
+              </div>
+            );
+          })}
           {names.length > 5 && <small>另有 {names.length - 5} 项，保存后可在测量计划查看。</small>}
           {previewError && (
             <p className="error-text" role="alert">
@@ -350,12 +370,41 @@ export function MeasurementDialog({
 export function MeasurementPlanner() {
   const workspace = useWorkspace();
   const { snapshot, experimentId, setItemId, setPage, notify, flush } = workspace;
+  const experiment = snapshot.experiments.find((entry) => entry.id === experimentId);
   const items = snapshot.items
     .filter((item) => item.experimentId === experimentId)
     .sort((a, b) => a.order - b.order);
   const [search, setSearch] = useState(''),
     [selected, setSelected] = useState(new Set<string>());
   const [dialog, setDialog] = useState<{ ids: string[]; append: boolean } | null>(null);
+  const [pendingDelete, setPendingDelete] = useState<PendingDelete | null>(null);
+  const { open: openMenu, menu } = useContextMenu();
+  function askDelete(request: DeleteRequest, ids: string[]) {
+    setPendingDelete({
+      ...request,
+      onDone: () =>
+        setSelected((current) => {
+          const next = new Set(current);
+          for (const id of ids) next.delete(id);
+          return next;
+        }),
+    });
+  }
+  function copyFolder(itemId: string) {
+    void flush()
+      .then(() => {
+        const latest = workspace.getSnapshot();
+        const freshName =
+          latest.runs.find((entry) => entry.itemId === itemId)?.filename ||
+          latest.items.find((entry) => entry.id === itemId)?.plannedName;
+        if (!freshName) throw new Error('测量计划已变化，请重新选择。');
+        return unwrap(window.labrecord.copyName(freshName));
+      })
+      .then(() => notify('数据文件夹名称已复制。'))
+      .catch((error) =>
+        notify(error instanceof Error ? error.message : '无法复制，请选中名称后复制。', true),
+      );
+  }
   const visible = items.filter((item) => {
     const sample = snapshot.samples.find((entry) => entry.id === item.sampleId)!;
     const run = snapshot.runs.find((entry) => entry.itemId === item.id);
@@ -404,7 +453,13 @@ export function MeasurementPlanner() {
             </button>
           </span>
         )}
-        <p className="hint">一件样品可提前安排多种制度。复制名称即可用作数据文件夹名。</p>
+        <p className="hint">
+          一件样品可提前安排多种制度。
+          {experiment && /\{run(?::0[1-9])?\}/.test(experiment.namingPattern)
+            ? '当前规则的末尾数字是全表计划序号，不是样品编号。'
+            : '文件夹名跟样品编号走；同一件样品的第 2 次测量才加 _02。'}
+          复制名称即可用作数据文件夹名。还没开始的测量可以右键删除。
+        </p>
         <button
           className="button small"
           disabled={!canConfigure}
@@ -430,6 +485,30 @@ export function MeasurementPlanner() {
         >
           <Plus size={14} />
           同样品追加制度
+        </button>
+        <button
+          type="button"
+          className="button small danger"
+          disabled={
+            !chosen.length ||
+            !!itemsDeleteReason(
+              snapshot,
+              chosen.map((item) => item.id),
+            )
+          }
+          title={
+            itemsDeleteReason(
+              snapshot,
+              chosen.map((item) => item.id),
+            ) || '删除所选测量'
+          }
+          onClick={() => {
+            const ids = chosen.map((item) => item.id);
+            askDelete(itemsDeleteRequest(snapshot, ids), ids);
+          }}
+        >
+          <Trash2 size={14} />
+          删除所选测量
         </button>
       </div>
       {!items.length ? (
@@ -467,8 +546,60 @@ export function MeasurementPlanner() {
                   run?.snapshot.sample ||
                   snapshot.samples.find((entry) => entry.id === item.sampleId)!;
                 const name = run?.filename || item.plannedName;
+                const targetIds =
+                  selected.has(item.id) && selected.size > 1 ? [...selected] : [item.id];
+                const deleteReason = itemsDeleteReason(snapshot, targetIds);
+                const configurable = ['pending', 'skipped'].includes(item.status) && !run;
                 return (
-                  <tr key={item.id}>
+                  <tr
+                    key={item.id}
+                    onContextMenu={(event) =>
+                      openMenu(event, [
+                        {
+                          kind: 'item',
+                          label: '配置制度',
+                          disabled: !configurable,
+                          title: configurable ? undefined : '已有实际记录的制度与名称已固定',
+                          onSelect: () => open([item.id], false),
+                        },
+                        { kind: 'item', label: '追加制度', onSelect: () => open([item.id], true) },
+                        {
+                          kind: 'item',
+                          label: '复制名称',
+                          disabled: !name,
+                          onSelect: () => copyFolder(item.id),
+                        },
+                        {
+                          kind: 'item',
+                          label: '现场查看',
+                          onSelect: () => {
+                            void flush()
+                              .then(() => {
+                                setItemId(item.id);
+                                setPage('live');
+                              })
+                              .catch((error) => notify(error.message, true));
+                          },
+                        },
+                        { kind: 'separator' },
+                        {
+                          kind: 'item',
+                          label: deleteReason
+                            ? item.status === 'running'
+                              ? '删除这项测量（进行中）'
+                              : '删除这项测量（已有记录）'
+                            : targetIds.length > 1
+                              ? `删除所选 ${targetIds.length} 项测量`
+                              : '删除这项测量',
+                          disabled: !!deleteReason,
+                          danger: true,
+                          title: deleteReason || undefined,
+                          onSelect: () =>
+                            askDelete(itemsDeleteRequest(snapshot, targetIds), targetIds),
+                        },
+                      ])
+                    }
+                  >
                     <td>
                       <input
                         type="checkbox"
@@ -492,30 +623,14 @@ export function MeasurementPlanner() {
                     </td>
                     <td>
                       <code>{name || '沿用旧计划；配置后预留名称'}</code>
+                      {name && experiment && (
+                        <small>{folderNameNote(experiment.namingPattern, sample.code, name)}</small>
+                      )}
                       {name && (
                         <button
                           className="text-button"
                           aria-label={`复制测量名称 ${item.order + 1}`}
-                          onClick={() => {
-                            void flush()
-                              .then(() => {
-                                const latest = workspace.getSnapshot();
-                                const freshName =
-                                  latest.runs.find((entry) => entry.itemId === item.id)?.filename ||
-                                  latest.items.find((entry) => entry.id === item.id)?.plannedName;
-                                if (!freshName) throw new Error('测量计划已变化，请重新选择。');
-                                return unwrap(window.labrecord.copyName(freshName));
-                              })
-                              .then(() => notify('数据文件夹名称已复制。'))
-                              .catch((error) =>
-                                notify(
-                                  error instanceof Error
-                                    ? error.message
-                                    : '无法复制，请选中名称后复制。',
-                                  true,
-                                ),
-                              );
-                          }}
+                          onClick={() => copyFolder(item.id)}
                         >
                           <Copy size={13} />
                           复制
@@ -549,6 +664,18 @@ export function MeasurementPlanner() {
                       >
                         现场查看
                       </button>
+                      <button
+                        type="button"
+                        className="text-button danger"
+                        aria-label={`删除测量 ${sample.code}`}
+                        title={itemsDeleteReason(snapshot, [item.id]) || '删除这项还没开始的测量'}
+                        disabled={!!itemsDeleteReason(snapshot, [item.id])}
+                        onClick={() =>
+                          askDelete(itemsDeleteRequest(snapshot, [item.id]), [item.id])
+                        }
+                      >
+                        删除
+                      </button>
                     </td>
                   </tr>
                 );
@@ -572,6 +699,8 @@ export function MeasurementPlanner() {
           }}
         />
       )}
+      {menu}
+      <DeleteConfirm pending={pendingDelete} onClose={() => setPendingDelete(null)} />
     </section>
   );
 }

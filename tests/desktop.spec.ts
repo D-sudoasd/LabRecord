@@ -1377,3 +1377,98 @@ test('copying a folder name flushes edited naming fields and refuses to copy a s
     await application.evaluate(({ clipboard }, value) => clipboard.writeText(value), clipboard);
   }
 });
+
+test('right-click menus delete unstarted plans and keep recorded runs', async () => {
+  const created = await command(page, {
+    type: 'createExperiment',
+    name: '删除试验',
+    code: 'DEL-MENU',
+  });
+  const experimentId = created.experimentId!;
+  await command(page, {
+    type: 'addSamples',
+    experimentId,
+    count: 0,
+    patch: { name: '空组', state: '未测', preparedCount: 2 },
+  });
+  await command(page, {
+    type: 'addSamples',
+    experimentId,
+    count: 1,
+    patch: { name: '待删', state: '待安排', preparedCount: 2 },
+  });
+  const recorded = await command(page, {
+    type: 'addSamples',
+    experimentId,
+    count: 1,
+    patch: { name: '已测', state: '已完成组', preparedCount: 1 },
+  });
+  await command(page, { type: 'start', itemId: recorded.itemId! });
+  await command(page, { type: 'finish', itemId: recorded.itemId! });
+  await command(page, { type: 'createExperiment', name: '空实验', code: 'EMPTY-MENU' });
+  await page.reload();
+  await expect(page.locator('.loading-screen')).toHaveCount(0);
+  const before = await snapshot(page);
+  const run = before.runs[0];
+
+  await page.getByLabel('空组 样品统称', { exact: true }).click({ button: 'right' });
+  const menu = page.getByRole('menu', { name: '操作菜单' });
+  await expect(menu.getByRole('menuitem', { name: '复制文字', exact: true })).toBeVisible();
+  await expect(menu.getByRole('menuitem', { name: '编辑', exact: true })).toBeVisible();
+  await expect(menu.getByRole('menuitem', { name: '复制样品组', exact: true })).toBeVisible();
+  await expect(menu.getByRole('menuitem', { name: '安排测试', exact: true })).toBeVisible();
+  await expect(menu.getByRole('menuitem', { name: '删除样品组', exact: true })).toBeEnabled();
+  await page.keyboard.press('Escape');
+  await expect(menu).toHaveCount(0);
+
+  const recordedRow = page.locator('tr', {
+    has: page.getByLabel('已测 样品统称', { exact: true }),
+  });
+  await recordedRow.locator('.sample-state-caption').click({ button: 'right' });
+  await expect(page.getByRole('menuitem', { name: '删除样品组（已有记录）' })).toBeDisabled();
+  await page.keyboard.press('Escape');
+
+  await page.getByRole('button', { name: '现场记录', exact: true }).click();
+  await page.getByRole('button', { name: /选择样品 S02/ }).click({ button: 'right' });
+  await expect(page.getByRole('menuitem', { name: '上移', exact: true })).toBeVisible();
+  await expect(page.getByRole('menuitem', { name: '下移', exact: true })).toBeVisible();
+  await expect(page.getByRole('menuitem', { name: '删除未开始的测量（已有记录）' })).toBeDisabled();
+  await page.keyboard.press('Escape');
+  await page.getByRole('button', { name: /选择样品 S01/ }).click({ button: 'right' });
+  await expect(page.getByRole('menuitem', { name: '删除未开始的测量', exact: true })).toBeEnabled();
+  await page.keyboard.press('Escape');
+  await page.getByRole('button', { name: '实验规划', exact: true }).click();
+
+  await page.getByLabel('空组 样品统称', { exact: true }).click({ button: 'right' });
+  await page.getByRole('menuitem', { name: '删除样品组', exact: true }).click();
+  await page.getByRole('button', { name: '删除样品组', exact: true }).click();
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  await expect(page.getByLabel('空组 样品统称', { exact: true })).toHaveCount(0);
+
+  await page
+    .locator('tr', { has: page.getByLabel('选择测量 1 S01', { exact: true }) })
+    .getByText('待测', { exact: true })
+    .click({ button: 'right' });
+  await page.getByRole('menuitem', { name: '删除这项测量', exact: true }).click();
+  await page.getByRole('button', { name: '删除测量', exact: true }).click();
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+
+  await page.getByLabel('选择实验', { exact: true }).click({ button: 'right' });
+  await expect(page.getByRole('menuitem', { name: '删除当前实验（已有记录）' })).toBeDisabled();
+  await page.keyboard.press('Escape');
+  await page.getByLabel('选择实验', { exact: true }).selectOption({ label: '空实验 · EMPTY-MENU' });
+  await page.getByLabel('选择实验', { exact: true }).click({ button: 'right' });
+  await page.getByRole('menuitem', { name: '删除当前实验', exact: true }).click();
+  await page.getByRole('button', { name: '删除实验', exact: true }).click();
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+
+  const after = await snapshot(page);
+  expect(after.experiments.map((entry) => entry.code)).toEqual(['DEL-MENU']);
+  expect(after.groups.map((group) => group.name).sort()).toEqual(['已测', '待删']);
+  expect(after.samples.map((sample) => sample.code)).toEqual(['S02']);
+  expect(after.groups.find((group) => group.name === '待删')?.preparedCount).toBe(2);
+  expect(after.runs).toHaveLength(1);
+  expect(after.runs[0].filename).toBe(run.filename);
+  expect(after.runs[0].originalStartedAt).toBe(run.originalStartedAt);
+  expect(after.runs[0].snapshot).toEqual(run.snapshot);
+});
