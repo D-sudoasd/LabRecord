@@ -4,6 +4,43 @@ import type { Field, Value, Values, Status } from '../shared/model';
 import { STATUS_LABEL } from '../shared/model';
 import { useWorkspace } from './context';
 
+// An uncertain write may already be committed. Refresh before discarding its retry ID.
+export function useCommandClose({
+  pending,
+  busy,
+  onClose,
+  onError,
+}: {
+  pending: boolean;
+  busy: boolean;
+  onClose: () => void;
+  onError: (message: string) => void;
+}) {
+  const { refresh, notify } = useWorkspace();
+  const [closing, setClosing] = useState(false);
+  const gate = useRef(false);
+  function close() {
+    if (busy || gate.current) return;
+    if (!pending) {
+      onClose();
+      return;
+    }
+    gate.current = true;
+    setClosing(true);
+    void refresh()
+      .then(() => {
+        notify('已重新读取本机记录，请核对列表中的保存结果。');
+        onClose();
+      })
+      .catch((error) => onError(error instanceof Error ? error.message : String(error)))
+      .finally(() => {
+        gate.current = false;
+        setClosing(false);
+      });
+  }
+  return { close, closing };
+}
+
 export function useModalDialog() {
   const ref = useRef<HTMLDialogElement>(null);
   useEffect(() => {

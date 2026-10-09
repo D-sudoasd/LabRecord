@@ -12,12 +12,23 @@ import type {
   Field,
   RecordEvent,
 } from '../shared/model.js';
-import { STATUS_LABEL } from '../shared/model.js';
+import { STATUS_LABEL, effectiveProtocol } from '../shared/model.js';
 import { fieldSchema, validatePatch } from './validation.js';
+import { measurementFor, plannedGroup, regimeLabel } from '../shared/measurement.js';
+import { MATERIAL_FIELDS } from '../shared/materials.js';
 
 export const IMPORT_FIELDS: { key: ImportKey; label: string; aliases: string[] }[] = [
   { key: 'state', label: '样品状态', aliases: ['样品状态', '状态'] },
   { key: 'name', label: '样品名称', aliases: ['样品名称', '样品名', '名称', '样品'] },
+  { key: 'material', label: '材料短名', aliases: ['材料短名', '材料', '材料牌号'] },
+  { key: 'composition', label: '成分', aliases: ['成分', '化学成分', '合金成分', '名义成分'] },
+  { key: 'processing', label: '加工工艺', aliases: ['加工工艺', '加工', '加工状态', '变形工艺'] },
+  { key: 'heatTreatment', label: '热处理制度', aliases: ['热处理制度', '热处理', '热处理工艺'] },
+  {
+    key: 'otherTreatment',
+    label: '其他工艺',
+    aliases: ['其他工艺', '其他', '特殊工艺', '其他处理'],
+  },
   { key: 'width', label: '宽度', aliases: ['宽度', '宽度/mm', '宽度（mm）'] },
   { key: 'height', label: '高度', aliases: ['高度', '长度', '高度/mm'] },
   { key: 'dimensionUnit', label: '宽高单位', aliases: ['宽高单位', '尺寸单位', '宽度单位'] },
@@ -26,6 +37,11 @@ export const IMPORT_FIELDS: { key: ImportKey; label: string; aliases: string[] }
     key: 'mode',
     label: 'In situ/Ex situ',
     aliases: ['In situ/Ex situ', '原位/非原位', '实验方式'],
+  },
+  {
+    key: 'protocol',
+    label: '实验制度',
+    aliases: ['实验制度', '实验程序', '原位制度'],
   },
   { key: 'priority', label: '优先级', aliases: ['优先级'] },
   { key: 'thickness', label: '厚度', aliases: ['厚度', '厚度/mm', '厚度 (mm)', '厚度（mm）'] },
@@ -39,6 +55,15 @@ export const IMPORT_FIELDS: { key: ImportKey; label: string; aliases: string[] }
   { key: 'legacyCompleted', label: '原表完成标记', aliases: ['已完成', '原表完成标记'] },
   { key: 'legacyTime', label: '原表实验时间', aliases: ['实验时间', '原表实验时间'] },
 ];
+function customPlanningHeader(field: Field) {
+  const header = `${field.label}${field.unit ? ' / ' + field.unit : ''}`;
+  const normalized = header.toLowerCase().replace(/\s/g, '');
+  return IMPORT_FIELDS.some(({ aliases }) =>
+    aliases.some((alias) => alias.toLowerCase().replace(/\s/g, '') === normalized),
+  )
+    ? `自定义 ${header}`
+    : header;
+}
 export function parseDelimited(text: string, delimiter?: string): string[][] {
   text = text.replace(/^\uFEFF/, '');
   delimiter ||= text.split(/\r?\n/, 1)[0].includes('\t') ? '\t' : ',';
@@ -133,10 +158,15 @@ export async function previewFile(path: string): Promise<TablePreview> {
     if (definitions.rowCount > 52) throw new Error('参数定义超过 50 个。');
     for (let row = 3; row <= definitions.rowCount; row++) {
       const field = fieldSchema.parse(JSON.parse(definitions.getCell(row, 2).text)) as Field;
-      const column = result.headers.indexOf(
-        `${field.label}${field.unit ? ' / ' + field.unit : ''}`,
-      );
-      if (column >= 0) result.customFields.push({ column, definition: field });
+      // Older exports may use a label that is now also a built-in material field.
+      const original = `${field.label}${field.unit ? ' / ' + field.unit : ''}`;
+      let column = rows[0].lastIndexOf(customPlanningHeader(field));
+      if (column < 0) column = rows[0].lastIndexOf(original);
+      if (column >= 0) {
+        result.customFields.push({ column, definition: field });
+        for (const { key } of IMPORT_FIELDS)
+          if (result.mapping[key] === column) delete result.mapping[key];
+      }
     }
     result.warnings.push('检测到 LabRecord 参数定义，保留自定义字段类型、单位和空值。');
   }
@@ -221,7 +251,7 @@ export function importTable(store: Store, request: ImportRequest): Snapshot {
           ? '未定'
           : /^(in\s*situ|原位)$/i.test(modeRaw)
             ? 'In situ'
-            : /^(ex\s*situ|非原位)$/i.test(modeRaw)
+            : /^(ex\s*situ|非原位|离位)$/i.test(modeRaw)
               ? 'Ex situ'
               : null;
       if (!mode) throw new Error(`第 ${index + 2} 行实验方式无法识别：${modeRaw}。`);
@@ -251,9 +281,26 @@ export function importTable(store: Store, request: ImportRequest): Snapshot {
           return [e.field.id, value];
         }),
       );
+      for (const [key, max, label] of [
+        ['material', 300, '材料短名'],
+        ['composition', 3000, '成分'],
+        ['processing', 3000, '加工工艺'],
+        ['heatTreatment', 3000, '热处理制度'],
+        ['otherTreatment', 3000, '其他工艺'],
+      ] as const) {
+        const value = raw(key);
+        if (value.length > max) throw new Error(`第 ${index + 2} 行${label}超过 ${max} 个字符。`);
+      }
       const patch: Partial<Group> = {
         state: raw('state') || '未指定',
         name: raw('name'),
+        material: raw('material'),
+        ...Object.fromEntries(
+          MATERIAL_FIELDS.filter(({ key }) => mapping[key] !== undefined).map(({ key }) => [
+            key,
+            raw(key),
+          ]),
+        ),
         width: raw('width'),
         height: raw('height'),
         dimensionUnit:
@@ -264,6 +311,7 @@ export function importTable(store: Store, request: ImportRequest): Snapshot {
             : ''),
         preparedCount: quantity ? Number(quantity) : null,
         mode,
+        protocol: raw('protocol'),
         priority: priority as Group['priority'],
         thickness: raw('thickness'),
         thicknessUnit,
@@ -336,6 +384,8 @@ export function operationRows(
     '优先级',
     '计划方式',
     '实际方式',
+    '计划实验制度',
+    '实际实验制度',
     '计划厚度',
     '计划厚度单位',
     '实际厚度',
@@ -361,6 +411,12 @@ export function operationRows(
     'plan_item_id',
     'run_id',
     '原操作ID',
+    '材料短名',
+    '测量技术',
+    '制度类型',
+    '测量批次 / 条件短码',
+    '计划命名序号',
+    ...MATERIAL_FIELDS.map(({ label }) => `计划${label}`),
     ...fields.flatMap((f) => [
       `计划 ${f.label}${f.unit ? ' / ' + f.unit : ''}`,
       `实际 ${f.label}${f.unit ? ' / ' + f.unit : ''}`,
@@ -372,10 +428,9 @@ export function operationRows(
     .map((item) => {
       const run = snapshot.runs.find((r) => r.itemId === item.id);
       const sample = run?.snapshot.sample || snapshot.samples.find((s) => s.id === item.sampleId)!;
-      const group = run?.snapshot.group || {
-        ...snapshot.groups.find((g) => g.id === sample.groupId)!,
-        ...sample.parameters,
-      };
+      const stored = snapshot.groups.find((g) => g.id === sample.groupId);
+      const group = run?.snapshot.group || plannedGroup(stored!, sample, item);
+      const measurement = measurementFor(snapshot, item);
       const problems = snapshot.events
         .filter((e) => e.itemId === item.id && e.type === 'issue')
         .map(
@@ -401,6 +456,8 @@ export function operationRows(
         group.priority,
         group.mode,
         run?.actual.mode ?? null,
+        group.protocol ?? '',
+        run?.actual.protocol ?? '',
         group.thickness,
         group.thicknessUnit,
         run?.actual.thickness ?? null,
@@ -416,7 +473,7 @@ export function operationRows(
         run?.originalStartedAt || '',
         run?.originalEndedAt || '',
         run?.timezone || '',
-        run?.filename || '',
+        run?.filename || item.plannedName || '',
         run?.actual.filename || '',
         run?.actual.scanId || '',
         run?.actual.files || '',
@@ -429,6 +486,12 @@ export function operationRows(
         item.id,
         run?.id || '',
         item.repeatOf || '',
+        group.material ?? null,
+        measurement.technique || '',
+        measurement.regime ? regimeLabel(measurement.regime) : '',
+        measurement.batch || '',
+        item.nameNumber ?? null,
+        ...MATERIAL_FIELDS.map(({ key }) => group[key] ?? null),
         ...fields.flatMap((f) =>
           definition.some((d) => sameField(d, f))
             ? [sample.values[f.id] ?? group.values[f.id] ?? null, run?.actual[f.id] ?? null]
@@ -452,7 +515,7 @@ function addSheet(workbook: ExcelJS.Workbook, name: string, rows: (string | numb
     cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF176B62' } };
   });
   sheet.columns.forEach((column, index) => {
-    column.width = /备注|问题|文件引用/.test(String(rows[0][index]))
+    column.width = /备注|问题|文件引用|制度/.test(String(rows[0][index]))
       ? 36
       : /时间|编号|样品状态/.test(String(rows[0][index]))
         ? 24
@@ -483,6 +546,7 @@ function planningRows(snapshot: Snapshot, experimentId: string): (string | numbe
       '计划测试样品数',
       '备样数量',
       'In situ/Ex situ',
+      '实验制度',
       '优先级',
       '厚度',
       '厚度单位',
@@ -491,7 +555,9 @@ function planningRows(snapshot: Snapshot, experimentId: string): (string | numbe
       '原表完成标记',
       '原表实验时间',
       'group_id',
-      ...experiment.fields.map((f) => `${f.label}${f.unit ? ' / ' + f.unit : ''}`),
+      '材料短名',
+      ...MATERIAL_FIELDS.map(({ label }) => label),
+      ...experiment.fields.map(customPlanningHeader),
     ],
     ...snapshot.groups
       .filter((g) => g.experimentId === experimentId)
@@ -508,6 +574,7 @@ function planningRows(snapshot: Snapshot, experimentId: string): (string | numbe
           planned,
           g.preparedCount === null ? null : Math.max(0, g.preparedCount - planned),
           g.mode,
+          g.protocol ?? '',
           g.priority,
           g.thickness,
           g.thicknessUnit,
@@ -516,6 +583,8 @@ function planningRows(snapshot: Snapshot, experimentId: string): (string | numbe
           g.legacyCompleted === null ? '' : g.legacyCompleted ? '1' : '0',
           g.legacyTime,
           g.id,
+          g.material ?? null,
+          ...MATERIAL_FIELDS.map(({ key }) => g[key] ?? null),
           ...experiment.fields.map((f) => g.values[f.id] ?? null),
         ];
       }),

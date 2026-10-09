@@ -13,9 +13,17 @@ declare global {
     labrecord: DesktopApi;
   }
 }
+export class DesktopReplyError extends Error {
+  constructor(
+    message: string,
+    readonly rejected: boolean,
+  ) {
+    super(message);
+  }
+}
 export async function unwrap<T>(promise: Promise<Reply<T>>): Promise<T> {
   const reply = await promise;
-  if (!reply.ok) throw new Error(reply.error);
+  if (!reply.ok) throw new DesktopReplyError(reply.error, reply.rejected === true);
   return reply.data;
 }
 const EMPTY: Snapshot = {
@@ -51,6 +59,7 @@ interface Workspace {
   setPage: (page: 'plan' | 'live' | 'review') => void;
   execute: (command: Command, follow?: boolean, requestId?: string) => Promise<CommandResult>;
   replace: (snapshot: Snapshot) => void;
+  refresh: () => Promise<void>;
   notify: (message: string, error?: boolean) => void;
   alert: { message: string; error: boolean } | null;
   dismissAlert: () => void;
@@ -128,6 +137,10 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     },
     [replace, notify],
   );
+  const refresh = useCallback(async () => {
+    replace(await unwrap(window.labrecord.snapshot()));
+    setLastWriteFailed(false);
+  }, [replace]);
   const registerDraft = useCallback((key: string, save: () => Promise<void>, failed = false) => {
     drafts.current.set(key, { save, failed });
     setDraftVersion((n) => n + 1);
@@ -184,6 +197,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
         setPage,
         execute,
         replace,
+        refresh,
         notify,
         alert,
         dismissAlert: () => setAlert(null),

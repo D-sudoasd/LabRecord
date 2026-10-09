@@ -3,10 +3,25 @@ import type { Command, GroupPatch } from '../shared/model.js';
 const text = z.string().max(50000);
 const id = z.string().min(1).max(200);
 const values = z.record(z.string().max(200), z.union([text, z.number().finite(), z.null()]));
+export const measurementSchema = z
+  .object({
+    mode: z.enum(['未定', 'In situ', 'Ex situ']).optional(),
+    technique: z.string().max(80).optional(),
+    regime: z.string().max(80).optional(),
+    batch: z.string().max(80).optional(),
+    protocol: text.optional(),
+    customName: z.string().max(200).optional(),
+  })
+  .strict();
 const patch = z
   .object({
     state: z.string().trim().min(1).max(300).optional(),
     name: z.string().max(300).optional(),
+    material: z.string().max(300).optional(),
+    composition: z.string().max(3000).optional(),
+    processing: z.string().max(3000).optional(),
+    heatTreatment: z.string().max(3000).optional(),
+    otherTreatment: z.string().max(3000).optional(),
     width: text.optional(),
     height: text.optional(),
     dimensionUnit: z.string().max(40).optional(),
@@ -17,6 +32,7 @@ const patch = z
     thicknessUnit: z.string().max(40).optional(),
     preparation: text.optional(),
     notes: text.optional(),
+    protocol: text.optional(),
     values: values.optional(),
   })
   .strict();
@@ -29,6 +45,7 @@ export const fieldSchema = z
           'thickness',
           'thicknessUnit',
           'preparation',
+          'protocol',
           'filename',
           'scanId',
           'files',
@@ -49,6 +66,8 @@ const schemas: Record<string, z.ZodType> = {
       name: z.string().trim().min(1).max(300),
       code: z.string().trim().min(1).max(80),
       description: text.optional(),
+      namingPattern: z.string().max(240).optional(),
+      fields: z.array(fieldSchema).max(50).optional(),
     })
     .strict(),
   updateExperiment: z
@@ -69,6 +88,7 @@ const schemas: Record<string, z.ZodType> = {
       patch,
       count: z.number().int().min(0).max(1000),
       prefix: z.string().max(250).optional(),
+      measurement: measurementSchema.optional(),
     })
     .strict(),
   temporary: z.object({ type: z.literal('temporary'), experimentId: id, patch }).strict(),
@@ -82,6 +102,18 @@ const schemas: Record<string, z.ZodType> = {
       groupId: id,
       count: z.number().int().min(1).max(1000),
       prefix: z.string().max(250).optional(),
+      measurement: measurementSchema.optional(),
+      specimens: z
+        .array(
+          z
+            .object({
+              name: z.string().max(300).optional(),
+              protocol: z.string().max(50000).optional(),
+            })
+            .strict(),
+        )
+        .max(1000)
+        .optional(),
     })
     .strict(),
   updateSamples: z
@@ -95,6 +127,21 @@ const schemas: Record<string, z.ZodType> = {
     .strict(),
   reorder: z
     .object({ type: z.literal('reorder'), experimentId: id, ids: z.array(id).max(10000) })
+    .strict(),
+  configureMeasurements: z
+    .object({
+      type: z.literal('configureMeasurements'),
+      ids: z.array(id).min(1).max(1000),
+      measurement: measurementSchema,
+    })
+    .strict(),
+  scheduleMeasurements: z
+    .object({
+      type: z.literal('scheduleMeasurements'),
+      itemIds: z.array(id).min(1).max(1000),
+      measurement: measurementSchema.optional(),
+      repetitions: z.number().int().min(1).max(100).optional(),
+    })
     .strict(),
   start: itemCommand('start'),
   finish: itemCommand('finish'),

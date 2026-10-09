@@ -6,6 +6,7 @@ import JSZip from 'jszip';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const packageInfo = JSON.parse(await readFile(join(root, 'package.json'), 'utf8'));
+const refreshScreenshots = !process.argv.includes('--preserve-screenshots');
 const release = join(root, 'release');
 const filename = `LabRecord-${packageInfo.version}-Windows-x64.zip`;
 const zipBytes = await readFile(join(release, filename));
@@ -56,13 +57,15 @@ if (resolve(runtime.appPath) !== resolve(join(release, 'win-unpacked/resources/a
 const images = join(root, 'docs/images');
 await mkdir(images, { recursive: true });
 for (const name of ['planning', 'live', 'review'])
-  await copyFile(join(testOutput, `${name}.png`), join(images, `${name}.png`));
+  if (refreshScreenshots)
+    await copyFile(join(testOutput, `${name}.png`), join(images, `${name}.png`));
 const upgradeOutput = join(
   root,
   'test-results/desktop-quick-entry-and-di-eb07b-act-plan-and-cloud-controls',
 );
 for (const name of ['quick-add', 'planning-small'])
-  await copyFile(join(upgradeOutput, `${name}.png`), join(images, `${name}.png`));
+  if (refreshScreenshots)
+    await copyFile(join(upgradeOutput, `${name}.png`), join(images, `${name}.png`));
 const exampleReport = join(upgradeOutput, 'example-report');
 const reportManifest = JSON.parse(await readFile(join(exampleReport, 'manifest.json'), 'utf8'));
 for (const file of reportManifest.files) {
@@ -76,10 +79,11 @@ const archiveOutput = (await readdir(join(root, 'test-results'))).find((name) =>
   name.startsWith('desktop-report-archive'),
 );
 if (!archiveOutput) throw new Error('缺少报告归档界面检查。');
-await copyFile(
-  join(root, 'test-results', archiveOutput, 'report-cloud.png'),
-  join(images, 'report-cloud.png'),
-);
+if (refreshScreenshots)
+  await copyFile(
+    join(root, 'test-results', archiveOutput, 'report-cloud.png'),
+    join(images, 'report-cloud.png'),
+  );
 if (zip.file('示例表格/旧表参考.tsv')) throw new Error('原始个人样品表不能进入公开软件包。');
 const manifest = {
   format: 'LabRecordDelivery',
@@ -105,7 +109,9 @@ console.log(
       archive: manifest.archive,
       archiveFileCount: manifest.archiveFileCount,
       matchedFiles: files.length,
-      screenshots: ['planning', 'live', 'review', 'quick-add', 'planning-small', 'report-cloud'],
+      screenshots: refreshScreenshots
+        ? ['planning', 'live', 'review', 'quick-add', 'planning-small', 'report-cloud']
+        : [],
       runtime,
     },
     null,

@@ -1,0 +1,246 @@
+{
+  "format": "LabRecordVerification",
+  "formatVersion": 1,
+  "softwareVersion": "0.6.0",
+  "checkedAtUtc": "2026-10-09T05:35:10.864Z",
+  "scope": "Local offline Windows delivery using synthetic experiments and independent temporary data",
+  "checks": {
+    "typecheck": "passed",
+    "build": "passed",
+    "unit": {
+      "passed": 58,
+      "failed": 0
+    },
+    "developmentDesktop": {
+      "fullSuitePassed": 40,
+      "finalCopyScenariosPassed": 2
+    },
+    "packagedDesktop": {
+      "startTime": "2026-10-09T05:33:01.160Z",
+      "duration": 122087.342,
+      "expected": 41,
+      "skipped": 0,
+      "unexpected": 0,
+      "flaky": 0
+    },
+    "archiveCrc": "passed",
+    "archiveMatchedFiles": 10,
+    "changedFilesFormatting": "passed",
+    "gitDiffCheck": "passed"
+  },
+  "codeReview": {
+    "status": "PASS",
+    "codeQualityStatus": "CLEAR",
+    "blockers": [],
+    "independentTestExecution": false
+  },
+  "archive": {
+    "filename": "LabRecord-0.6.0-Windows-x64.zip",
+    "bytes": 163041818,
+    "sha256": "ce461a914efa8eff50fbb629fa9c5781405616f38bdf3d07a660f954915b92ca"
+  },
+  "archiveFileCount": 149,
+  "runtime": {
+    "version": "0.6.0",
+    "packaged": true,
+    "appPath": "resources/app.asar",
+    "electron": "44.5.1",
+    "node": "24.21.0",
+    "sqlite": "3.53.4",
+    "platform": "win32",
+    "arch": "x64",
+    "displayScale": 1.5
+  },
+  "source": {
+    "gitHead": "4c95de5a2691e5c97c5fedb147378efda005e12a",
+    "includesUncommittedChanges": true,
+    "sha256": "c3187acff73ed30ee56bd9705228e04e267c75e28a03019f9e2a4e82aeb74d91",
+    "inputCount": 63,
+    "localIndex": "local_artifacts/beamtime-upgrade/source-snapshot.json"
+  },
+  "preservation": {
+    "initialWorkingTreeArchive": "local_artifacts/beamtime-upgrade/before-20261009-125000/working-tree.zip",
+    "initialWorkingTreeSha256": "cae4633948943f0c707120ea3e37afd347faee9fb7e34aa56cb698f9a72be0dd",
+    "original05ScreenshotsPreserved": 10,
+    "userAppDataUsedForTests": false
+  },
+  "evidence": {
+    "unit": "local_artifacts/beamtime-upgrade/final-unit.log",
+    "development": "local_artifacts/beamtime-upgrade/final-verify.log",
+    "packaged": "local_artifacts/beamtime-upgrade/packaged.log",
+    "delivery": "local_artifacts/beamtime-upgrade/delivery-check.log",
+    "review": "local_artifacts/beamtime-upgrade/code-review.md"
+  },
+  "limitations": [
+    "No real SXRD files were read or matched.",
+    "No new live GitHub synchronization or GitHub CI was executed.",
+    "Windows executable is not code signed.",
+    "Verification covers software behavior, not scientific conclusions."
+  ],
+  "packagedScenarios": [
+    {
+      "title": "Windows desktop: plan → notes/problem/image → finish → export → complete backup and restore",
+      "ok": true
+    },
+    {
+      "title": "UI paste mapping imports legacy flags, null times and original states without scheduling tests",
+      "ok": true
+    },
+    {
+      "title": "unfinished operation and immediate note flush survive normal close and abrupt exit",
+      "ok": true
+    },
+    {
+      "title": "failed save retains input, shows failure and can retry through the desktop boundary",
+      "ok": true
+    },
+    {
+      "title": "workspace shortcuts, quantity guidance and clear search keep the workflow predictable",
+      "ok": true
+    },
+    {
+      "title": "operation duration uses recorded timestamps across midnight, corrections and restart",
+      "ok": true
+    },
+    {
+      "title": "keyboard operation, small window and display zoom keep current controls usable",
+      "ok": true
+    },
+    {
+      "title": "live UI: double click, spare activation, remeasurement, skip, interruption and time correction",
+      "ok": true
+    },
+    {
+      "title": "quick entry and dimensions → real PDF/HTML report; compact plan and cloud controls",
+      "ok": true
+    },
+    {
+      "title": "report archive status and preference controls remain usable with offline failures",
+      "ok": true
+    },
+    {
+      "title": "in-situ protocol is visible on the live page and stays at the text written before start",
+      "ok": true
+    },
+    {
+      "title": "arranging one state can name each specimen and give it a different in-situ protocol",
+      "ok": true
+    },
+    {
+      "title": "offline beamtime: preview and copy folder names, schedule multiple regimes on one sample and keep independent snapshots",
+      "ok": true
+    },
+    {
+      "title": "measurement configuration retries a lost reply with the same request and survives narrow Windows layout",
+      "ok": true
+    },
+    {
+      "title": "historical naming rules and typed experiment settings are reusable; measurement presets work across experiments",
+      "ok": true
+    },
+    {
+      "title": "quick sample addition retries a committed request once instead of duplicating physical samples",
+      "ok": true
+    },
+    {
+      "title": "experiment creation and specimen arrangement recover committed replies, while rejected duplicate codes remain editable",
+      "ok": true
+    },
+    {
+      "title": "cancelling an uncertain measurement refreshes stored records; failed refresh preserves the fixed retry request",
+      "ok": true
+    },
+    {
+      "title": "rejected sample input remains editable and continuous entry restores the name focus",
+      "ok": true
+    },
+    {
+      "title": "copying a folder name flushes edited naming fields and refuses to copy a stale name after save failure",
+      "ok": true
+    },
+    {
+      "title": "quick record: before-write, free-note flush, rapid click and navigation retry preserve one intent",
+      "ok": true
+    },
+    {
+      "title": "quick record: lost-reply, free-note flush, rapid click and navigation retry preserve one intent",
+      "ok": true
+    },
+    {
+      "title": "rapid recording clicks keep one start, one quick note and one finish without starting the next sample",
+      "ok": true
+    },
+    {
+      "title": "issue templates and custom text survive Cancel, Escape, close and page changes without creating an unsubmitted event",
+      "ok": true
+    },
+    {
+      "title": "submitted issue: before-write retains its payload and request ID across closing and retry",
+      "ok": true
+    },
+    {
+      "title": "submitted issue: lost-reply retains its payload and request ID across closing and retry",
+      "ok": true
+    },
+    {
+      "title": "delayed completion keeps the opened note dialog on the original item/run and blocks every close path while saving",
+      "ok": true
+    },
+    {
+      "title": "delayed completion keeps the opened issue dialog on the original item/run and blocks every close path while saving",
+      "ok": true
+    },
+    {
+      "title": "time dialog survives delayed completion, disables Cancel/Escape while saving and uses the same fixed interface from Review",
+      "ok": true
+    },
+    {
+      "title": "native file selection merges the latest typed references and retains the original run after sample navigation",
+      "ok": true
+    },
+    {
+      "title": "delayed native picture selection remains attached to the originally viewed run after completion",
+      "ok": true
+    },
+    {
+      "title": "F8 ignores editing, inherited contenteditable, IME, dialogs, repeats and modifiers; ordinary Enter/Space buttons still record",
+      "ok": true
+    },
+    {
+      "title": "F8 cannot start during an in-flight command or while another sample or experiment is running",
+      "ok": true
+    },
+    {
+      "title": "return-to-running navigation flushes and stays on the viewed sample when saving fails",
+      "ok": true
+    },
+    {
+      "title": "next pending uses the whole reordered queue, including earlier and hidden samples, and completion only selects it",
+      "ok": true
+    },
+    {
+      "title": "focus retains current controls, notes and header; real 900×700 zoom 1.5 reflows with accessible search, timeline and issues",
+      "ok": true
+    },
+    {
+      "title": "overview: prepared 6 / physical samples 4 / operations 4 / spares 2; real repeat keeps IDs, status counts and immutable run snapshots",
+      "ok": true
+    },
+    {
+      "title": "real 900x700 Electron window at 150% zoom: search/save/overview stay accessible with measured colors and no page/header/modal overflow",
+      "ok": true
+    },
+    {
+      "title": "two unknown preparation groups show unknown totals; mixed known subtotal and unknown group counts remain explicit in planning and overview",
+      "ok": true
+    },
+    {
+      "title": "real IPC experiment-level null-item/null-run and run-only issues remain visible after completion, have details and resolve without false sample navigation",
+      "ok": true
+    },
+    {
+      "title": "viewing B while A runs: actual draft flush failure blocks return; delayed success selects A and the exact running item without starting B",
+      "ok": true
+    }
+  ]
+}

@@ -111,6 +111,129 @@ test('midnight crossing and time corrections preserve automatic originals and pr
   );
 });
 
+test('protocol captured at start stays in that snapshot after the plan changes', (t) => {
+  const { store } = fixture(t);
+  const created = store.command({
+    type: 'createExperiment',
+    code: 'P02',
+    name: '制度',
+  });
+  const experimentId = created.experimentId!;
+  const first = store.command({
+    type: 'addSamples',
+    experimentId,
+    patch: {
+      state: '原位试样',
+      name: '试样',
+      preparedCount: 2,
+      mode: 'In situ',
+      protocol: '升温 5 °C/min，保温 20 min',
+    },
+    count: 2,
+    prefix: 'S',
+  });
+  const overridden = store.snapshot().samples.find((sample) => sample.code === 'S02');
+  store.command({
+    type: 'updateSamples',
+    ids: [overridden!.id],
+    parameters: { protocol: '这一件改为 1×10⁻³ s⁻¹' },
+  });
+  store.command({ type: 'start', itemId: first.itemId });
+  const started = store.snapshot().runs[0];
+  assert.equal(started.snapshot.group.protocol, '升温 5 °C/min，保温 20 min');
+  assert.equal(started.actual.protocol, '升温 5 °C/min，保温 20 min');
+  assert.equal(started.originalStartedAt, started.startedAt);
+  store.command({
+    type: 'updateGroups',
+    ids: [started.snapshot.group.id],
+    patch: { protocol: '后来改为 450 °C', mode: 'Ex situ' },
+  });
+  const same = store.snapshot().runs[0];
+  assert.deepEqual(same.snapshot, started.snapshot);
+  assert.equal(same.originalStartedAt, started.originalStartedAt);
+  assert.equal(same.originalEndedAt, started.originalEndedAt);
+  store.command({ type: 'finish', itemId: first.itemId });
+  const secondId = store.snapshot().items.find((item) => item.status === 'pending')!.id;
+  store.command({ type: 'start', itemId: secondId });
+  const next = store.snapshot().runs.find((run) => run.itemId === secondId)!;
+  assert.equal(next.snapshot.group.protocol, '这一件改为 1×10⁻³ s⁻¹');
+  assert.equal(store.snapshot().groups[0].protocol, '后来改为 450 °C');
+  assert.equal(store.snapshot().groups[0].mode, 'Ex situ');
+});
+
+test('one state keeps separate specimen names and in-situ protocols', (t) => {
+  const { store } = fixture(t);
+  const experimentId = store.command({
+    type: 'createExperiment',
+    code: 'N1',
+    name: '命名',
+  }).experimentId!;
+  store.command({
+    type: 'addSamples',
+    experimentId,
+    patch: {
+      state: '时效',
+      name: 'Ti-A 拉伸试样',
+      preparedCount: 3,
+      mode: 'In situ',
+      protocol: '升温 5 °C/min',
+    },
+    count: 1,
+    prefix: 'TA-',
+  });
+  const first = store.snapshot().samples[0];
+  assert.equal(first.code, 'TA-01');
+  assert.deepEqual(first.parameters, {});
+  assert.throws(
+    () =>
+      store.command({
+        type: 'arrange',
+        groupId: first.groupId,
+        count: 2,
+        specimens: [{ name: '只写了一件' }],
+      }),
+    /件数/,
+  );
+  store.command({
+    type: 'arrange',
+    groupId: first.groupId,
+    count: 2,
+    prefix: 'TA-',
+    specimens: [
+      { name: '时效试样甲', protocol: '升温 2 °C/min，至 300 °C' },
+      { name: '  ', protocol: '升温 5 °C/min' },
+    ],
+  });
+  const samples = store.snapshot().samples.sort((a, b) => a.code.localeCompare(b.code));
+  assert.deepEqual(
+    samples.map((sample) => sample.code),
+    ['TA-01', 'TA-02', 'TA-03'],
+  );
+  assert.equal(samples[1].parameters.name, '时效试样甲');
+  assert.equal(samples[1].parameters.protocol, '升温 2 °C/min，至 300 °C');
+  assert.equal(samples[2].parameters.name, undefined);
+  assert.equal(samples[2].parameters.protocol, undefined);
+  const counts = groupCounts(store.snapshot(), store.snapshot().groups[0]);
+  assert.equal(counts.planned, 3);
+  assert.equal(counts.spare, 0);
+  const item = store.snapshot().items.find((entry) => entry.sampleId === samples[1].id)!;
+  store.command({ type: 'start', itemId: item.id });
+  const started = store.snapshot().runs[0];
+  assert.equal(started.snapshot.sample.parameters.name, '时效试样甲');
+  assert.equal(started.snapshot.group.name, '时效试样甲');
+  assert.equal(started.snapshot.group.protocol, '升温 2 °C/min，至 300 °C');
+  assert.equal(started.originalStartedAt, started.startedAt);
+  store.command({
+    type: 'updateSamples',
+    ids: [samples[1].id],
+    parameters: { name: '后来改名', protocol: '后来改制度' },
+  });
+  const same = store.snapshot().runs[0];
+  assert.deepEqual(same.snapshot, started.snapshot);
+  assert.equal(same.originalStartedAt, started.originalStartedAt);
+  assert.equal(same.originalEndedAt, started.originalEndedAt);
+});
+
 test('unknown start can be manually recorded with end only; no invented original timestamps', (t) => {
   const { store } = fixture(t);
   const itemId = store.command({ type: 'demo' }).itemId!;
@@ -142,6 +265,7 @@ test('plan snapshots and custom units stay unchanged after editing the plan', (t
   });
   const run = store.snapshot().runs[0];
   assert.deepEqual(run.snapshot, before.snapshot);
+  assert.equal(run.snapshot.group.protocol, '10 °C/min 升至 375 °C，保温 30 min。');
   assert.equal(run.snapshot.sample.code, 'TA-01');
   assert.equal(run.snapshot.fields[0].unit, '°C');
   assert.equal(run.actual.temperature, 30);
@@ -192,15 +316,20 @@ test('atomic batch edit, sequential numbering, reorder and temporary sample inse
   assert.equal(groupCounts(store.snapshot(), store.snapshot().groups.at(-1)!).planned, 0);
 });
 
-test('filename rules preserve the source name and refuse duplicates and Windows reserved paths', (t) => {
+test('filename rules preserve the source name, disambiguate repeats and refuse Windows reserved paths', (t) => {
   const { store } = fixture(t);
   const { itemId, experimentId } = store.command({ type: 'demo' });
   store.command({ type: 'updateExperiment', id: experimentId, namingPattern: '{sample}' });
   store.command({ type: 'start', itemId });
   store.command({ type: 'finish', itemId });
   const repeat = store.command({ type: 'repeat', itemId });
-  assert.throws(() => store.command({ type: 'start', itemId: repeat.itemId }), /重复/);
   assert.equal(store.get('items', repeat.itemId!).status, 'pending');
+  const source = store.snapshot().runs[0];
+  assert.equal(store.get('items', repeat.itemId!).plannedName, source.filename + '_M02');
+  store.command({ type: 'start', itemId: repeat.itemId });
+  assert.equal(store.snapshot().runs[1].filename, source.filename + '_M02');
+  assert.equal(store.snapshot().runs[1].sampleId, source.sampleId);
+  assert.deepEqual(store.snapshot().runs[0], source);
   assert.equal(
     filenameFor('{experiment}_{sample}_{run:03}', 'E01', 'demo-L / A', 2),
     'E01_demo-L___A_002',

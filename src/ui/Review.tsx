@@ -12,6 +12,9 @@ import { StatusPill, Empty, timeText, Modal, eventLabel, SearchField } from './c
 import { TimesDialog } from './Live';
 import { sampleName } from '../shared/model';
 import { reportInsights } from '../shared/summary';
+import { measurementFor, measurementSummary } from '../shared/measurement';
+import { materialSummary } from '../shared/materials';
+import { MaterialPreparationSummary } from './MaterialPreparation';
 export function Review() {
   const { snapshot, experimentId, notify, flush, setItemId, setPage, execute } = useWorkspace();
   const items = snapshot.items
@@ -31,7 +34,7 @@ export function Review() {
     const run = snapshot.runs.find((r) => r.itemId === item.id);
     const group = run?.snapshot.group || snapshot.groups.find((g) => g.id === sample.groupId)!;
     return (
-      `${sampleName(group)} ${group.state} ${run?.actualSample?.name || ''} ${sample.code} ${run?.notes || ''} ${run?.actual.filename || ''} ${run?.actual.scanId || ''}`
+      `${sampleName(group)} ${group.state} ${materialSummary(group)} ${run?.actualSample?.name || ''} ${run?.snapshot.sample.code || sample.code} ${run?.notes || ''} ${run?.actual.filename || ''} ${run?.actual.scanId || ''} ${measurementSummary(measurementFor(snapshot, item))} ${run?.filename || item.plannedName || ''}`
         .toLowerCase()
         .includes(search.toLowerCase()) &&
       (!problemsOnly || issues.some((e) => e.itemId === item.id))
@@ -250,6 +253,10 @@ export function Review() {
                   const run = snapshot.runs.find((r) => r.itemId === item.id),
                     sample =
                       run?.snapshot.sample || snapshot.samples.find((s) => s.id === item.sampleId)!;
+                  const group = run?.snapshot.group || {
+                    ...snapshot.groups.find((g) => g.id === sample.groupId)!,
+                    ...sample.parameters,
+                  };
                   return (
                     <tr key={item.id}>
                       <td>
@@ -261,6 +268,15 @@ export function Review() {
                             run?.snapshot.group.state ||
                             snapshot.groups.find((g) => g.id === sample.groupId)?.state}
                         </small>
+                        <MaterialPreparationSummary value={group} compact />
+                        {(item.measurement || run?.snapshot.measurement) && (
+                          <small>{measurementSummary(measurementFor(snapshot, item))}</small>
+                        )}
+                        {(run?.filename || item.plannedName) && (
+                          <small className="review-folder-name">
+                            {run?.filename || item.plannedName}
+                          </small>
+                        )}
                       </td>
                       <td>
                         <StatusPill status={item.status} />

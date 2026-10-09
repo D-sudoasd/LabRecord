@@ -6,6 +6,7 @@ import { join, dirname } from 'node:path';
 import type { Attachment, Snapshot } from '../shared/model.js';
 import { Store } from './store.js';
 import { archiveSchema } from './archive-validation.js';
+import { filenameFor } from '../shared/model.js';
 
 const hash = (value: Buffer) => createHash('sha256').update(value).digest('hex');
 const attachmentPath = /^attachments\/[a-f0-9-]+\.(png|jpg|webp|gif)$/;
@@ -64,6 +65,7 @@ export function inspectDatabase(path: string): Snapshot {
     }
     if (!archiveSchema.safeParse(result).success)
       throw new Error('备份中的字段类型、单位或记录格式无效。');
+    for (const group of result.groups) if (group.protocol == null) group.protocol = '';
     const validTime = (value: unknown) =>
       value === null || (typeof value === 'string' && Number.isFinite(Date.parse(value)));
     for (const sample of result.samples) {
@@ -90,9 +92,33 @@ export function inspectDatabase(path: string): Snapshot {
         throw new Error('备份中的样品组信息无效。');
     if (result.items.filter((i) => i.status === 'running').length > 1)
       throw new Error('备份存在多个同时进行的操作。');
+    const names = new Set<string>(),
+      nameNumbers = new Set<string>();
     for (const item of result.items) {
       const sample = result.samples.find((s) => s.id === item.sampleId);
       const run = result.runs.find((r) => r.itemId === item.id);
+      if (item.plannedName !== undefined) {
+        if (/[{}]/.test(item.plannedName)) throw new Error('备份中的计划名称无效。');
+        filenameFor(item.plannedName, '', '', 1);
+        const key = item.plannedName.toLowerCase();
+        if (
+          names.has(key) ||
+          result.runs.some(
+            (entry) =>
+              entry.itemId !== item.id &&
+              entry.filename.toLowerCase() === item.plannedName!.toLowerCase(),
+          )
+        )
+          throw new Error('备份中的计划名称重复。');
+        if (run && run.filename !== item.plannedName)
+          throw new Error('备份中的计划名称与实际记录不一致。');
+        names.add(key);
+      }
+      if (item.nameNumber !== undefined) {
+        const key = `${item.experimentId}:${item.nameNumber}`;
+        if (nameNumbers.has(key)) throw new Error('备份中的计划命名序号重复。');
+        nameNumbers.add(key);
+      }
       if (
         !sample ||
         sample.experimentId !== item.experimentId ||

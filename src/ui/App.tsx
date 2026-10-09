@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import {
   FlaskConical,
   LayoutList,
@@ -21,73 +21,127 @@ import {
   Cloud,
   Eye,
 } from 'lucide-react';
-import { useWorkspace, unwrap } from './context';
+import { useWorkspace, unwrap, DesktopReplyError } from './context';
 import { Plan } from './Plan';
 import { Live } from './Live';
 import { Review } from './Review';
-import { Modal } from './components';
+import { Modal, useCommandClose } from './components';
 import { CloudPanel } from './CloudPanel';
 import { ExperimentOverview } from './ExperimentOverview';
-import { DEFAULT_PATTERN, filenameFor, type Field, type DesktopInfo } from '../shared/model';
+import {
+  DEFAULT_PATTERN,
+  DETAILED_PATTERN,
+  filenameFor,
+  type Field,
+  type DesktopInfo,
+} from '../shared/model';
 import './workspace.css';
 
 function NewExperiment({ onClose }: { onClose: () => void }) {
-  const { execute } = useWorkspace();
+  const { execute, snapshot } = useWorkspace();
+  const [reuseId, setReuseId] = useState('');
   const [name, setName] = useState(''),
     [code, setCode] = useState('EXP-' + new Date().toLocaleDateString('sv-SE').replaceAll('-', '')),
     [description, setDescription] = useState(''),
     [busy, setBusy] = useState(false),
     [error, setError] = useState('');
+  const submitting = useRef(false);
+  const intent = useRef<{
+    command: Extract<import('../shared/model').Command, { type: 'createExperiment' }>;
+    requestId: string;
+  } | null>(null);
+  const { close, closing } = useCommandClose({
+    pending: !!intent.current,
+    busy,
+    onClose,
+    onError: setError,
+  });
   async function submit(event: React.FormEvent) {
     event.preventDefault();
+    if (submitting.current || closing) return;
+    submitting.current = true;
     setBusy(true);
     try {
-      await execute({ type: 'createExperiment', name, code, description });
+      const source = snapshot.experiments.find((entry) => entry.id === reuseId);
+      intent.current ??= {
+        command: {
+          type: 'createExperiment',
+          name,
+          code,
+          description,
+          ...(source ? { fields: source.fields, namingPattern: source.namingPattern } : {}),
+        },
+        requestId: crypto.randomUUID(),
+      };
+      await execute(intent.current.command, true, intent.current.requestId);
       onClose();
     } catch (error) {
+      if (error instanceof DesktopReplyError && error.rejected) intent.current = null;
       setError((error as Error).message);
     } finally {
+      submitting.current = false;
       setBusy(false);
     }
   }
   return (
-    <Modal title="新建实验" onClose={onClose}>
+    <Modal title="新建实验" onClose={close} closeDisabled={busy || closing}>
       <form onSubmit={submit} className="form-stack">
-        <label className="field">
-          <span>实验名称 *</span>
-          <input
-            required
-            autoFocus
-            placeholder="例如 10 月同步辐射原位拉伸"
-            value={name}
-            onChange={(event) => setName(event.target.value)}
-          />
-        </label>
-        <label className="field">
-          <span>实验编号 *</span>
-          <input required value={code} onChange={(event) => setCode(event.target.value)} />
-          <small>用于生成预期文件名，在同一本地数据库中唯一。</small>
-        </label>
-        <label className="field">
-          <span>说明（可选）</span>
-          <textarea
-            value={description}
-            onChange={(event) => setDescription(event.target.value)}
-            rows={3}
-            placeholder="束线、机时、实验目标或联系人等"
-          />
-        </label>
+        <fieldset className="measurement-editor" disabled={busy || closing || !!intent.current}>
+          <label className="field">
+            <span>实验名称 *</span>
+            <input
+              required
+              autoFocus
+              placeholder="例如 10 月同步辐射原位拉伸"
+              value={name}
+              onChange={(event) => setName(event.target.value)}
+            />
+          </label>
+          <label className="field">
+            <span>实验编号 *</span>
+            <input required value={code} onChange={(event) => setCode(event.target.value)} />
+            <small>用于生成预期文件名，在同一本地数据库中唯一。</small>
+          </label>
+          <label className="field">
+            <span>说明（可选）</span>
+            <textarea
+              value={description}
+              onChange={(event) => setDescription(event.target.value)}
+              rows={3}
+              placeholder="束线、机时、实验目标或联系人等"
+            />
+          </label>
+          {snapshot.experiments.length > 0 && (
+            <label className="field">
+              <span>复用已有实验设置（可选）</span>
+              <select
+                aria-label="复用已有实验设置（可选）"
+                value={reuseId}
+                onChange={(event) => setReuseId(event.target.value)}
+              >
+                <option value="">使用顺序编号（实验编号_S01、S02…）</option>
+                {snapshot.experiments.map((entry) => (
+                  <option key={entry.id} value={entry.id}>
+                    {entry.name} · {entry.code}
+                  </option>
+                ))}
+              </select>
+              <small>沿用命名规则、自定义字段和单位。新实验的样品与记录单独建立。</small>
+            </label>
+          )}
+        </fieldset>
         {error && (
           <p className="error-text" role="alert">
             {error}
+            {intent.current && ' 内容已固定，请重试创建以恢复同一请求的结果。'}
           </p>
         )}
         <footer className="modal-actions">
-          <button type="button" className="button" onClick={onClose}>
-            取消
+          <button type="button" className="button" disabled={busy || closing} onClick={close}>
+            {intent.current ? '返回查看记录' : '取消'}
           </button>
-          <button className="button primary" disabled={busy}>
-            创建实验
+          <button className="button primary" disabled={busy || closing}>
+            {intent.current ? '重试创建' : '创建实验'}
           </button>
         </footer>
       </form>
@@ -103,6 +157,14 @@ function SettingsDialog({
 }) {
   const { snapshot, experimentId, execute, notify, replace, flush } = useWorkspace();
   const experiment = snapshot.experiments.find((e) => e.id === experimentId);
+  const historicalPatterns = new Map<string, string>();
+  for (const entry of snapshot.experiments)
+    historicalPatterns.set(entry.namingPattern, `${entry.code} · ${entry.namingPattern}`);
+  for (const event of snapshot.events) {
+    if (typeof event.data.namingPattern !== 'string') continue;
+    for (const rule of [event.data.previous, event.data.namingPattern])
+      if (typeof rule === 'string') historicalPatterns.set(rule, `历史规则 · ${rule}`);
+  }
   const [name, setName] = useState(experiment?.name || ''),
     [description, setDescription] = useState(experiment?.description || ''),
     [pattern, setPattern] = useState(experiment?.namingPattern || DEFAULT_PATTERN),
@@ -121,7 +183,14 @@ function SettingsDialog({
   }, []);
   let preview: string;
   try {
-    preview = filenameFor(pattern, experiment?.code || 'EXP', 'SAMPLE-01', 1);
+    preview = filenameFor(pattern, experiment?.code || 'EXP', 'S01', 1, {
+      material: 'Ti2448',
+      state: '400C-aged',
+      mode: 'IS',
+      technique: 'SXRD',
+      regime: 'cyclic',
+      batch: 'B01',
+    });
   } catch (failure) {
     preview = (failure as Error).message;
   }
@@ -230,20 +299,75 @@ function SettingsDialog({
             />
           </label>
           <div className="section-title">
-            <h3>文件命名规则</h3>
+            <h3>数据文件夹与预期前缀命名</h3>
           </div>
+          <div className="measurement-toolbar">
+            <button
+              type="button"
+              className="button small"
+              onClick={() => setPattern(DETAILED_PATTERN)}
+            >
+              含材料与制度
+            </button>
+            <button
+              type="button"
+              className="button small"
+              onClick={() => setPattern(DEFAULT_PATTERN)}
+            >
+              简洁编号
+            </button>
+            <button
+              type="button"
+              className="button small"
+              onClick={() =>
+                setPattern('{experiment}_{material}_{sample}_{technique}_{regime}_{batch}')
+              }
+            >
+              按技术与制度
+            </button>
+          </div>
+          {historicalPatterns.size > 1 && (
+            <label className="field">
+              <span>复用历史命名规则</span>
+              <select
+                aria-label="复用历史命名规则"
+                defaultValue=""
+                onChange={(event) => {
+                  if (event.target.value) setPattern(event.target.value);
+                }}
+              >
+                <option value="">选择已有规则…</option>
+                {[...historicalPatterns].map(([rule, label]) => (
+                  <option key={rule} value={rule}>
+                    {label}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
           <label className="field">
             <span>规则</span>
-            <input value={pattern} onChange={(event) => setPattern(event.target.value)} />
+            <input
+              aria-label="规则"
+              value={pattern}
+              onChange={(event) => setPattern(event.target.value)}
+            />
             <small>
-              支持 {'{experiment}'}、{'{sample}'}、{'{run:03}'}
-              。样品原名保留，预期文件名中的特殊字符替换为下划线。
+              支持 {'{experiment}'} 实验编号、{'{material}'} 材料、{'{state}'} 原始状态、
+              {'{sample}'} 样品编号、{'{mode}'} IS/ES、{'{technique}'} 技术、{'{regime}'} 制度、
+              {'{batch}'} 批次、{'{run:03}'} 计划命名序号。
+              空字段自动省略；特殊字符只在生成名称中替换，原始文字保留。保存时更新尚未开始的自动名称；临时名称与已有实际记录保持固定。
             </small>
           </label>
           <div className="filename-preview">
             <span>预览</span>
             <code>{preview}</code>
           </div>
+          <p className="hint">
+            推荐使用“实验编号_S01、S02、S03”，普通测量不再追加
+            001。只有同一名称再次用于另一项测量时，才加 M02、M03
+            区分；样品编号不变。已有实验可点击“简洁编号”后保存，已开始的记录保持原名。
+          </p>
           <div className="section-title">
             <h3>自定义实验参数</h3>
             <button

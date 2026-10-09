@@ -2,7 +2,13 @@ import { DatabaseSync } from 'node:sqlite';
 import { randomUUID, createHash } from 'node:crypto';
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
-import { DEFAULT_PATTERN, filenameFor } from '../shared/model.js';
+import {
+  DEFAULT_PATTERN,
+  effectiveProtocol,
+  filenameFor,
+  planSpecimens,
+  specimenParameters,
+} from '../shared/model.js';
 import type {
   Snapshot,
   Experiment,
@@ -17,6 +23,12 @@ import type {
   Field,
 } from '../shared/model.js';
 import { validateCommand } from './validation.js';
+import {
+  measurementFor,
+  plannedGroup,
+  reserveMeasurementNames,
+  regimeLabel,
+} from '../shared/measurement.js';
 
 type Entities = {
   experiments: Experiment;
@@ -29,6 +41,12 @@ type Entities = {
 };
 type Table = keyof Entities;
 type Selection = { experimentId?: string; itemId?: string };
+export class CommandRejectedError extends Error {
+  constructor(error: unknown) {
+    super(error instanceof Error ? error.message : String(error));
+    this.name = 'CommandRejectedError';
+  }
+}
 const columns: Record<Table, Record<string, string>> = {
   experiments: {},
   groups: { experiment_id: 'experimentId' },
@@ -76,16 +94,24 @@ export class Store {
   now() {
     return this.clock().toISOString();
   }
+  private readRow<T extends Table>(table: T, json: string): Entities[T] {
+    const value = JSON.parse(json) as Entities[T];
+    if (table === 'groups') {
+      const group = value as Group;
+      if (group.protocol == null) group.protocol = '';
+    }
+    return value;
+  }
   list<T extends Table>(table: T): Entities[T][] {
     return this.db
       .prepare(`SELECT json FROM ${table} ORDER BY rowid`)
       .all()
-      .map((row) => JSON.parse(row.json as string));
+      .map((row) => this.readRow(table, row.json as string));
   }
   get<T extends Table>(table: T, id: string): Entities[T] {
     const row = this.db.prepare(`SELECT json FROM ${table} WHERE id=?`).get(id);
     if (!row) throw new Error('记录不存在，请刷新后重试。');
-    return JSON.parse(row.json as string);
+    return this.readRow(table, row.json as string);
   }
   put<T extends Table>(table: T, value: Entities[T]) {
     const names = Object.keys(columns[table]);
@@ -116,7 +142,8 @@ export class Store {
       return result;
     } catch (error) {
       this.db.exec('ROLLBACK');
-      throw error;
+      // Only a confirmed rollback proves that this write did not commit.
+      throw new CommandRejectedError(error);
     }
   }
   event(
@@ -150,6 +177,24 @@ export class Store {
         throw new Error(`${field.label} 不在预设选项中。`);
     }
   }
+  private checkFields(fields: Field[]) {
+    if (new Set(fields.map((field) => field.id)).size !== fields.length)
+      throw new Error('自定义字段编号重复。');
+    if (new Set(fields.map((field) => field.label.toLowerCase())).size !== fields.length)
+      throw new Error('自定义字段名称重复，请使用不同名称。');
+    if (fields.some((field) => field.type === 'select' && field.options.length === 0))
+      throw new Error('选项字段至少需要一个选项。');
+  }
+  private checkPattern(pattern: string, code: string) {
+    filenameFor(pattern, code, 'S01', 1, {
+      material: 'Material',
+      state: 'State',
+      mode: 'IS',
+      technique: 'SXRD',
+      regime: 'cyclic',
+      batch: 'B01',
+    });
+  }
   createGroup(experimentId: string, patch: Partial<Group>) {
     const experiment = this.get('experiments', experimentId);
     const group: Group = {
@@ -167,26 +212,37 @@ export class Store {
       thicknessUnit: '',
       preparation: '',
       notes: '',
+      protocol: '',
       values: {},
       order: this.list('groups').filter((g) => g.experimentId === experimentId).length,
       legacyCompleted: null,
       legacyTime: '',
       ...patch,
     };
+    if (group.protocol == null) group.protocol = '';
     this.checkValues(experiment.fields, group.values);
     this.put('groups', group);
     return group;
   }
-  arrange(groupId: string, count: number, prefix?: string): Selection {
+  arrange(
+    groupId: string,
+    count: number,
+    prefix?: string,
+    specimens?: { name?: string; protocol?: string }[],
+    measurement?: import('../shared/model.js').MeasurementPlan,
+  ): Selection {
     const group = this.get('groups', groupId);
     const samples = this.list('samples');
     const planned = samples.filter((s) => s.groupId === group.id).length;
     if (group.preparedCount !== null && planned + count > group.preparedCount)
       throw new Error(`准备 ${group.preparedCount} 个，已安排 ${planned} 个；请先核对准备数量。`);
-    const codes = new Set(
-      samples.filter((s) => s.experimentId === group.experimentId).map((s) => s.code.toLowerCase()),
+    if (specimens && specimens.length !== count) throw new Error('名单要和本次安排的件数一致。');
+    const assigned = planSpecimens(
+      samples.filter((s) => s.experimentId === group.experimentId).map((s) => s.code),
+      count,
+      prefix ?? '',
+      group,
     );
-    let ordinal = 1;
     let order =
       Math.max(
         -1,
@@ -195,19 +251,16 @@ export class Store {
           .map((i) => i.order),
       ) + 1;
     let firstId: string | undefined;
+    const itemIds: string[] = [];
     for (let index = 0; index < count; index++) {
-      let code: string;
-      do {
-        code = (prefix?.trim() || `${group.state}-`) + String(ordinal++).padStart(2, '0');
-      } while (codes.has(code.toLowerCase()));
-      codes.add(code.toLowerCase());
+      const code = assigned[index].code;
       const sample: Sample = {
         id: randomUUID(),
         experimentId: group.experimentId,
         groupId,
         code,
         values: {},
-        parameters: {},
+        parameters: specimens ? specimenParameters(group, specimens[index]) : {},
       };
       this.put('samples', sample);
       const item: PlanItem = {
@@ -217,12 +270,33 @@ export class Store {
         operation: '测量',
         order: order++,
         status: 'pending',
+        ...(measurement
+          ? {
+              measurement: structuredClone(measurement),
+              operation: regimeLabel(measurement.regime),
+            }
+          : {}),
       };
       this.put('items', item);
+      itemIds.push(item.id);
       firstId ??= item.id;
     }
+    this.refreshNames(group.experimentId, itemIds);
     this.event(group.experimentId, 'plan', `安排 ${count} 个样品进行测试`);
     return { experimentId: group.experimentId, itemId: firstId };
+  }
+  private refreshNames(experimentId: string, ids?: string[]) {
+    const snapshot = this.snapshot();
+    const recorded = new Set(snapshot.runs.map((run) => run.itemId));
+    const targets = snapshot.items.filter(
+      (item) =>
+        item.experimentId === experimentId &&
+        (!ids || ids.includes(item.id)) &&
+        ['pending', 'skipped'].includes(item.status) &&
+        !recorded.has(item.id),
+    );
+    for (const item of reserveMeasurementNames(snapshot, experimentId, targets))
+      this.put('items', item);
   }
   private makeRun(
     item: PlanItem,
@@ -232,7 +306,8 @@ export class Store {
   ) {
     const experiment = this.get('experiments', item.experimentId);
     const sample = this.get('samples', item.sampleId);
-    const group = { ...this.get('groups', sample.groupId), ...sample.parameters } as Group;
+    const stored = this.get('groups', sample.groupId);
+    const group = plannedGroup(stored, sample, item);
     const number =
       Math.max(
         0,
@@ -240,7 +315,11 @@ export class Store {
           .filter((r) => r.experimentId === item.experimentId)
           .map((r) => r.number),
       ) + 1;
-    const filename = filenameFor(experiment.namingPattern, experiment.code, sample.code, number);
+    if (!item.plannedName) {
+      this.refreshNames(item.experimentId, [item.id]);
+      item = this.get('items', item.id);
+    }
+    const filename = item.plannedName!;
     if (
       this.list('runs').some(
         (r) =>
@@ -267,12 +346,14 @@ export class Store {
         sample: structuredClone(sample),
         operation: item.operation,
         fields: structuredClone(experiment.fields),
+        ...(item.measurement ? { measurement: structuredClone(item.measurement) } : {}),
       },
       actual: {
         mode: group.mode,
         thickness: group.thickness,
         thicknessUnit: group.thicknessUnit,
         preparation: group.preparation,
+        protocol: group.protocol,
         filename: '',
         scanId: '',
         files: '',
@@ -291,15 +372,21 @@ export class Store {
     return run;
   }
   command(input: unknown, requestId = randomUUID()): CommandResult {
-    const command = validateCommand(input);
-    if (typeof requestId !== 'string' || requestId.length > 200 || !requestId)
-      throw new Error('请求编号无效。');
+    let command: ReturnType<typeof validateCommand>;
+    try {
+      command = validateCommand(input);
+      if (typeof requestId !== 'string' || requestId.length > 200 || !requestId)
+        throw new Error('请求编号无效。');
+    } catch (error) {
+      throw new CommandRejectedError(error);
+    }
     const fingerprint = createHash('sha256').update(JSON.stringify(command)).digest('hex');
     const previous = this.db
       .prepare('SELECT fingerprint,result FROM requests WHERE id=?')
       .get(requestId);
     if (previous) {
-      if (previous.fingerprint !== fingerprint) throw new Error('请求编号已经用于另一项操作。');
+      if (previous.fingerprint !== fingerprint)
+        throw new CommandRejectedError('请求编号已经用于另一项操作。');
       return { snapshot: this.snapshot(), ...JSON.parse(previous.result as string) };
     }
     const selection = this.transaction(() => {
@@ -323,10 +410,12 @@ export class Store {
           code: command.code,
           name: command.name,
           description: command.description || '',
-          fields: [],
-          namingPattern: DEFAULT_PATTERN,
+          fields: command.fields ?? [],
+          namingPattern: command.namingPattern ?? DEFAULT_PATTERN,
           createdAt: this.now(),
         };
+        this.checkPattern(experiment.namingPattern, experiment.code);
+        this.checkFields(experiment.fields);
         this.put('experiments', experiment);
         this.event(experiment.id, 'plan', '建立实验规划');
         return { experimentId: experiment.id };
@@ -334,19 +423,20 @@ export class Store {
       case 'updateExperiment': {
         const experiment = this.get('experiments', command.id);
         if (command.namingPattern !== undefined)
-          filenameFor(command.namingPattern, experiment.code, 'SAMPLE', 1);
-        if (command.fields) {
-          if (new Set(command.fields.map((f) => f.id)).size !== command.fields.length)
-            throw new Error('自定义字段编号重复。');
-          if (
-            new Set(command.fields.map((f) => f.label.toLowerCase())).size !== command.fields.length
-          )
-            throw new Error('自定义字段名称重复，请使用不同名称。');
-          if (command.fields.some((f) => f.type === 'select' && f.options.length === 0))
-            throw new Error('选项字段至少需要一个选项。');
-        }
+          this.checkPattern(command.namingPattern, experiment.code);
+        if (command.fields) this.checkFields(command.fields);
         const { type: _type, id: _id, ...patch } = command;
         this.put('experiments', { ...experiment, ...patch });
+        if (
+          command.namingPattern !== undefined &&
+          command.namingPattern !== experiment.namingPattern
+        ) {
+          this.refreshNames(experiment.id);
+          this.event(experiment.id, 'plan', '修改自动命名规则', null, null, {
+            previous: experiment.namingPattern,
+            namingPattern: command.namingPattern,
+          });
+        }
         return { experimentId: experiment.id };
       }
       case 'createGroup': {
@@ -356,7 +446,13 @@ export class Store {
       case 'addSamples': {
         const group = this.createGroup(command.experimentId, command.patch);
         return command.count
-          ? this.arrange(group.id, command.count, command.prefix || 'S')
+          ? this.arrange(
+              group.id,
+              command.count,
+              command.prefix || 'S',
+              undefined,
+              command.measurement,
+            )
           : { experimentId: command.experimentId };
       }
       case 'temporary': {
@@ -366,6 +462,7 @@ export class Store {
         return this.arrange(group.id, 1);
       }
       case 'updateGroups': {
+        const experimentIds = new Set<string>();
         for (const id of command.ids) {
           const group = this.get('groups', id);
           const next = {
@@ -375,7 +472,17 @@ export class Store {
           };
           this.checkValues(this.get('experiments', group.experimentId).fields, next.values);
           this.put('groups', next);
+          experimentIds.add(group.experimentId);
         }
+        const sampleIds = new Set(
+          this.list('samples')
+            .filter((sample) => command.ids.includes(sample.groupId))
+            .map((sample) => sample.id),
+        );
+        const ids = this.list('items')
+          .filter((item) => sampleIds.has(item.sampleId))
+          .map((item) => item.id);
+        for (const experimentId of experimentIds) this.refreshNames(experimentId, ids);
         return {};
       }
       case 'copyGroup': {
@@ -391,10 +498,17 @@ export class Store {
         return { experimentId: original.experimentId };
       }
       case 'arrange':
-        return this.arrange(command.groupId, command.count, command.prefix);
+        return this.arrange(
+          command.groupId,
+          command.count,
+          command.prefix,
+          command.specimens,
+          command.measurement,
+        );
       case 'updateSamples': {
         if (command.code && command.ids.length !== 1)
           throw new Error('样品编号只能逐个修改，批量编号请在安排测试时设置前缀。');
+        const experimentIds = new Set<string>();
         for (const id of command.ids) {
           const sample = this.get('samples', id);
           const next = {
@@ -405,7 +519,12 @@ export class Store {
           };
           this.checkValues(this.get('experiments', sample.experimentId).fields, next.values);
           this.put('samples', next);
+          experimentIds.add(sample.experimentId);
         }
+        const ids = this.list('items')
+          .filter((item) => command.ids.includes(item.sampleId))
+          .map((item) => item.id);
+        for (const experimentId of experimentIds) this.refreshNames(experimentId, ids);
         return {};
       }
       case 'reorder': {
@@ -419,6 +538,96 @@ export class Store {
         command.ids.forEach((id, order) => this.put('items', { ...this.get('items', id), order }));
         return {};
       }
+      case 'configureMeasurements': {
+        if (new Set(command.ids).size !== command.ids.length) throw new Error('操作选择重复。');
+        const items = command.ids.map((id) => this.get('items', id));
+        if (new Set(items.map((item) => item.experimentId)).size !== 1)
+          throw new Error('一次只能配置同一实验的操作。');
+        const reserveOnly = Object.keys(command.measurement).length === 0;
+        const recorded = new Set(this.list('runs').map((run) => run.itemId));
+        const edited: string[] = [];
+        for (const item of items) {
+          if (!['pending', 'skipped'].includes(item.status) || recorded.has(item.id))
+            throw new Error('已有实际记录的制度与名称已固定；请为同一样品追加新制度。');
+          if (reserveOnly && item.plannedName) continue;
+          const measurement = { ...item.measurement, ...command.measurement };
+          this.put('items', {
+            ...item,
+            measurement,
+            operation:
+              command.measurement.regime !== undefined
+                ? regimeLabel(measurement.regime)
+                : item.operation,
+          });
+          edited.push(item.id);
+          this.event(
+            item.experimentId,
+            'plan',
+            reserveOnly ? '预留测量名称' : '修改测量制度与命名',
+            item.id,
+            null,
+            {
+              previous: {
+                measurement: item.measurement ?? null,
+                plannedName: item.plannedName ?? null,
+              },
+              measurement,
+            },
+          );
+        }
+        if (edited.length) this.refreshNames(items[0].experimentId, edited);
+        return {};
+      }
+      case 'scheduleMeasurements': {
+        if (new Set(command.itemIds).size !== command.itemIds.length)
+          throw new Error('操作选择重复。');
+        const sources = command.itemIds.map((id) => this.get('items', id));
+        const experimentId = sources[0].experimentId;
+        if (sources.some((item) => item.experimentId !== experimentId))
+          throw new Error('一次只能安排同一实验的操作。');
+        const repetitions = command.repetitions ?? 1;
+        if (sources.length * repetitions > 1000) throw new Error('一次最多追加 1000 项操作。');
+        if (
+          this.list('items').filter((item) => item.experimentId === experimentId).length +
+            sources.length * repetitions >
+          10000
+        )
+          throw new Error('本实验最多安排 10,000 项操作，请新建下一批实验。');
+        let order =
+          Math.max(
+            -1,
+            ...this.list('items')
+              .filter((item) => item.experimentId === experimentId)
+              .map((item) => item.order),
+          ) + 1;
+        let firstId = '';
+        const ids: string[] = [];
+        for (const source of sources) {
+          // Copy the owned plan only. measurementFor fills blanks for display, and storing those blanks blocks later inheritance.
+          const measurement = { ...(source.measurement ?? {}), ...command.measurement };
+          if (!command.measurement?.customName) delete measurement.customName;
+          for (let index = 0; index < repetitions; index++) {
+            const item: PlanItem = {
+              id: randomUUID(),
+              experimentId,
+              sampleId: source.sampleId,
+              operation: regimeLabel(measurement.regime),
+              order: order++,
+              status: 'pending',
+              measurement,
+            };
+            this.put('items', item);
+            ids.push(item.id);
+            firstId ||= item.id;
+            this.event(experimentId, 'plan', '同一样品追加测量制度', item.id, null, {
+              sourceItemId: source.id,
+              sampleId: source.sampleId,
+            });
+          }
+        }
+        this.refreshNames(experimentId, ids);
+        return { experimentId, itemId: firstId };
+      }
       case 'start': {
         const item = this.get('items', command.itemId);
         if (item.status === 'running') return { itemId: item.id, experimentId: item.experimentId };
@@ -427,7 +636,7 @@ export class Store {
         if (this.list('items').some((i) => i.status === 'running'))
           throw new Error('还有进行中的操作，请先完成或中断当前操作。');
         const run = this.makeRun(item, this.now(), null, true);
-        this.put('items', { ...item, status: 'running' });
+        this.put('items', { ...this.get('items', item.id), status: 'running' });
         this.event(item.experimentId, 'start', '开始操作', item.id, run.id);
         return { itemId: item.id, experimentId: item.experimentId };
       }
@@ -489,8 +698,12 @@ export class Store {
                 .map((i) => i.order),
             ) + 1,
           status: 'pending' as const,
+          measurement: { ...measurementFor(this.snapshot(), original), customName: '' },
+          plannedName: undefined,
+          nameNumber: undefined,
         };
         this.put('items', item);
+        this.refreshNames(item.experimentId, [item.id]);
         this.event(item.experimentId, 'plan', '新增一次重测操作', item.id, null, {
           originalItemId: original.id,
           sampleId: original.sampleId,
@@ -585,7 +798,7 @@ export class Store {
         run = run ? { ...run, startedAt, endedAt } : this.makeRun(item, startedAt, endedAt, false);
         this.put('runs', run);
         this.put('items', {
-          ...item,
+          ...this.get('items', item.id),
           status: endedAt
             ? item.status === 'interrupted'
               ? 'interrupted'
@@ -631,6 +844,7 @@ export class Store {
           width: '3',
           dimensionUnit: 'mm',
           notes: '四个待测样品，两个备样。核对装样方向。',
+          protocol: '10 °C/min 升至 375 °C，保温 30 min。',
           preparation: 'Ti-A / 制备批次 A',
           values: { temperature: 25, composition: '演示材料' },
         });

@@ -12,13 +12,33 @@
 
 ![真实现场记录界面：当前样品、常用记录和操作时间线；使用合成演示数据](docs/images/live.png)
 
-| 实验前 | 实验中 | 实验后 |
-| --- | --- | --- |
+| 实验前                   | 实验中                          | 实验后                                    |
+| ------------------------ | ------------------------------- | ----------------------------------------- |
 | 添加样品、尺寸与计划操作 | 开始/完成、现场备注、问题与图片 | 导出 PDF、独立 HTML、完整 JSON 与校验清单 |
 
-**下载版与截图版本：** 已发布 Windows 版为 `v0.4.0`；当前源码与下方截图为 `0.5.0`，包含专注记录、常用快记与实验概览。截图来自合成实验和独立临时数据；[截图来源](docs/images/sources.json)与[验证记录](docs/verification.md)保留适用范围。
+**当前本地版本：** `0.6.1`，普通测试使用 `S01、S02、S03` 连续编号；材料准备分别记录成分、加工工艺、热处理制度与其他工艺，明确区分“无”和未填写。截图使用合成实验与独立临时数据，逐图版本见[截图来源](docs/images/sources.json)；本地交付检查见[0.6.1 验证记录](docs/verification-0.6.1.md)。GitHub 下载入口以 Releases 中的实际版本为准。
 
 _LabRecord is an offline-first Windows app for experiment planning, live sample records, and traceable reports. Experimental records and reports can be synchronized to your own private repository._
+
+## 同一样品，多种测量制度
+
+一件试样可以预先安排循环加载、分级加载、旋转扫描或不同条件的离位测量。每次操作各自保存制度、批次和名称，复用同一个物理样品 ID；追加制度不会减少备样，真正重测另行保留原操作关联。
+
+“新增样品”可实时预览自动名称；规划页的“测量计划与命名”支持批量配置、追加多次测量、历史参数复用和一键复制。名称可组合实验编号、材料短名、原始状态、样品编号、原位/离位、技术、制度及批次，支持自定义规则和临时改名。名称在规划时预留，调整顺序或乱序开始不会变化，自动处理重名。开始后的记录和名称固定。
+
+```text
+P212-202610_S01
+P212-202610_S02
+P212-202610_S03
+```
+
+命名只使用录入信息，完全离线，不依赖或读取实际 SXRD 文件，也不集成外部处理软件。[同步辐射现场使用流程与命名规则](docs/beamtime-workflow.md)。
+
+新实验默认不再追加 `_001`。同一件样品确需多次测量时才用 `_M02` 等区分，物理样品编号保持不变。已有实验在“实验设置”选择“简洁编号”后保存，只更新尚未开始的自动名称；已经记录的文件名保持原样。编号按安排顺序分配，实际开始顺序另行记录；调换队列不会重贴样品编号。
+
+样品组用“成分 → 加工工艺 → 热处理制度 → 其他工艺”区分，可填写变形量、温度、时间、冷却方式和特殊处理。成分需注明 wt.% 或 at.%；不自动换算。热处理和其他工艺可直接选“无”，留空表示未填写。原始状态标记和旧自定义字段继续保留，制备热处理与现场测量的升温、加载制度分别记录。
+
+![0.6.0 Windows 打包程序：同一样品的循环加载与旋转扫描计划，使用合成实验](docs/images/beamtime-planning.png)
 
 ## 原理示意 / Principle schematic
 
@@ -26,9 +46,9 @@ _LabRecord is an offline-first Windows app for experiment planning, live sample 
   <img src="assets/readme/principle.png" width="100%" alt="样品稳定关联、重测操作与可追溯报告 — conceptual schematic / 概念示意图">
 </p>
 
-*概念示意：同一样品 ID 可关联原计划与重测，实际记录保存开始时快照及事件历史，报告目录同时交付可读文档、完整记录、图片与校验清单。不是实际实验记录或界面截图。*
+_概念示意：同一样品 ID 可关联原计划与重测，实际记录保存开始时快照及事件历史，报告目录同时交付可读文档、完整记录、图片与校验清单。不是实际实验记录或界面截图。_
 
-*Conceptual schematic: a stable sample ID links planned and repeat operations; runs preserve start snapshots and event history, and reports include readable documents, complete records, images and checksums. This is not an actual experiment record or UI screenshot.*
+_Conceptual schematic: a stable sample ID links planned and repeat operations; runs preserve start snapshots and event history, and reports include readable documents, complete records, images and checksums. This is not an actual experiment record or UI screenshot._
 
 [查看完整示意图 / View full-size schematic](assets/readme/principle.png)
 

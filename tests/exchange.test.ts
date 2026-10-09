@@ -33,11 +33,34 @@ test('legacy paste retains history, leading zero text and blanks without synthes
   assert.equal(result.groups[0].legacyCompleted, true);
   assert.equal(result.groups[1].legacyCompleted, false);
   assert.equal(result.groups[0].legacyTime, '');
+  assert.equal(result.groups[0].protocol, '');
   assert.equal(result.groups[0].thicknessUnit, '');
   assert.equal(result.items.length, 0);
   assert.equal(result.runs.length, 0);
   const field = result.experiments[0].fields[0];
   assert.equal(result.groups[0].values[field.id], '000007');
+});
+
+test('in-situ protocol imports from its own column and stays blank when the column is absent', (t) => {
+  const { store } = fixture(t);
+  const experimentId = store.command({
+    type: 'createExperiment',
+    code: 'P01',
+    name: '制度导入',
+  }).experimentId!;
+  const table = previewRows(
+    parseDelimited(
+      '样品状态\tIn situ/Ex situ\t实验制度\nTi-heat\t原位\t10 °C/min 至 375 °C，保温 30 min\nTi-ref\t非原位\t',
+    ),
+  );
+  assert.equal(table.mapping.protocol, 2);
+  importTable(store, { experimentId, table, mapping: table.mapping, keepOtherColumns: true });
+  const groups = store.snapshot().groups;
+  assert.equal(groups[0].mode, 'In situ');
+  assert.equal(groups[0].protocol, '10 °C/min 至 375 °C，保温 30 min');
+  assert.equal(groups[1].mode, 'Ex situ');
+  assert.equal(groups[1].protocol, '');
+  assert.equal(groups[0].notes, '');
 });
 
 test('CSV quoting handles Chinese, comma, quotation and multiline remarks; invalid rows roll back', (t) => {

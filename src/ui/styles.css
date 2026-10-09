@@ -545,7 +545,7 @@ a {
 }
 .table-wrap td {
   padding: 15px 12px;
-  vertical-align: middle;
+  vertical-align: top;
   border-bottom: 1px solid var(--line);
 }
 .table-wrap tbody tr:last-child td {
@@ -763,9 +763,10 @@ a {
   margin-bottom: 10px;
 }
 .sample-strip {
-  display: flex;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
-  gap: 20px;
+  gap: 8px 12px;
   padding: 8px 4px;
   border-bottom: 1px solid #e5ede7;
 }
@@ -773,7 +774,49 @@ a {
   border: 0;
 }
 .sample-strip code {
-  min-width: 160px;
+  display: block;
+}
+.specimen-fields {
+  display: grid;
+  grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.2fr);
+  gap: 8px;
+  min-width: 0;
+}
+.specimen-fields .auto-input,
+.specimen-fields input {
+  width: 100%;
+  min-width: 0;
+}
+.strip-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+.specimen-plan {
+  list-style: none;
+  display: grid;
+  gap: 8px;
+  max-height: min(42vh, 340px);
+  margin: 0;
+  padding: 0;
+  overflow: auto;
+}
+.specimen-plan li {
+  display: grid;
+  gap: 6px;
+  padding: 10px 12px;
+  background: var(--tint);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-control);
+}
+.specimen-plan code {
+  color: var(--primary);
+  font-size: 12px;
+  font-weight: 650;
+}
+.specimen-plan textarea {
+  width: 100%;
+  min-height: 2.6em;
 }
 .sample-note {
   flex: 1;
@@ -1300,6 +1343,56 @@ a {
 .plan-reference[open] summary {
   margin-bottom: 8px;
 }
+.protocol-card {
+  display: grid;
+  gap: 6px;
+  margin-top: 12px;
+  padding: 12px 14px;
+  background: var(--tint);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-control);
+}
+.protocol-card > span,
+.protocol-card summary {
+  color: var(--primary);
+  font-size: 12px;
+  font-weight: 650;
+}
+.protocol-card p,
+.protocol-card small {
+  margin: 0;
+  line-height: 1.65;
+}
+.protocol-card p {
+  white-space: pre-wrap;
+}
+.protocol-card small,
+.protocol-summary {
+  color: var(--muted);
+  font-size: 12px;
+}
+.protocol-card .auto-input,
+.protocol-card textarea {
+  width: 100%;
+}
+.protocol-summary {
+  display: block;
+  max-width: 14rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.protocol-kept {
+  margin-top: 4px;
+}
+.protocol-kept summary {
+  cursor: pointer;
+  color: var(--primary);
+  font-size: 12px;
+}
+.sample-expansion .protocol-card {
+  margin: 0 0 12px;
+}
 .record-section + .filename-card {
   margin-top: 16px;
 }
@@ -1364,6 +1457,8 @@ a {
   min-height: 54px;
   font-size: 14px !important;
   border-radius: 14px;
+  /* 150% 缩小时，滚到视口边缘会剩不到 1px 在外面。留出边距，开始和完成仍完整可见。 */
+  scroll-margin: 12px;
 }
 .operation-actions > .button:not(.start-button):not(.finish-button) {
   min-height: 54px;
@@ -2991,6 +3086,142 @@ summary:focus-visible {
   align-items: center;
   gap: 8px;
 }
+.measurement-planner {
+  margin-top: 24px;
+}
+.measurement-toolbar,
+.measurement-live-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 20px;
+}
+.measurement-toolbar .hint {
+  flex: 1 1 300px;
+  margin: 0;
+}
+.measurement-table-wrap {
+  max-height: 440px;
+  overflow: auto;
+}
+.measurement-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.measurement-table th {
+  text-align: left;
+  background: var(--surface-secondary);
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+.measurement-table th,
+.measurement-table td {
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--line);
+  vertical-align: top;
+}
+.measurement-table td small {
+  display: block;
+  color: var(--muted);
+  margin-top: 5px;
+  line-height: 1.5;
+}
+.measurement-table td code,
+.review-folder-name {
+  display: block;
+  max-width: 360px;
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+.measurement-table input[type='checkbox'] {
+  width: 17px;
+  height: 17px;
+}
+.measurement-row-actions {
+  min-width: 180px;
+}
+.measurement-row-actions button {
+  margin: 0 6px 6px 0;
+}
+.measurement-empty {
+  padding: 16px 20px;
+}
+.measurement-name-preview {
+  display: grid;
+  gap: 8px;
+  background: var(--surface-secondary);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 14px;
+  margin-top: 12px;
+}
+.measurement-name-preview code {
+  font-size: 13px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+  user-select: all;
+}
+.measurement-name-preview small {
+  color: var(--muted);
+}
+.measurement-editor {
+  min-width: 0;
+  border: 0;
+  padding: 0;
+  margin: 0;
+  display: grid;
+  gap: 16px;
+}
+.quick-add-fields {
+  min-width: 0;
+  border: 0;
+  margin: 0;
+  padding: 0;
+}
+.form-section > summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+.form-section > summary + .measurement-fields {
+  margin-top: 16px;
+}
+.measurement-fields {
+  min-width: 0;
+}
+.measurement-current-summary {
+  font-size: 13px;
+  color: var(--primary);
+  padding: 0 20px 8px;
+}
+.measurement-live-actions {
+  padding-left: 0;
+  padding-right: 0;
+}
+@media (max-width: 800px) {
+  .measurement-planner .card-toolbar {
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .measurement-table {
+    min-width: 0;
+    width: 100%;
+  }
+  .measurement-table th {
+    white-space: normal;
+  }
+  .measurement-row-actions {
+    min-width: 0;
+  }
+  .measurement-fields {
+    grid-template-columns: 1fr;
+  }
+  .measurement-fields .span-2 {
+    grid-column: auto;
+  }
+}
 @media (max-width: 800px) {
   .time-card {
     padding: 12px 12px 30px;
@@ -3003,4 +3234,39 @@ summary:focus-visible {
   .time-card strong {
     font-size: 17px;
   }
+}
+/* Preparation history stays separate from the measurement protocol. */
+.material-preparation-fields .hint {
+  margin: 12px 0 0;
+  font-size: 12px;
+}
+.material-none {
+  align-self: flex-start;
+  min-height: 28px;
+  padding: 2px 0;
+}
+.material-preparation-summary {
+  margin: 8px 0;
+  font-size: 12px;
+  line-height: 1.6;
+  font-weight: 400;
+}
+.material-preparation-summary > div {
+  display: grid;
+  grid-template-columns: 5em minmax(0, 1fr);
+  gap: 8px;
+}
+.material-preparation-summary dt {
+  color: var(--muted);
+}
+.material-preparation-summary dd {
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.material-preparation-summary.is-compact dd {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
 }

@@ -1,6 +1,27 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
-  <rect width="512" height="512" rx="112" fill="#176b62"/>
-  <path d="M220 138v84l-58 118q-6 20 20 20h148q26 0 20-20l-58-118v-84m-82 0h92M194 280h124" fill="none" stroke="#fff" stroke-width="18" stroke-linecap="round" stroke-linejoin="round"/>
-  <circle cx="380" cy="385" r="56" fill="#edf6ef"/>
-  <path d="m350 385 22 17 38-37" fill="none" stroke="#176b62" stroke-width="13" stroke-linecap="round" stroke-linejoin="round"/>
+  <defs>
+    <linearGradient id="tile" x1="0" y1="32" x2="0" y2="480" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#24968E"/>
+      <stop offset="1" stop-color="#0E4C46"/>
+    </linearGradient>
+    <clipPath id="tile-clip">
+      <rect x="32" y="32" width="448" height="448" rx="108"/>
+    </clipPath>
+    <clipPath id="flask">
+      <rect x="214" y="118" width="84" height="38" rx="12"/>
+      <polygon points="228,142 228,214 158,352 174,396 338,396 354,352 284,214 284,142"/>
+    </clipPath>
+  </defs>
+  <g clip-path="url(#tile-clip)">
+    <rect width="512" height="512" fill="url(#tile)"/>
+    <ellipse cx="256" cy="86" rx="276" ry="164" fill="#ffffff" opacity="0.15"/>
+  </g>
+  <g fill="#ffffff">
+    <rect x="214" y="118" width="84" height="38" rx="12"/>
+    <polygon points="228,142 228,214 158,352 174,396 338,396 354,352 284,214 284,142"/>
+  </g>
+  <g clip-path="url(#flask)">
+    <rect x="150" y="332" width="212" height="70" fill="#E8A317"/>
+    <ellipse cx="256" cy="332" rx="80" ry="17" fill="#F6C453"/>
+  </g>
 </svg>

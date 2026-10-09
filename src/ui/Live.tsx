@@ -20,8 +20,21 @@ import {
   ChevronDown,
 } from 'lucide-react';
 import type { PlanItem, Command } from '../shared/model';
-import { filenameFor, groupCounts, sampleName, dimensions } from '../shared/model';
-import { useWorkspace, unwrap, type EventTarget, type EventDraft } from './context';
+import {
+  groupCounts,
+  sampleName,
+  dimensions,
+  MODE_LABEL,
+  MODE_OPTIONS,
+  PROTOCOL_PLACEHOLDER,
+} from '../shared/model';
+import {
+  useWorkspace,
+  unwrap,
+  DesktopReplyError,
+  type EventTarget,
+  type EventDraft,
+} from './context';
 import {
   AutoInput,
   Empty,
@@ -39,7 +52,16 @@ import {
 } from './components';
 import { ArrangeDialog } from './Plan';
 import { QuickAdd } from './QuickAdd';
+import { MaterialPreparationSummary } from './MaterialPreparation';
+import { materialSummary } from '../shared/materials';
 import { QuickRecordBar, IssueTemplateDialog } from './QuickRecord';
+import { MeasurementDialog } from './MeasurementPlanner';
+import {
+  measurementFor,
+  measurementSummary,
+  plannedGroup,
+  reserveMeasurementNames,
+} from '../shared/measurement';
 
 export function TimesDialog({
   itemId,
@@ -88,8 +110,9 @@ export function TimesDialog({
       };
       await execute(intent.current.command, false, intent.current.requestId);
       onClose();
-    } catch (error) {
-      setError((error as Error).message);
+    } catch (failure) {
+      if (failure instanceof DesktopReplyError && failure.rejected) intent.current = null;
+      setError((failure as Error).message);
     } finally {
       submitting.current = false;
       setBusy(false);
@@ -116,11 +139,8 @@ export function TimesDialog({
             type="datetime-local"
             step="1"
             value={start}
-            disabled={busy || !validTarget}
-            onChange={(event) => {
-              intent.current = null;
-              setStart(event.target.value);
-            }}
+            disabled={busy || !validTarget || !!intent.current}
+            onChange={(event) => setStart(event.target.value)}
           />
         </label>
         <label className="field">
@@ -130,22 +150,16 @@ export function TimesDialog({
             type="datetime-local"
             step="1"
             value={end}
-            disabled={busy || !validTarget}
-            onChange={(event) => {
-              intent.current = null;
-              setEnd(event.target.value);
-            }}
+            disabled={busy || !validTarget || !!intent.current}
+            onChange={(event) => setEnd(event.target.value)}
           />
         </label>
         <label className="field">
           <span>修改说明（可选）</span>
           <input
             value={reason}
-            disabled={busy || !validTarget}
-            onChange={(event) => {
-              intent.current = null;
-              setReason(event.target.value);
-            }}
+            disabled={busy || !validTarget || !!intent.current}
+            onChange={(event) => setReason(event.target.value)}
             placeholder="例如忘记点完成，按实验日志补记"
           />
         </label>
@@ -159,6 +173,7 @@ export function TimesDialog({
         {error && (
           <p className="error-text" role="alert">
             {error}
+            {intent.current && ' 内容已固定，请重试保存以恢复同一请求。'}
           </p>
         )}
         <footer className="modal-actions">
@@ -459,6 +474,10 @@ function TimelineDrawer({
   );
 }
 export function Live() {
+  const [measurementDialog, setMeasurementDialog] = useState<{
+    item: PlanItem;
+    append: boolean;
+  } | null>(null);
   const workspace = useWorkspace();
   const {
     snapshot,
@@ -562,7 +581,8 @@ export function Live() {
   const sample = selected && snapshot.samples.find((s) => s.id === selected.sampleId)!;
   const run = selected && snapshot.runs.find((r) => r.itemId === selected.id);
   const group = sample && snapshot.groups.find((g) => g.id === sample.groupId)!;
-  const displayedGroup = run?.snapshot.group || (group && { ...group, ...sample.parameters });
+  const displayedGroup =
+    run?.snapshot.group || (group && sample && selected && plannedGroup(group, sample, selected));
   const completed = items.filter((i) => i.status === 'completed').length;
   const pending = items.filter((i) => i.status === 'pending').length;
   const skipped = items.filter((i) => i.status === 'skipped').length;
@@ -570,12 +590,15 @@ export function Live() {
   // 下一待测项：按完整排序的第一个 pending，与搜索/筛选无关
   const nextPending = items.find((i) => i.status === 'pending');
   const visible = items.filter((item) => {
-    const sample = snapshot.samples.find((s) => s.id === item.sampleId);
-    const group = snapshot.groups.find((g) => g.id === sample?.groupId);
+    const history = snapshot.runs.find((run) => run.itemId === item.id);
+    const sample = history?.snapshot.sample || snapshot.samples.find((s) => s.id === item.sampleId);
+    const group = history?.snapshot.group || snapshot.groups.find((g) => g.id === sample?.groupId);
     const name = sample?.parameters.name || group?.name || '';
     return (
       (filter === 'all' || item.status === filter) &&
-      `${sample?.code} ${name} ${group?.state}`.toLowerCase().includes(search.toLowerCase())
+      `${sample?.code} ${name} ${group?.state} ${materialSummary(group || {})} ${measurementSummary(measurementFor(snapshot, item))} ${history?.filename || item.plannedName || ''}`
+        .toLowerCase()
+        .includes(search.toLowerCase())
     );
   });
   async function exportReport() {
@@ -647,25 +670,35 @@ export function Live() {
     try {
       proposed =
         run?.filename ||
-        filenameFor(
-          experiment.namingPattern,
-          experiment.code,
-          sample.code,
-          Math.max(
-            0,
-            ...snapshot.runs.filter((r) => r.experimentId === experimentId).map((r) => r.number),
-          ) + 1,
-        );
+        selected?.plannedName ||
+        (selected
+          ? reserveMeasurementNames(snapshot, experimentId, [selected])[0].plannedName!
+          : '');
     } catch (error) {
       proposed = (error as Error).message;
     }
   }
   async function copy() {
+    const targetId = selected?.id;
+    if (!targetId) return;
     try {
-      await navigator.clipboard.writeText(proposed);
+      await flush();
+      let data = workspace.getSnapshot();
+      let item = data.items.find((entry) => entry.id === targetId);
+      let record = data.runs.find((entry) => entry.itemId === targetId);
+      if (!item) throw new Error('当前操作已变化，请重新选择。');
+      if (!record && !item.plannedName) {
+        await execute({ type: 'configureMeasurements', ids: [targetId], measurement: {} }, false);
+        data = workspace.getSnapshot();
+        item = data.items.find((entry) => entry.id === targetId);
+        record = data.runs.find((entry) => entry.itemId === targetId);
+      }
+      const name = record?.filename || item?.plannedName;
+      if (!name) throw new Error('尚未预留测量名称，请先配置命名。');
+      await unwrap(window.labrecord.copyName(name));
       notify('预期文件名已复制。');
-    } catch {
-      notify('无法复制，请选中文件名后手动复制。', true);
+    } catch (error) {
+      notify(error instanceof Error ? error.message : '无法复制，请选中文件名后手动复制。', true);
     }
   }
   function target(): EventTarget {
@@ -761,8 +794,11 @@ export function Live() {
       </div>
       <div className="queue-list">
         {visible.map((item, index) => {
-          const sample = snapshot.samples.find((s) => s.id === item.sampleId)!;
-          const group = snapshot.groups.find((g) => g.id === sample.groupId)!;
+          const history = snapshot.runs.find((run) => run.itemId === item.id);
+          const sample =
+            history?.snapshot.sample || snapshot.samples.find((s) => s.id === item.sampleId)!;
+          const group =
+            history?.snapshot.group || snapshot.groups.find((g) => g.id === sample.groupId)!;
           const repeated = !!item.repeatOf;
           return (
             <div className={`queue-row ${selected?.id === item.id ? 'current' : ''}`} key={item.id}>
@@ -774,11 +810,16 @@ export function Live() {
               >
                 <span className="queue-index">{String(item.order + 1).padStart(2, '0')}</span>
                 <div>
-                  <strong>{sample.code}</strong>
+                  <strong>{sample.parameters.name?.trim() || sample.code}</strong>
                   <small>
-                    {sample.parameters.name || sampleName(group)}
+                    {sample.parameters.name?.trim()
+                      ? `${sample.code} · ${group.state}`
+                      : sampleName(group)}
                     {repeated ? ' · 重测安排' : ''}
                   </small>
+                  {(item.measurement || history?.snapshot.measurement) && (
+                    <small>{measurementSummary(measurementFor(snapshot, item))}</small>
+                  )}
                   <StatusPill status={item.status} />
                 </div>
                 <PriorityPill value={group.priority} />
@@ -916,7 +957,8 @@ export function Live() {
           <span>
             <span className="pulse-dot" />
             当前还有进行中的操作：
-            {snapshot.samples.find((s) => s.id === globalRunning.sampleId)?.code}
+            {snapshot.runs.find((entry) => entry.itemId === globalRunning.id)?.snapshot.sample
+              .code || snapshot.samples.find((s) => s.id === globalRunning.sampleId)?.code}
           </span>
           <button
             className="text-button"
@@ -962,10 +1004,25 @@ export function Live() {
                     {selected.status === 'running' ? '正在操作' : '正在查看'} · 操作{' '}
                     {String(selected.order + 1).padStart(2, '0')}
                   </span>
-                  <h2>{sample.code}</h2>
+                  <h2>
+                    {(run ? run.snapshot.sample.parameters.name : sample.parameters.name)?.trim() ||
+                      run?.snapshot.sample.code ||
+                      sample.code}
+                  </h2>
                   <p>
-                    <strong>{run?.actualSample?.name || sampleName(displayedGroup)}</strong>
-                    {displayedGroup.name ? ` · ${displayedGroup.state}` : ''}
+                    {(run
+                      ? run.snapshot.sample.parameters.name
+                      : sample.parameters.name
+                    )?.trim() ? (
+                      <strong>
+                        {run?.snapshot.sample.code || sample.code} · {displayedGroup.state}
+                      </strong>
+                    ) : (
+                      <>
+                        <strong>{run?.actualSample?.name || sampleName(displayedGroup)}</strong>
+                        {displayedGroup.name ? ` · ${displayedGroup.state}` : ''}
+                      </>
+                    )}
                   </p>
                 </div>
                 <div className="current-state">
@@ -977,6 +1034,13 @@ export function Live() {
                   />
                 </div>
               </header>
+              {(selected.measurement?.regime ||
+                selected.measurement?.technique ||
+                selected.measurement?.batch) && (
+                <div className="measurement-current-summary">
+                  {measurementSummary(measurementFor(snapshot, selected))}
+                </div>
+              )}
               <div className="operation-actions">
                 {selected.status === 'pending' && (
                   <>
@@ -1118,11 +1182,14 @@ export function Live() {
             {run && (
               <QuickRecordBar itemId={selected.id} experimentId={experimentId} runId={run.id} />
             )}
-            {(displayedGroup.preparation || displayedGroup.notes) && (
+            {(materialSummary(displayedGroup) ||
+              displayedGroup.preparation ||
+              displayedGroup.notes) && (
               <details className="plan-reference">
                 <summary>
                   计划制备与备注 <ChevronDown size={15} />
                 </summary>
+                <MaterialPreparationSummary value={displayedGroup} />
                 {displayedGroup.preparation && (
                   <p>
                     <strong>制备 / 试剂：</strong>
@@ -1132,10 +1199,52 @@ export function Live() {
                 {displayedGroup.notes && <p>{displayedGroup.notes}</p>}
               </details>
             )}
+            {(displayedGroup.mode !== '未定' || displayedGroup.protocol?.trim()) && (
+              <section className="protocol-card">
+                {displayedGroup.mode !== '未定' ? (
+                  run ? (
+                    <>
+                      <span>开始时的实验制度</span>
+                      <p>{displayedGroup.protocol?.trim() || '开始时尚未填写'}</p>
+                    </>
+                  ) : (
+                    <>
+                      <span>实验制度</span>
+                      <AutoInput
+                        multiline
+                        label="实验制度"
+                        value={displayedGroup.protocol ?? ''}
+                        placeholder={PROTOCOL_PLACEHOLDER}
+                        onSave={(protocol) =>
+                          execute(
+                            {
+                              type: 'configureMeasurements',
+                              ids: [selected.id],
+                              measurement: { protocol },
+                            },
+                            false,
+                          )
+                        }
+                      />
+                      <small>
+                        {group.protocol?.trim()
+                          ? '改这里只影响本次测量；同一样品的其他制度各自保留。'
+                          : '开始后保留当时写下的制度，之后再改计划不会改掉这一次。'}
+                      </small>
+                    </>
+                  )
+                ) : (
+                  <details>
+                    <summary>仍保留实验制度</summary>
+                    <p>{displayedGroup.protocol}</p>
+                  </details>
+                )}
+              </section>
+            )}
             <div className="parameter-summary">
               <div>
                 <span>实验方式</span>
-                <strong>{displayedGroup.mode}</strong>
+                <strong>{MODE_LABEL[displayedGroup.mode] || displayedGroup.mode}</strong>
               </div>
               <div>
                 <span>优先级</span>
@@ -1169,7 +1278,9 @@ export function Live() {
             </div>
             <div className="filename-card">
               <div>
-                <span>预期文件名{!run && <small> · 开始时确定序号</small>}</span>
+                <span>
+                  数据文件夹名 / 预期前缀{!run && <small> · 计划中预留，开始后固定</small>}
+                </span>
                 <code>{proposed}</code>
               </div>
               <button
@@ -1179,6 +1290,30 @@ export function Live() {
                 onClick={copy}
               >
                 <Copy size={17} />
+              </button>
+            </div>
+            <div className="measurement-live-actions">
+              {!run && (
+                <button
+                  className="button small"
+                  onClick={() => {
+                    void flush()
+                      .then(() => setMeasurementDialog({ item: selected, append: false }))
+                      .catch((error) => notify(error.message, true));
+                  }}
+                >
+                  配置制度与命名
+                </button>
+              )}
+              <button
+                className="button small"
+                onClick={() => {
+                  void flush()
+                    .then(() => setMeasurementDialog({ item: selected, append: true }))
+                    .catch((error) => notify(error.message, true));
+                }}
+              >
+                同样品追加制度
               </button>
             </div>
             {run && (
@@ -1217,12 +1352,25 @@ export function Live() {
                       onSave={(mode) =>
                         execute({ type: 'saveRun', runId: run.id, actual: { mode } }, false)
                       }
-                      options={['未定', 'In situ', 'Ex situ'].map((value) => ({
-                        value,
-                        label: value,
-                      }))}
+                      options={MODE_OPTIONS}
                     />
                   </label>
+                  {((String(run.actual.mode) !== '未定' && !!run.actual.mode) ||
+                    displayedGroup.mode !== '未定' ||
+                    String(run.actual.protocol || '').trim()) && (
+                    <label className="field span-2">
+                      <span>实际实验制度</span>
+                      <AutoInput
+                        multiline
+                        label="实际实验制度"
+                        value={String(run.actual.protocol || '')}
+                        onSave={(protocol) =>
+                          execute({ type: 'saveRun', runId: run.id, actual: { protocol } }, false)
+                        }
+                        placeholder={displayedGroup.protocol || PROTOCOL_PLACEHOLDER}
+                      />
+                    </label>
+                  )}
                   <label className="field">
                     <span>实际厚度</span>
                     <div className="thickness-input">
@@ -1500,6 +1648,13 @@ export function Live() {
         </Modal>
       )}
       {temporary && <QuickAdd onClose={() => setTemporary(false)} />}
+      {measurementDialog && (
+        <MeasurementDialog
+          items={[measurementDialog.item]}
+          append={measurementDialog.append}
+          onClose={() => setMeasurementDialog(null)}
+        />
+      )}
       {spareExperiment && (
         <Modal title="选择样品组启用备样" onClose={() => setSpareExperiment(null)}>
           <div className="spare-groups">

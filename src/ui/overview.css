@@ -291,7 +291,7 @@ html.has-experiment-overview body {
   }
 
   .overview-content {
-    gap: 12px;
+    gap: 8px;
   }
 
   .overview-heading h3 {
@@ -323,7 +323,7 @@ html.has-experiment-overview body {
   }
 
   .overview-operations {
-    gap: 8px;
+    gap: 6px;
   }
 
   .overview-operations .operation-stat {

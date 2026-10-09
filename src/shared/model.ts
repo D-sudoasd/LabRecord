@@ -1,6 +1,60 @@
 export type Value = string | number | null;
 export type Values = Record<string, Value>;
 export type Mode = '未定' | 'In situ' | 'Ex situ';
+export const MODE_LABEL: Record<Mode, string> = {
+  未定: '未定',
+  'In situ': '原位',
+  'Ex situ': '非原位',
+};
+export const MODE_OPTIONS: { value: Mode; label: string }[] = [
+  { value: '未定', label: '未定' },
+  { value: 'In situ', label: '原位' },
+  { value: 'Ex situ', label: '非原位' },
+];
+export const PROTOCOL_PLACEHOLDER =
+  '例如：10 °C/min 升至 375 °C，保温 30 min；或写明气氛、载荷与采集间隔';
+export function effectiveProtocol(
+  group: { protocol?: string },
+  parameters?: { protocol?: string },
+) {
+  const own = parameters?.protocol;
+  if (typeof own === 'string' && own.trim()) return own;
+  return group.protocol ?? '';
+}
+export function planSpecimens(
+  existing: Iterable<string>,
+  count: number,
+  prefix: string,
+  _group: { state: string },
+) {
+  const taken = new Set(Array.from(existing, (code) => code.toLowerCase()));
+  const stem = prefix.trim() || 'S';
+  const rows: { code: string; ordinal: string }[] = [];
+  let number = 1;
+  while (rows.length < count) {
+    const ordinal = String(number++).padStart(2, '0');
+    const code = stem + ordinal;
+    if (taken.has(code.toLowerCase())) continue;
+    taken.add(code.toLowerCase());
+    rows.push({ code, ordinal });
+  }
+  return rows;
+}
+export function suggestedSpecimenName(group: { name?: string; state: string }, ordinal: string) {
+  return `${(group.name?.trim() || group.state).trim()}-${ordinal}`;
+}
+export function specimenParameters(
+  group: { protocol?: string },
+  specimen: { name?: string; protocol?: string },
+): Partial<Group> {
+  const parameters: Partial<Group> = {};
+  const name = specimen.name?.trim() ?? '';
+  if (name) parameters.name = name;
+  const protocol = specimen.protocol ?? '';
+  if (protocol.trim() && protocol.trim() !== (group.protocol ?? '').trim())
+    parameters.protocol = protocol;
+  return parameters;
+}
 export type Priority = 'P0' | 'P1' | 'P2';
 export type Status = 'pending' | 'running' | 'completed' | 'skipped' | 'interrupted';
 export interface Field {
@@ -24,6 +78,11 @@ export interface Group {
   experimentId: string;
   state: string;
   name?: string;
+  material?: string;
+  composition?: string;
+  processing?: string;
+  heatTreatment?: string;
+  otherTreatment?: string;
   width?: string;
   height?: string;
   dimensionUnit?: string;
@@ -34,6 +93,7 @@ export interface Group {
   thicknessUnit: string;
   preparation: string;
   notes: string;
+  protocol: string;
   values: Values;
   order: number;
   legacyCompleted: boolean | null;
@@ -55,6 +115,17 @@ export interface PlanItem {
   order: number;
   status: Status;
   repeatOf?: string;
+  measurement?: MeasurementPlan;
+  nameNumber?: number;
+  plannedName?: string;
+}
+export interface MeasurementPlan {
+  mode?: Mode;
+  technique?: string;
+  regime?: string;
+  batch?: string;
+  protocol?: string;
+  customName?: string;
 }
 export interface Run {
   id: string;
@@ -69,7 +140,13 @@ export interface Run {
   timezone: string;
   offsetMinutes: number;
   filename: string;
-  snapshot: { group: Group; sample: Sample; operation: string; fields: Field[] };
+  snapshot: {
+    group: Group;
+    sample: Sample;
+    operation: string;
+    fields: Field[];
+    measurement?: MeasurementPlan;
+  };
   actual: Values;
   actualSample?: SampleDetails;
   notes: string;
@@ -115,6 +192,11 @@ export type GroupPatch = Partial<
     Group,
     | 'state'
     | 'name'
+    | 'material'
+    | 'composition'
+    | 'processing'
+    | 'heatTreatment'
+    | 'otherTreatment'
     | 'width'
     | 'height'
     | 'dimensionUnit'
@@ -125,11 +207,19 @@ export type GroupPatch = Partial<
     | 'thicknessUnit'
     | 'preparation'
     | 'notes'
+    | 'protocol'
     | 'values'
   >
 >;
 export type Command =
-  | { type: 'createExperiment'; name: string; code: string; description?: string }
+  | {
+      type: 'createExperiment';
+      name: string;
+      code: string;
+      description?: string;
+      namingPattern?: string;
+      fields?: Field[];
+    }
   | {
       type: 'updateExperiment';
       id: string;
@@ -139,11 +229,25 @@ export type Command =
       namingPattern?: string;
     }
   | { type: 'createGroup'; experimentId: string; patch: GroupPatch }
-  | { type: 'addSamples'; experimentId: string; patch: GroupPatch; count: number; prefix?: string }
+  | {
+      type: 'addSamples';
+      experimentId: string;
+      patch: GroupPatch;
+      count: number;
+      prefix?: string;
+      measurement?: MeasurementPlan;
+    }
   | { type: 'temporary'; experimentId: string; patch: GroupPatch }
   | { type: 'updateGroups'; ids: string[]; patch: GroupPatch }
   | { type: 'copyGroup'; id: string }
-  | { type: 'arrange'; groupId: string; count: number; prefix?: string }
+  | {
+      type: 'arrange';
+      groupId: string;
+      count: number;
+      prefix?: string;
+      specimens?: { name?: string; protocol?: string }[];
+      measurement?: MeasurementPlan;
+    }
   | {
       type: 'updateSamples';
       ids: string[];
@@ -152,6 +256,13 @@ export type Command =
       code?: string;
     }
   | { type: 'reorder'; experimentId: string; ids: string[] }
+  | { type: 'configureMeasurements'; ids: string[]; measurement: MeasurementPlan }
+  | {
+      type: 'scheduleMeasurements';
+      itemIds: string[];
+      measurement?: MeasurementPlan;
+      repetitions?: number;
+    }
   | { type: 'start' | 'finish' | 'interrupt' | 'skip' | 'unskip' | 'repeat'; itemId: string }
   | {
       type: 'saveRun';
@@ -186,6 +297,11 @@ export interface CommandResult {
 export type ImportKey =
   | 'state'
   | 'name'
+  | 'material'
+  | 'composition'
+  | 'processing'
+  | 'heatTreatment'
+  | 'otherTreatment'
   | 'width'
   | 'height'
   | 'dimensionUnit'
@@ -195,6 +311,7 @@ export type ImportKey =
   | 'thickness'
   | 'thicknessUnit'
   | 'notes'
+  | 'protocol'
   | 'preparation'
   | 'legacyCompleted'
   | 'legacyTime';
@@ -218,8 +335,9 @@ export interface DesktopInfo {
   backupPath: string;
   automaticBackupError: string | null;
 }
-export type Reply<T> = { ok: true; data: T } | { ok: false; error: string };
+export type Reply<T> = { ok: true; data: T } | { ok: false; error: string; rejected?: boolean };
 export interface DesktopApi {
+  copyName(name: string): Promise<Reply<null>>;
   snapshot(): Promise<Reply<Snapshot>>;
   command(command: Command, requestId: string): Promise<Reply<CommandResult>>;
   previewFile(): Promise<Reply<TablePreview | null>>;
@@ -322,20 +440,53 @@ export const STATUS_LABEL: Record<Status, string> = {
   skipped: '已跳过',
   interrupted: '已中断',
 };
-export const DEFAULT_PATTERN = '{experiment}_{sample}_{run:03}';
-export function filenameFor(pattern: string, experiment: string, sample: string, number: number) {
+export const LEGACY_PATTERN = '{experiment}_{sample}_{run:03}';
+export const DEFAULT_PATTERN = '{experiment}_{sample}';
+export const DETAILED_PATTERN = '{experiment}_{material}_{state}_{sample}_{mode}_{regime}_{batch}';
+export function filenameFor(
+  pattern: string,
+  experiment: string,
+  sample: string,
+  number: number,
+  context: Partial<
+    Record<'material' | 'state' | 'mode' | 'technique' | 'regime' | 'batch', string>
+  > = {},
+) {
+  const contextual = /\{(material|state|mode|technique|regime|batch)\}/.test(pattern);
   const safe = (value: string) =>
-    value
-      .replace(/[<>:"/\\|?*\x00-\x1f]/g, '_')
-      .replace(/\s+/g, '_')
-      .replace(/[. ]+$/g, '');
-  if (!pattern.trim() || /\{(?!experiment\}|sample\}|run(?::0[1-9])?\})/.test(pattern))
-    throw new Error('命名规则仅支持 {experiment}、{sample} 和 {run:03}。');
-  const value = pattern
-    .replace(/\{experiment\}/g, safe(experiment))
-    .replace(/\{sample\}/g, safe(sample))
+    (contextual
+      ? value.replace(/[<>:"/\\|?*\x00-\x1f\s]+/g, '_')
+      : value.replace(/[<>:"/\\|?*\x00-\x1f]/g, '_').replace(/\s+/g, '_')
+    ).replace(/[. ]+$/g, '');
+  if (
+    !pattern.trim() ||
+    /[\x00-\x1f]/.test(pattern) ||
+    /\{(?!experiment\}|sample\}|material\}|state\}|mode\}|technique\}|regime\}|batch\}|run(?::0[1-9])?\})/.test(
+      pattern,
+    )
+  )
+    throw new Error(
+      '命名规则支持 {experiment}、{material}、{state}、{sample}、{mode}、{technique}、{regime}、{batch} 和 {run:03}。',
+    );
+  // Remove only separators next to empty template fields, preserving user codes and literals.
+  const template = contextual
+    ? pattern
+        .replace(
+          /\{(material|state|mode|technique|regime|batch)\}/g,
+          (token, key: keyof typeof context) => (safe(context[key] || '') ? token : '\u0001'),
+        )
+        .replace(/([_-]*)\u0001(?:[_-]*\u0001)*([_-]*)/g, (_, left: string, right: string) =>
+          left && right ? left : '',
+        )
+    : pattern;
+  const value = template
+    .replace(/\{experiment\}/g, () => safe(experiment))
+    .replace(/\{sample\}/g, () => safe(sample))
     .replace(/\{run(?::0([1-9]))?\}/g, (_, width) =>
       String(number).padStart(Number(width || 1), '0'),
+    )
+    .replace(/\{(material|state|mode|technique|regime|batch)\}/g, (_, key: keyof typeof context) =>
+      safe(context[key] || ''),
     );
   if (
     /[<>:"/\\|?*\x00-\x1f{}]/.test(value) ||

@@ -132,6 +132,38 @@ test('old v1 backups without name or dimensions restore without inventing values
   assert.deepEqual(restored.runs[0].snapshot, run.snapshot);
 });
 
+test('old groups without a protocol read as blank and do not rewrite existing run snapshots', async (t) => {
+  const { store, directory, reopen } = fixture(t);
+  const experimentId = store.command({
+    type: 'createExperiment',
+    code: 'P03',
+    name: '旧组',
+  }).experimentId!;
+  const itemId = store.command({
+    type: 'addSamples',
+    experimentId,
+    patch: { state: '旧试样', preparedCount: 1, mode: 'In situ', protocol: '原始制度' },
+    count: 1,
+  }).itemId!;
+  store.command({ type: 'start', itemId });
+  const run = store.snapshot().runs[0];
+  const group = store.snapshot().groups[0];
+  delete (group as { protocol?: string }).protocol;
+  delete (run.snapshot.group as { protocol?: string }).protocol;
+  store.put('groups', group);
+  store.put('runs', run);
+  const file = join(directory, '无制度.labrecord');
+  await createBackup(store, file);
+  const restored = await unpackBackup(file, join(directory, 'restored'));
+  assert.equal(restored.groups[0].protocol, '');
+  assert.equal(restored.runs[0].snapshot.group.protocol, undefined);
+  assert.deepEqual(restored.runs[0].snapshot, run.snapshot);
+  assert.equal(restored.runs[0].originalStartedAt, run.originalStartedAt);
+  const opened = reopen();
+  assert.equal(opened.snapshot().groups[0].protocol, '');
+  assert.equal(opened.snapshot().runs[0].snapshot.group.protocol, undefined);
+});
+
 test('report bundle includes escaped HTML, full JSON, optional dimensions, original times, image bytes and verifiable manifest', async (t) => {
   const { store, directory } = fixture(t);
   const experimentId = store.command({
@@ -149,6 +181,7 @@ test('report bundle includes escaped HTML, full JSON, optional dimensions, origi
       width: '3',
       dimensionUnit: 'mm',
       notes: '原始计划 <script>不能执行</script>',
+      protocol: '开始时制度',
     },
     count: 1,
   }).itemId!;
@@ -177,7 +210,15 @@ test('report bundle includes escaped HTML, full JSON, optional dimensions, origi
   const image = join(directory, '照片.png');
   await writeFile(image, PNG);
   await addAttachment(store, run.id, image);
+  store.command({
+    type: 'updateGroups',
+    ids: [run.snapshot.group.id],
+    patch: { protocol: '当前组制度' },
+  });
   const rendered = await renderReport(store.snapshot(), experimentId, store.root);
+  assert.ok(rendered.html.includes('当前组制度'));
+  assert.ok(rendered.html.includes('开始时制度'));
+  assert.ok(rendered.html.includes('开始时实验制度'));
   assert.ok(rendered.html.includes('&lt;script&gt;'));
   assert.ok(!rendered.html.includes('<script>'));
   assert.ok(rendered.html.includes('data:image/png;base64,'));

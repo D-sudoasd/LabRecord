@@ -1,6 +1,6 @@
 {
   "name": "labrecord",
-  "version": "0.5.0",
+  "version": "0.6.1",
   "description": "离线实验规划与现场记录",
   "private": true,
   "license": "MIT",

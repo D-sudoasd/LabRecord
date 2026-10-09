@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { fieldSchema } from './validation.js';
+import { fieldSchema, measurementSchema } from './validation.js';
 
 const id = z.string().min(1).max(200),
   text = z.string().max(50000);
@@ -10,6 +10,11 @@ const values = z.record(z.string(), z.union([text, z.number().finite(), z.null()
 const groupFields = {
   state: z.string().min(1).max(300),
   name: z.string().max(300).optional(),
+  material: z.string().max(300).optional(),
+  composition: z.string().max(3000).optional(),
+  processing: z.string().max(3000).optional(),
+  heatTreatment: z.string().max(3000).optional(),
+  otherTreatment: z.string().max(3000).optional(),
   width: text.optional(),
   height: text.optional(),
   dimensionUnit: z.string().max(40).optional(),
@@ -20,6 +25,7 @@ const groupFields = {
   thicknessUnit: z.string().max(40),
   preparation: text,
   notes: text,
+  protocol: text.optional(),
   values,
 };
 const group = z.object({
@@ -46,6 +52,9 @@ const item = z.object({
   order: z.number().int().nonnegative(),
   status: z.enum(['pending', 'running', 'completed', 'skipped', 'interrupted']),
   repeatOf: id.optional(),
+  measurement: measurementSchema.optional(),
+  nameNumber: z.number().int().positive().optional(),
+  plannedName: z.string().min(1).max(200).optional(),
 });
 const run = z.object({
   id,
@@ -60,7 +69,13 @@ const run = z.object({
   originalEndedAt: time.nullable(),
   timezone: z.string(),
   offsetMinutes: z.number().int().min(-840).max(840),
-  snapshot: z.object({ group, sample, operation: text, fields: z.array(fieldSchema).max(50) }),
+  snapshot: z.object({
+    group,
+    sample,
+    operation: text,
+    fields: z.array(fieldSchema).max(50),
+    measurement: measurementSchema.optional(),
+  }),
   actual: values,
   actualSample: z
     .object({

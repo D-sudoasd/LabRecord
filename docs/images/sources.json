@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "description": "Real Electron screenshots from local 0.5.0 combined implementer self-checks using synthetic experiments and independent temporary data. This is screenshot provenance, not independent acceptance or proof of a GitHub release.",
+  "description": "Real Electron screenshots using synthetic experiments and independent temporary data. Original 0.5 screenshots are preserved; beamtime screenshots come from the packaged 0.6.0 Windows executable. This records screenshot provenance, not a GitHub release or scientific acceptance.",
   "source": "E:/Vibe_coding/LabRecord",
   "focusRuntime": {
     "requestedSize": [900, 700],
@@ -108,6 +108,39 @@
       "selfCheckLog": "local_artifacts/combined/desktop.log",
       "sha256": "7498DEBE82F317B66EEFD78E7059DA9BAF361DD3A3CD1A3CC851A719487A77FA",
       "bytes": 252926
+    },
+    {
+      "path": "docs/images/beamtime-planning.png",
+      "softwareVersion": "0.6.0",
+      "packaged": true,
+      "capturedAtUtc": "2026-10-09T05:33:45.919768Z",
+      "source": "test-results/desktop-offline-beamtime-p-95dbf--keep-independent-snapshots/multi-regime-planning.png",
+      "method": "BrowserWindow.webContents.capturePage",
+      "selfCheckLog": "local_artifacts/beamtime-upgrade/packaged.log",
+      "sha256": "693938856459019404D911A6428CE361B4D2FA31E19CF9D557B0AF17CE002E18",
+      "bytes": 259870
+    },
+    {
+      "path": "docs/images/beamtime-live.png",
+      "softwareVersion": "0.6.0",
+      "packaged": true,
+      "capturedAtUtc": "2026-10-09T05:33:46.121941Z",
+      "source": "test-results/desktop-offline-beamtime-p-95dbf--keep-independent-snapshots/rotation-live.png",
+      "method": "BrowserWindow.webContents.capturePage",
+      "selfCheckLog": "local_artifacts/beamtime-upgrade/packaged.log",
+      "sha256": "70FF26A6E8D5533D0408DC51FBBA55C77324A194493F92BE68C86835E549537E",
+      "bytes": 272184
+    },
+    {
+      "path": "docs/images/beamtime-small.png",
+      "softwareVersion": "0.6.0",
+      "packaged": true,
+      "capturedAtUtc": "2026-10-09T05:33:49.659406Z",
+      "source": "test-results/desktop-measurement-config-73aad-vives-narrow-Windows-layout/measurement-small.png",
+      "method": "BrowserWindow.webContents.capturePage",
+      "selfCheckLog": "local_artifacts/beamtime-upgrade/packaged.log",
+      "sha256": "E3450CB0EF66904C16DFB74B9F2D1BF786D04A888A4EAC8BB05E92AED8C2E165",
+      "bytes": 88079
     }
   ],
   "historical": [

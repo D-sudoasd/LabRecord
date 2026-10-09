@@ -1,9 +1,19 @@
-import { app, BrowserWindow, ipcMain, dialog, protocol, net, shell, Menu } from 'electron';
+import {
+  app,
+  BrowserWindow,
+  ipcMain,
+  dialog,
+  protocol,
+  net,
+  shell,
+  Menu,
+  clipboard,
+} from 'electron';
 import { join, dirname, resolve, sep } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { readFile, rename, mkdir, rm } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
-import { Store } from './store.js';
+import { Store, CommandRejectedError } from './store.js';
 import { previewFile, previewRows, parseDelimited, importTable, exportFile } from './tables.js';
 import { addAttachment, createBackup, dailyBackup, unpackBackup } from './backups.js';
 import { writeReportBundle } from './reports.js';
@@ -139,7 +149,11 @@ function register(channel: string, action: (...args: any[]) => unknown, serializ
         if (['command', 'import-table', 'attachment'].includes(channel)) scheduleAutomaticBackup();
         return { ok: true as const, data };
       } catch (error) {
-        return { ok: false as const, error: message(error) };
+        return {
+          ok: false as const,
+          error: message(error),
+          ...(error instanceof CommandRejectedError ? { rejected: true } : {}),
+        };
       }
     };
     if (!serialize) return execute();
@@ -213,6 +227,17 @@ else {
         (_webContents, _permission, callback) => callback(false),
       );
       register('snapshot', () => store.snapshot());
+      register('copy-name', (name) => {
+        if (
+          typeof name !== 'string' ||
+          !name ||
+          name.length > 200 ||
+          /[<>:"/\\|?*\x00-\x1f{}]/.test(name)
+        )
+          throw new Error('待复制名称无效。');
+        clipboard.writeText(name);
+        return null;
+      });
       register('command', (command, requestId) => store.command(command, requestId));
       register('preview-text', (text) => {
         if (typeof text !== 'string' || text.length > 5_000_000)

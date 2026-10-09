@@ -79,7 +79,7 @@ async function addSamples(name: string, state: string, prepared: string, count: 
     .getByRole('button', { name: '新增样品', exact: true })
     .click();
   const modal = page.getByRole('dialog', { name: '添加样品', exact: true });
-  await modal.getByLabel('样品名称 *', { exact: true }).fill(name);
+  await modal.getByLabel('样品统称 *', { exact: true }).fill(name);
   await modal.getByLabel('样品状态', { exact: true }).fill(state);
   await modal.getByLabel('准备数量', { exact: true }).fill(prepared);
   await modal.getByLabel('计划测试数量', { exact: true }).fill(count);
@@ -773,7 +773,7 @@ test('viewing B while A runs: actual draft flush failure blocks return; delayed 
   });
   // Model a draft arriving after the dialog opens via the real AutoInput event path.
   // The input handler registers a Workspace draft; no React internals or fake snapshot are used.
-  const draft = page.getByLabel('样品 B 样品名称', { exact: true });
+  const draft = page.getByLabel('样品 B 样品统称', { exact: true });
   await draft.evaluate((input: HTMLInputElement) => {
     Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(
       input,

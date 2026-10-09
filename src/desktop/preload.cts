@@ -2,6 +2,7 @@ import type { DesktopApi } from '../shared/model.js';
 const { contextBridge, ipcRenderer } = require('electron');
 const call = (channel: string, ...args: unknown[]) => ipcRenderer.invoke(channel, ...args);
 const api: DesktopApi = {
+  copyName: (name) => call('copy-name', name),
   snapshot: () => call('snapshot'),
   command: (command, requestId) => call('command', command, requestId),
   previewFile: () => call('preview-file'),
