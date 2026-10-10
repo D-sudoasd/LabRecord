@@ -50,7 +50,7 @@ function actualRows(run: Run): [string, unknown][] {
     ['实际实验制度', run.actual.protocol],
     ['实际制备 / 试剂名称', run.actual.preparation],
     ['现场备注', run.notes],
-    ['预期文件名', run.filename],
+    ['数据文件夹', run.filename],
     ['实际文件名', run.actual.filename],
     ['扫描编号', run.actual.scanId],
     ['仪器数据文件引用', run.actual.files],
@@ -113,7 +113,7 @@ export async function renderReport(
       const planRows: [string, unknown][] = [
         ...planning(group),
         ['测量配置', measurementSummary(measurementFor(snapshot, item))],
-        ['数据文件夹名 / 预期前缀', run?.filename || item.plannedName],
+        ['数据文件夹', run?.filename || item.plannedName],
       ];
       const valueRows: [string, unknown][] = fields.map((field) => [
         `${field.label}${field.unit ? ` / ${field.unit}` : ''}（计划 → 实际）`,
@@ -147,7 +147,7 @@ export async function renderReport(
       const sample = run?.snapshot.sample || snapshot.samples.find((s) => s.id === item.sampleId)!;
       const stored = snapshot.groups.find((g) => g.id === sample.groupId);
       const group = run?.snapshot.group || plannedGroup(stored!, sample, item);
-      return `### ${sample.code} · ${sampleName(group)}\n\n状态：${STATUS_LABEL[item.status]}；样品 ID：${sample.id}；操作 ID：${item.id}${item.repeatOf ? `；原操作 ID：${item.repeatOf}` : ''}\n\n测量配置：${measurementSummary(measurementFor(snapshot, item))}\n\n数据文件夹名 / 预期前缀：${shown(run?.filename || item.plannedName)}\n\n开始 UTC：${shown(run?.startedAt)}；结束 UTC：${shown(run?.endedAt)}\n\n${attachments
+      return `### ${sample.code} · ${sampleName(group)}\n\n状态：${STATUS_LABEL[item.status]}；样品 ID：${sample.id}；操作 ID：${item.id}${item.repeatOf ? `；原操作 ID：${item.repeatOf}` : ''}\n\n测量配置：${measurementSummary(measurementFor(snapshot, item))}\n\n数据文件夹：${shown(run?.filename || item.plannedName)}\n\n开始 UTC：${shown(run?.startedAt)}；结束 UTC：${shown(run?.endedAt)}\n\n${attachments
         .filter((a) => a.runId === run?.id)
         .map((a) => `[图片：${a.name.replace(/[\[\]\n]/g, '_')}](${pictures.get(a.id)!.path})`)
         .join('\n')}\n`;

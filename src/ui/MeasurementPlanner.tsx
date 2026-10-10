@@ -3,7 +3,6 @@ import { Copy, Plus, SlidersHorizontal, Trash2 } from 'lucide-react';
 import type { MeasurementPlan, PlanItem } from '../shared/model';
 import { MODE_OPTIONS } from '../shared/model';
 import {
-  folderNameNote,
   measurementFor,
   measurementSummary,
   REGIMES,
@@ -67,9 +66,9 @@ export function MeasurementFields({
         </datalist>
       </label>
       <label className="field">
-        <span>制度类型 / 命名短码</span>
+        <span>制度短码</span>
         <input
-          aria-label="制度类型 / 命名短码"
+          aria-label="制度短码"
           list={`${listId}-regimes`}
           value={value.regime ?? ''}
           maxLength={80}
@@ -83,12 +82,12 @@ export function MeasurementFields({
             </option>
           ))}
         </datalist>
-        <small>如 monotonic 单调、cyclic 循环、step 分级、rotation 旋转。</small>
+        <small>用来区分同一件样品上的不同测量，如单调、循环、分级、旋转。</small>
       </label>
       <label className="field">
-        <span>测量批次 / 条件短码</span>
+        <span>批次</span>
         <input
-          aria-label="测量批次 / 条件短码"
+          aria-label="批次"
           value={value.batch ?? ''}
           onChange={(event) => set('batch', event.target.value)}
           maxLength={80}
@@ -238,7 +237,7 @@ export function MeasurementDialog({
   }
   return (
     <Modal
-      title={append ? '同一样品追加制度' : '配置测量制度与命名'}
+      title={append ? '同一样品追加制度' : '配置测量制度'}
       onClose={close}
       wide
       closeDisabled={busy || closing}
@@ -292,24 +291,25 @@ export function MeasurementDialog({
               </small>
             </label>
           )}
-          <label className="field">
-            <span>临时文件夹名称（可选）</span>
-            <input
-              aria-label="临时文件夹名称（可选）"
-              value={multiple ? '' : (value.customName ?? '')}
-              disabled={multiple}
-              maxLength={200}
-              onChange={(event) => setValue({ ...value, customName: event.target.value })}
-              placeholder="留空使用实验命名规则"
-            />
-            <small>
-              {multiple
-                ? append
-                  ? '批量追加自动生成不同名称；单项可临时改名。'
-                  : '批量配置保留各项已有的临时名称。'
-                : '只影响本次计划；重复实验会重新生成名称。'}
-            </small>
-          </label>
+          <details className="folder-rule">
+            <summary>改这一项的文件夹名</summary>
+            <label className="field">
+              <span>文件夹名</span>
+              <input
+                aria-label="文件夹名"
+                value={multiple ? '' : (value.customName ?? '')}
+                disabled={multiple}
+                maxLength={200}
+                onChange={(event) => setValue({ ...value, customName: event.target.value })}
+                placeholder="留空则用实验编号和样品编号"
+              />
+              <small>
+                {multiple
+                  ? '多项一起改时，各自的文件夹名保持不动。'
+                  : '只改这一项。同一件样品再测时会重新生成。'}
+              </small>
+            </label>
+          </details>
         </fieldset>
         {!validCopies && (
           <p className="error-text" role="alert">
@@ -317,21 +317,10 @@ export function MeasurementDialog({
           </p>
         )}
         <div className="measurement-name-preview" aria-label="测量名称预览" aria-live="polite">
-          <strong>文件夹名称预览</strong>
-          {names.slice(0, 5).map((item) => {
-            const sample = snapshot.samples.find((entry) => entry.id === item.sampleId);
-            const pattern = snapshot.experiments.find(
-              (entry) => entry.id === experimentId,
-            )?.namingPattern;
-            return (
-              <div key={item.id}>
-                <code>{item.plannedName}</code>
-                {pattern && sample && (
-                  <small>{folderNameNote(pattern, sample.code, item.plannedName)}</small>
-                )}
-              </div>
-            );
-          })}
+          <strong>数据文件夹</strong>
+          {names.slice(0, 5).map((item) => (
+            <code key={item.id}>{item.plannedName}</code>
+          ))}
           {names.length > 5 && <small>另有 {names.length - 5} 项，保存后可在测量计划查看。</small>}
           {previewError && (
             <p className="error-text" role="alert">
@@ -370,7 +359,6 @@ export function MeasurementDialog({
 export function MeasurementPlanner() {
   const workspace = useWorkspace();
   const { snapshot, experimentId, setItemId, setPage, notify, flush } = workspace;
-  const experiment = snapshot.experiments.find((entry) => entry.id === experimentId);
   const items = snapshot.items
     .filter((item) => item.experimentId === experimentId)
     .sort((a, b) => a.order - b.order);
@@ -400,7 +388,7 @@ export function MeasurementPlanner() {
         if (!freshName) throw new Error('测量计划已变化，请重新选择。');
         return unwrap(window.labrecord.copyName(freshName));
       })
-      .then(() => notify('数据文件夹名称已复制。'))
+      .then(() => notify('数据文件夹名已复制。'))
       .catch((error) =>
         notify(error instanceof Error ? error.message : '无法复制，请选中名称后复制。', true),
       );
@@ -431,12 +419,12 @@ export function MeasurementPlanner() {
     <section className="card measurement-planner" aria-label="测量计划">
       <div className="card-toolbar">
         <div className="toolbar-title">
-          <h2>测量计划与命名</h2>
+          <h2>测量计划</h2>
           <span>{items.length} 项操作 · 可复用同一样品</span>
         </div>
         <SearchField
           label="搜索测量计划"
-          placeholder="编号、制度、批次或名称"
+          placeholder="编号、制度或文件夹"
           value={search}
           onChange={(value) => {
             setSearch(value);
@@ -454,11 +442,7 @@ export function MeasurementPlanner() {
           </span>
         )}
         <p className="hint">
-          一件样品可提前安排多种制度。
-          {experiment && /\{run(?::0[1-9])?\}/.test(experiment.namingPattern)
-            ? '当前规则的末尾数字是全表计划序号，不是样品编号。'
-            : '文件夹名跟样品编号走；同一件样品的第 2 次测量才加 _02。'}
-          复制名称即可用作数据文件夹名。还没开始的测量可以右键删除。
+          一件样品可提前安排多种制度。复制这一列作为数据文件夹。还没开始的测量可以右键删除。
         </p>
         <button
           className="button small"
@@ -512,7 +496,7 @@ export function MeasurementPlanner() {
         </button>
       </div>
       {!items.length ? (
-        <p className="hint measurement-empty">先添加或安排待测样品，再配置制度与名称。</p>
+        <p className="hint measurement-empty">先添加或安排待测样品，再配置制度。</p>
       ) : (
         <div className="table-wrap measurement-table-wrap">
           <table className="measurement-table">
@@ -534,7 +518,7 @@ export function MeasurementPlanner() {
                   />
                 </th>
                 <th>样品 / 测量制度</th>
-                <th>数据文件夹名称</th>
+                <th>数据文件夹</th>
                 <th>状态</th>
                 <th>操作</th>
               </tr>
@@ -622,10 +606,7 @@ export function MeasurementPlanner() {
                       </small>
                     </td>
                     <td>
-                      <code>{name || '沿用旧计划；配置后预留名称'}</code>
-                      {name && experiment && (
-                        <small>{folderNameNote(experiment.namingPattern, sample.code, name)}</small>
-                      )}
+                      <code>{name || '配置后生成'}</code>
                       {name && (
                         <button
                           className="text-button"

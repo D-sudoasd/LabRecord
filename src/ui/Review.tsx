@@ -12,7 +12,7 @@ import { StatusPill, Empty, timeText, Modal, eventLabel, SearchField } from './c
 import { TimesDialog } from './Live';
 import { sampleName } from '../shared/model';
 import { reportInsights } from '../shared/summary';
-import { folderNameNote, measurementFor, measurementSummary } from '../shared/measurement';
+import { measurementFor, measurementSummary } from '../shared/measurement';
 import { materialSummary } from '../shared/materials';
 import { MaterialPreparationSummary } from './MaterialPreparation';
 import {
@@ -24,7 +24,6 @@ import {
 } from './rowMenu';
 export function Review() {
   const { snapshot, experimentId, notify, flush, setItemId, setPage, execute } = useWorkspace();
-  const experiment = snapshot.experiments.find((entry) => entry.id === experimentId);
   const items = snapshot.items
     .filter((i) => i.experimentId === experimentId)
     .sort((a, b) => a.order - b.order);
@@ -325,15 +324,6 @@ export function Review() {
                         {(run?.filename || item.plannedName) && (
                           <small className="review-folder-name">
                             {run?.filename || item.plannedName}
-                          </small>
-                        )}
-                        {experiment && (run?.filename || item.plannedName) && (
-                          <small>
-                            {folderNameNote(
-                              experiment.namingPattern,
-                              sample.code,
-                              run?.filename || item.plannedName,
-                            )}
                           </small>
                         )}
                       </td>

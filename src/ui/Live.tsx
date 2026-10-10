@@ -28,7 +28,6 @@ import {
   MODE_OPTIONS,
   PROTOCOL_PLACEHOLDER,
 } from '../shared/model';
-import { folderNameNote } from '../shared/measurement';
 import {
   useWorkspace,
   unwrap,
@@ -704,9 +703,9 @@ export function Live() {
         record = data.runs.find((entry) => entry.itemId === targetId);
       }
       const name = record?.filename || item?.plannedName;
-      if (!name) throw new Error('尚未预留测量名称，请先配置命名。');
+      if (!name) throw new Error('还没有数据文件夹名。');
       await unwrap(window.labrecord.copyName(name));
-      notify('数据文件夹名称已复制。');
+      notify('数据文件夹名已复制。');
     } catch (error) {
       notify(error instanceof Error ? error.message : '无法复制，请选中文件名后手动复制。', true);
     }
@@ -1333,24 +1332,13 @@ export function Live() {
             </div>
             <div className="filename-card">
               <div>
-                <span>
-                  数据文件夹名 / 预期前缀{!run && <small> · 计划中预留，开始后固定</small>}
-                </span>
+                <span>数据文件夹</span>
                 <code>{proposed}</code>
-                {sample && (run?.filename || selected?.plannedName) && (
-                  <small className="folder-name-note">
-                    {folderNameNote(
-                      experiment.namingPattern,
-                      sample.code,
-                      run?.filename || selected?.plannedName,
-                    )}
-                  </small>
-                )}
               </div>
               <button
                 className="icon-button"
-                aria-label="复制预期文件名"
-                title="复制预期文件名"
+                aria-label="复制数据文件夹名"
+                title="复制数据文件夹名"
                 onClick={copy}
               >
                 <Copy size={17} />
@@ -1366,7 +1354,7 @@ export function Live() {
                       .catch((error) => notify(error.message, true));
                   }}
                 >
-                  配置制度与命名
+                  配置制度
                 </button>
               )}
               <button

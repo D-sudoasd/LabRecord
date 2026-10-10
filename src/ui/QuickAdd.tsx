@@ -228,7 +228,7 @@ export function QuickAdd({ onClose }: { onClose: () => void }) {
                   onChange={(e) => set('name', e.target.value)}
                   placeholder="例如 Ti2448 拉伸试样 / 合金 A"
                 />
-                <small>填写材料牌号或组名；下方分别记录成分与制备状态。</small>
+                <small>这一组的名字。成分和制备写在下面。</small>
               </label>
               <label className="field">
                 <span>样品状态</span>
@@ -239,15 +239,6 @@ export function QuickAdd({ onClose }: { onClose: () => void }) {
                   placeholder="已有状态简称或原表文字，可留空"
                 />
                 <small>原始标记原样保留；详细加工与热处理在下方分别填写。</small>
-              </label>
-              <label className="field span-2">
-                <span>材料短名（用于命名，可选）</span>
-                <input
-                  value={patch.material || ''}
-                  maxLength={300}
-                  onChange={(event) => set('material', event.target.value)}
-                  placeholder="如 Ti2448、Ti15Nb；留空沿用样品统称"
-                />
               </label>
             </div>
           </fieldset>
@@ -306,10 +297,7 @@ export function QuickAdd({ onClose }: { onClose: () => void }) {
                 <select
                   aria-label="实验方式"
                   value={patch.mode}
-                  onChange={(e) => {
-                    set('mode', e.target.value as Mode);
-                    if (e.target.value !== '未定') setNamingOpen(true);
-                  }}
+                  onChange={(e) => set('mode', e.target.value as Mode)}
                 >
                   {MODE_OPTIONS.map((item) => (
                     <option key={item.value} value={item.value}>
@@ -344,8 +332,18 @@ export function QuickAdd({ onClose }: { onClose: () => void }) {
             open={namingOpen}
             onToggle={(event) => setNamingOpen(event.currentTarget.open)}
           >
-            <summary>测量制度与自动命名（可选）</summary>
+            <summary>测量技术与制度（可选）</summary>
             <MeasurementFields compact value={measurement} onChange={setMeasurement} />
+            <label className="field">
+              <span>材料牌号</span>
+              <input
+                aria-label="材料牌号"
+                value={patch.material || ''}
+                maxLength={300}
+                onChange={(event) => set('material', event.target.value)}
+                placeholder="与样品统称不同时再填"
+              />
+            </label>
           </details>
           <div className="span-2">
             <QuickNamePreview
@@ -513,7 +511,7 @@ function QuickNamePreview({
 }) {
   const { snapshot, experimentId } = useWorkspace();
   if (!count || !patch.name?.trim())
-    return <p className="hint">填写样品统称后预览自动名称；仅准备备样时不生成测量名称。</p>;
+    return <p className="hint">填写样品统称后可以看到数据文件夹名。只准备备样时不生成。</p>;
   try {
     const group = {
       id: 'preview-group',
@@ -552,7 +550,6 @@ function QuickNamePreview({
       status: 'pending',
       measurement: { ...measurement, mode: patch.mode },
     }));
-    const experiment = snapshot.experiments.find((entry) => entry.id === experimentId);
     const names = reserveMeasurementNames(
       {
         ...snapshot,
@@ -564,16 +561,11 @@ function QuickNamePreview({
     );
     return (
       <div className="measurement-name-preview" aria-label="快速添加名称预览" aria-live="polite">
-        <strong>数据文件夹名称</strong>
+        <strong>数据文件夹</strong>
         {names.map((item) => (
           <code key={item.id}>{item.plannedName}</code>
         ))}
-        {count > 3 && <small>其余 {count - 3} 项按相同规则连续生成。</small>}
-        <small>
-          {experiment && /\{run(?::0[1-9])?\}/.test(experiment.namingPattern)
-            ? '末尾数字是本实验的计划序号，不是样品编号。'
-            : '同一件样品的第 2 次测量才在末尾加 _02，不和其他样品连号。'}
-        </small>
+        {count > 3 && <small>其余 {count - 3} 项同样生成。</small>}
       </div>
     );
   } catch (error) {

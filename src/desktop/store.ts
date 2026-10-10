@@ -385,7 +385,9 @@ export class Store {
           r.filename.toLowerCase() === filename.toLowerCase(),
       )
     )
-      throw new Error('预期文件名与已有操作重复，请在实验设置中调整命名规则。');
+      throw new Error(
+        '数据文件夹名称与已有记录重复。请改这一项的文件夹名，或在实验设置里调整写法。',
+      );
     const run: Run = {
       id: randomUUID(),
       experimentId: item.experimentId,
