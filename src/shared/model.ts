@@ -499,6 +499,6 @@ export function filenameFor(
     value.length > 200 ||
     /^(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])(?:\.|$)/i.test(value)
   )
-    throw new Error('预期文件名包含 Windows 不支持的字符、保留名称或长度超过 200 字符。');
+    throw new Error('数据文件夹名称包含 Windows 不支持的字符、保留名称或长度超过 200 字符。');
   return value;
 }

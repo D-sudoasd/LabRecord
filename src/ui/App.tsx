@@ -108,7 +108,7 @@ function NewExperiment({ onClose }: { onClose: () => void }) {
           <label className="field">
             <span>实验编号 *</span>
             <input required value={code} onChange={(event) => setCode(event.target.value)} />
-            <small>用于生成预期文件名，在同一本地数据库中唯一。</small>
+            <small>写在数据文件夹名前面，同一台电脑上不能重复。</small>
           </label>
           <label className="field">
             <span>说明（可选）</span>
@@ -127,14 +127,14 @@ function NewExperiment({ onClose }: { onClose: () => void }) {
                 value={reuseId}
                 onChange={(event) => setReuseId(event.target.value)}
               >
-                <option value="">使用顺序编号（实验编号_S01、S02…）</option>
+                <option value="">文件夹用实验编号和样品编号</option>
                 {snapshot.experiments.map((entry) => (
                   <option key={entry.id} value={entry.id}>
                     {entry.name} · {entry.code}
                   </option>
                 ))}
               </select>
-              <small>沿用命名规则、自定义字段和单位。新实验的样品与记录单独建立。</small>
+              <small>沿用文件夹写法和自定义字段。新实验的样品与记录单独建立。</small>
             </label>
           )}
         </fieldset>
@@ -311,77 +311,78 @@ function SettingsDialog({
               />
             </label>
             <div className="section-title">
-              <h3>数据文件夹与预期前缀命名</h3>
+              <h3>数据文件夹</h3>
             </div>
-            <div className="measurement-toolbar">
-              <button
-                type="button"
-                className="button small"
-                onClick={() => setPattern(DETAILED_PATTERN)}
-              >
-                含材料与制度
-              </button>
-              <button
-                type="button"
-                className="button small"
-                onClick={() => setPattern(DEFAULT_PATTERN)}
-              >
-                简洁编号
-              </button>
-              <button
-                type="button"
-                className="button small"
-                onClick={() =>
-                  setPattern('{experiment}_{material}_{sample}_{technique}_{regime}_{batch}')
-                }
-              >
-                按技术与制度
-              </button>
-            </div>
-            {historicalPatterns.size > 1 && (
-              <label className="field">
-                <span>复用历史命名规则</span>
-                <select
-                  aria-label="复用历史命名规则"
-                  defaultValue=""
-                  onChange={(event) => {
-                    if (event.target.value) setPattern(event.target.value);
-                  }}
-                >
-                  <option value="">选择已有规则…</option>
-                  {[...historicalPatterns].map(([rule, label]) => (
-                    <option key={rule} value={rule}>
-                      {label}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            )}
-            <label className="field">
-              <span>规则</span>
-              <input
-                aria-label="规则"
-                value={pattern}
-                onChange={(event) => setPattern(event.target.value)}
-              />
-              <small>
-                支持 {'{experiment}'} 实验编号、{'{material}'} 材料、{'{state}'} 原始状态、
-                {'{sample}'} 样品编号、{'{mode}'} IS/ES、{'{technique}'} 技术、{'{regime}'} 制度、
-                {'{batch}'} 批次、{'{run:03}'} 全表计划序号。
-                空字段自动省略；特殊字符只在生成名称中替换，原始文字保留。保存时更新尚未开始的自动名称；临时名称与已有实际记录保持固定。
-              </small>
-            </label>
             <div className="filename-preview">
-              <span>预览</span>
+              <span>写成</span>
               <code>{preview}</code>
             </div>
-            <p className="hint">
-              {/\{run(?::0[1-9])?\}/.test(pattern)
-                ? '末尾数字是本实验全部计划的连号：第 1 项为 001，第 2 项为 002，和样品编号不是一回事。普通测量请用“简洁编号”。'
-                : preview.startsWith('命名规则') || preview.startsWith('预期文件名')
-                  ? '修正规则后，文件夹名按实验编号和样品编号生成。同一件样品的第 2 次测量才加 _02。'
-                  : `文件夹名是实验编号加样品编号，例如 ${preview}。同一件样品的第 2 次测量写成 ${preview}_02，只给这件样品计数。已经开始的记录保持原名。`}
-            </p>
+            {preview.startsWith('命名规则') || preview.startsWith('数据文件夹名称') ? null : (
+              <p className="hint">
+                {pattern === DEFAULT_PATTERN
+                  ? '实验编号加样品编号。同一件样品再测一次，末尾加 _02。已经开始的记录保持原名。'
+                  : '这是以前保存的写法。尚未开始的名称会跟着更新，已经开始的记录保持原名。'}
+              </p>
+            )}
+            <details className="folder-rule">
+              <summary>其他写法</summary>
+              <div className="measurement-toolbar">
+                <button
+                  type="button"
+                  className="button small"
+                  onClick={() => setPattern(DEFAULT_PATTERN)}
+                >
+                  实验编号和样品编号
+                </button>
+                <button
+                  type="button"
+                  className="button small"
+                  onClick={() => setPattern(DETAILED_PATTERN)}
+                >
+                  带上材料和制度
+                </button>
+                <button
+                  type="button"
+                  className="button small"
+                  onClick={() =>
+                    setPattern('{experiment}_{material}_{sample}_{technique}_{regime}_{batch}')
+                  }
+                >
+                  带上技术和制度
+                </button>
+              </div>
+              {historicalPatterns.size > 1 && (
+                <label className="field">
+                  <span>用过的写法</span>
+                  <select
+                    aria-label="用过的写法"
+                    defaultValue=""
+                    onChange={(event) => {
+                      if (event.target.value) setPattern(event.target.value);
+                    }}
+                  >
+                    <option value="">选择已有写法…</option>
+                    {[...historicalPatterns].map(([rule, label]) => (
+                      <option key={rule} value={rule}>
+                        {label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              )}
+              <label className="field">
+                <span>自己写</span>
+                <input
+                  aria-label="规则"
+                  value={pattern}
+                  onChange={(event) => setPattern(event.target.value)}
+                />
+                <small>
+                  平时不用改。需要时可用 {'{experiment}'} 和 {'{sample}'}
+                  ，也可加上材料、状态、技术、制度和批次。空着的部分会省去。
+                </small>
+              </label>
+            </details>
             <div className="section-title">
               <h3>自定义实验参数</h3>
               <button
@@ -831,7 +832,7 @@ export function App() {
             <div className="eyebrow">PLAN. RECORD. REVISIT.</div>
             <h1>让每一次实验，都有清楚的记录。</h1>
             <p>
-              提前安排样品与文件命名，现场随手记录变化。
+              先排好样品和数据文件夹，现场随手记录。
               <br />
               准备、测试、备样分开管理；所有内容离线保存在本机。
             </p>

@@ -203,18 +203,6 @@ export function GroupForm({
             <small>保留原始状态名称，具体样品在安排测试时单独编号。</small>
           </label>
         )}
-        <label className="field span-2">
-          {label('material', '材料短名（用于命名）')}
-          <input
-            value={material}
-            maxLength={300}
-            onChange={(event) => {
-              setMaterial(event.target.value);
-              mark('material');
-            }}
-            placeholder="如 Ti2448、Ti15Nb；留空沿用样品统称"
-          />
-        </label>
         <MaterialPreparationFields
           value={materials}
           label={label}
@@ -223,6 +211,22 @@ export function GroupForm({
             mark(key);
           }}
         />
+        <details className="field span-2">
+          <summary>与统称不同时再填</summary>
+          <label className="field">
+            {label('material', '材料牌号')}
+            <input
+              aria-label="材料牌号"
+              value={material}
+              maxLength={300}
+              onChange={(event) => {
+                setMaterial(event.target.value);
+                mark('material');
+              }}
+              placeholder="留空则文件夹仍只用样品编号"
+            />
+          </label>
+        </details>
         {!bulk && (
           <label className="field">
             <span>准备数量</span>
@@ -525,9 +529,9 @@ export function ArrangeDialog({
       <form onSubmit={submit} className="form-stack">
         <fieldset className="measurement-editor" disabled={busy || closing || !!intent.current}>
           <details className="form-section">
-            <summary>本批测量技术、制度短码与批次（可选）</summary>
+            <summary>本批测量技术与制度（可选）</summary>
             <MeasurementFields compact value={measurement} onChange={setMeasurement} />
-            <p className="hint">详情仍可逐件填写，保存后在测量计划中预览或修改名称。</p>
+            <p className="hint">每一件的实验制度仍可在下面单独写。</p>
           </details>
           <div className="callout">
             <strong>{group.state}</strong>
@@ -555,8 +559,7 @@ export function ArrangeDialog({
             <input value={prefix} onChange={(event) => setPrefix(event.target.value)} />
           </label>
           <p className="hint">
-            按安排顺序连续生成
-            S01、S02、S03；跨样品组接着编号。每一件的名字可以改，清空后现场显示编号；重测仍用同一件的编号。
+            编号按安排顺序接着编，下一组也顺着来。每一件的名字可以改，清空后显示编号。重测仍用这件的编号。
           </p>
           {preview.length > 0 && (
             <ol className="specimen-plan">

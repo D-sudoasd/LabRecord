@@ -1505,9 +1505,17 @@ a {
   font-size: 11px;
   color: var(--muted);
 }
-.filename-card .folder-name-note {
-  display: block;
-  margin-top: 4px;
+.folder-rule {
+  margin-top: 8px;
+}
+.folder-rule summary {
+  cursor: pointer;
+  color: var(--muted);
+  font-size: 13px;
+}
+.folder-rule .measurement-toolbar,
+.folder-rule .field {
+  margin-top: 12px;
 }
 .filename-card code {
   color: var(--primary);

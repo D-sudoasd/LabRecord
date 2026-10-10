@@ -762,6 +762,7 @@ test('offline beamtime: preview and copy folder names, schedule multiple regimes
   await dialog.getByRole('button', { name: '创建实验', exact: true }).click();
   // Verify explicit advanced/legacy templates independently of the concise default.
   await page.getByRole('button', { name: '打开设置', exact: true }).click();
+  await page.getByRole('dialog').getByText('其他写法', { exact: true }).click();
   await page
     .getByRole('dialog')
     .getByLabel('规则', { exact: true })
@@ -770,15 +771,16 @@ test('offline beamtime: preview and copy folder names, schedule multiple regimes
   await page.getByRole('button', { name: '新增样品', exact: true }).first().click();
   dialog = page.getByRole('dialog', { name: '添加样品', exact: true });
   await dialog.getByLabel('样品统称 *', { exact: true }).fill('拉伸试样');
-  await dialog.getByLabel('材料短名（用于命名，可选）', { exact: true }).fill('Ti2448');
   await dialog.getByLabel('样品状态', { exact: true }).fill('400C-aged');
   await dialog.getByLabel('准备数量', { exact: true }).fill('3');
   await dialog.getByLabel('计划测试数量', { exact: true }).fill('1');
   await dialog.getByLabel('实验方式', { exact: true }).selectOption('In situ');
   await dialog.getByLabel('实验制度', { exact: true }).fill('0–2% 循环 10 次；RT');
+  await dialog.getByText('测量技术与制度（可选）', { exact: true }).click();
+  await dialog.getByLabel('材料牌号', { exact: true }).fill('Ti2448');
   await dialog.getByLabel('测量技术', { exact: true }).fill('SXRD');
-  await dialog.getByLabel('制度类型 / 命名短码', { exact: true }).fill('cyclic');
-  await dialog.getByLabel('测量批次 / 条件短码', { exact: true }).fill('B01');
+  await dialog.getByLabel('制度短码', { exact: true }).fill('cyclic');
+  await dialog.getByLabel('批次', { exact: true }).fill('B01');
   const preview = 'P212-202610_Ti2448_400C-aged_S01_IS_cyclic_B01_001';
   await expect(dialog.getByLabel('快速添加名称预览')).toContainText(preview);
   await dialog.getByRole('button', { name: '添加并安排测试', exact: true }).click();
@@ -808,8 +810,8 @@ test('offline beamtime: preview and copy folder names, schedule multiple regimes
   dialog = page.getByRole('dialog', { name: '同一样品追加制度', exact: true });
   await expect(dialog.getByLabel('测量技术', { exact: true })).toHaveValue('SXRD');
   await dialog.getByLabel('实验方式', { exact: true }).selectOption('Ex situ');
-  await dialog.getByLabel('制度类型 / 命名短码', { exact: true }).fill('rotation');
-  await dialog.getByLabel('测量批次 / 条件短码', { exact: true }).fill('B02');
+  await dialog.getByLabel('制度短码', { exact: true }).fill('rotation');
+  await dialog.getByLabel('批次', { exact: true }).fill('B02');
   await dialog
     .getByLabel('本次制度与条件', { exact: true })
     .fill('-90° 至 90°，每 5° 一步，0.2 s 曝光');
@@ -828,8 +830,8 @@ test('offline beamtime: preview and copy folder names, schedule multiple regimes
   await rows.nth(1).getByRole('checkbox').check();
   await rows.nth(2).getByRole('checkbox').check();
   await planner.getByRole('button', { name: '批量配置制度', exact: true }).click();
-  dialog = page.getByRole('dialog', { name: '配置测量制度与命名', exact: true });
-  await dialog.getByLabel('测量批次 / 条件短码', { exact: true }).fill('RT');
+  dialog = page.getByRole('dialog', { name: '配置测量制度', exact: true });
+  await dialog.getByLabel('批次', { exact: true }).fill('RT');
   await dialog.getByRole('button', { name: '保存测量配置', exact: true }).click();
   data = await snapshot(page);
   expect(data.items[0].measurement!.batch).toBe('B01');
@@ -882,8 +884,8 @@ test('measurement configuration retries a lost reply with the same request and s
     .first();
   await row.getByRole('button', { name: '追加制度', exact: true }).click();
   const dialog = page.getByRole('dialog', { name: '同一样品追加制度', exact: true });
-  await dialog.getByLabel('制度类型 / 命名短码', { exact: true }).fill('step');
-  await dialog.getByLabel('测量批次 / 条件短码', { exact: true }).fill('300K');
+  await dialog.getByLabel('制度短码', { exact: true }).fill('step');
+  await dialog.getByLabel('批次', { exact: true }).fill('300K');
   await dialog.getByLabel('本次制度与条件', { exact: true }).fill('每级保载 30 s');
   await application.evaluate(({ ipcMain }) => {
     const handlers = (
@@ -921,8 +923,8 @@ test('measurement configuration retries a lost reply with the same request and s
     .last()
     .getByRole('button', { name: '配置制度', exact: true })
     .click();
-  const config = page.getByRole('dialog', { name: '配置测量制度与命名', exact: true });
-  await expect(config.getByLabel('制度类型 / 命名短码', { exact: true })).toHaveValue('step');
+  const config = page.getByRole('dialog', { name: '配置测量制度', exact: true });
+  await expect(config.getByLabel('制度短码', { exact: true })).toHaveValue('step');
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   expect(await config.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true);
   await capture(application, info.outputPath('measurement-small.png'));
@@ -943,20 +945,22 @@ test('historical naming rules and typed experiment settings are reusable; measur
     .click();
   let dialog = page.getByRole('dialog');
   await dialog.getByLabel('测量技术', { exact: true }).fill('SXRD');
-  await dialog.getByLabel('制度类型 / 命名短码', { exact: true }).fill('monotonic');
-  await dialog.getByLabel('测量批次 / 条件短码', { exact: true }).fill('RT');
+  await dialog.getByLabel('制度短码', { exact: true }).fill('monotonic');
+  await dialog.getByLabel('批次', { exact: true }).fill('RT');
   await dialog.getByLabel('本次制度与条件', { exact: true }).fill('恒应变速率 1e-3 s⁻¹');
   await dialog.getByRole('button', { name: '保存测量配置', exact: true }).click();
   await page.getByRole('button', { name: '打开设置', exact: true }).click();
   dialog = page.getByRole('dialog');
+  await dialog.getByText('其他写法', { exact: true }).click();
   const pattern = '{material}_{regime}_{batch}_{run:03}';
   await dialog.getByLabel('规则', { exact: true }).fill(pattern);
   await dialog.getByRole('button', { name: '保存实验设置', exact: true }).click();
   await page.getByRole('button', { name: '打开设置', exact: true }).click();
   dialog = page.getByRole('dialog');
-  await expect(dialog.getByLabel('复用历史命名规则', { exact: true })).toBeVisible();
-  await dialog.getByRole('button', { name: '简洁编号', exact: true }).click();
-  await dialog.getByLabel('复用历史命名规则', { exact: true }).selectOption(pattern);
+  await dialog.getByText('其他写法', { exact: true }).click();
+  await expect(dialog.getByLabel('用过的写法', { exact: true })).toBeVisible();
+  await dialog.getByRole('button', { name: '实验编号和样品编号', exact: true }).click();
+  await dialog.getByLabel('用过的写法', { exact: true }).selectOption(pattern);
   await expect(dialog.getByLabel('规则', { exact: true })).toHaveValue(pattern);
   await page.keyboard.press('Escape');
   await page.getByRole('button', { name: '新建实验', exact: true }).click();
@@ -979,7 +983,7 @@ test('historical naming rules and typed experiment settings are reusable; measur
     .click();
   dialog = page.getByRole('dialog');
   await dialog.getByLabel('复用历史测量配置', { exact: true }).selectOption(first.id);
-  await expect(dialog.getByLabel('制度类型 / 命名短码', { exact: true })).toHaveValue('monotonic');
+  await expect(dialog.getByLabel('制度短码', { exact: true })).toHaveValue('monotonic');
   await expect(dialog.getByLabel('本次制度与条件', { exact: true })).toHaveValue(
     '恒应变速率 1e-3 s⁻¹',
   );
@@ -1109,7 +1113,7 @@ test('cancelling an uncertain measurement refreshes stored records; failed refre
     .getByRole('button', { name: '追加制度', exact: true })
     .click();
   const dialog = page.getByRole('dialog');
-  await dialog.getByLabel('制度类型 / 命名短码', { exact: true }).fill('rotation');
+  await dialog.getByLabel('制度短码', { exact: true }).fill('rotation');
   await dialog.getByRole('button', { name: '追加测量计划', exact: true }).click();
   await expect(dialog).toContainText('响应丢失');
   expect((await snapshot(page)).items).toHaveLength(5);
@@ -1131,7 +1135,7 @@ test('cancelling an uncertain measurement refreshes stored records; failed refre
   await expect(dialog).toBeVisible();
   await dialog.getByRole('button', { name: '返回查看记录', exact: true }).click();
   await expect(dialog).toBeVisible();
-  await expect(dialog.getByLabel('制度类型 / 命名短码', { exact: true })).toBeDisabled();
+  await expect(dialog.getByLabel('制度短码', { exact: true })).toBeDisabled();
   await application.evaluate(() => (globalThis as any).restoreSnapshotHandler());
   await dialog.getByRole('button', { name: '返回查看记录', exact: true }).click();
   await expect(dialog).toHaveCount(0);
@@ -1239,7 +1243,8 @@ test('existing experiment switches to concise naming through settings while its 
   await page.reload();
   await page.getByRole('button', { name: '打开设置', exact: true }).click();
   const dialog = page.getByRole('dialog');
-  await dialog.getByRole('button', { name: '简洁编号', exact: true }).click();
+  await dialog.getByText('其他写法', { exact: true }).click();
+  await dialog.getByRole('button', { name: '实验编号和样品编号', exact: true }).click();
   await expect(dialog.getByLabel('规则', { exact: true })).toHaveValue('{experiment}_{sample}');
   await dialog.getByRole('button', { name: '保存实验设置', exact: true }).click();
   const data = await snapshot(page);
@@ -1471,4 +1476,73 @@ test('right-click menus delete unstarted plans and keep recorded runs', async ()
   expect(after.runs[0].filename).toBe(run.filename);
   expect(after.runs[0].originalStartedAt).toBe(run.originalStartedAt);
   expect(after.runs[0].snapshot).toEqual(run.snapshot);
+});
+
+test('only the group name is required and the folder name is the experiment code plus the sample code', async () => {
+  const forbidden = [
+    '材料短名（用于命名）',
+    '临时文件夹名称',
+    '简洁编号',
+    '含材料与制度',
+    '按技术与制度',
+    '数据文件夹名 / 预期前缀',
+  ];
+  async function visibleLabels(root: ReturnType<Page['locator']>) {
+    return root.evaluate((element) =>
+      [
+        ...element.querySelectorAll<HTMLElement>(
+          'button, input, select, textarea, h1, h2, h3, th, summary, [aria-label]',
+        ),
+      ]
+        .filter((node) => node.getClientRects().length > 0)
+        .map((node) =>
+          `${node.getAttribute('aria-label') || ''} ${(node.innerText || '').replace(/\s+/g, ' ')}`.trim(),
+        )
+        .join('\n'),
+    );
+  }
+
+  await page.getByRole('button', { name: '新建第一个实验', exact: true }).click();
+  let dialog = page.getByRole('dialog');
+  await dialog.getByLabel('实验名称 *').fill('文件夹验收');
+  await dialog.getByLabel('实验编号 *').fill('FOLDER-01');
+  await dialog.getByRole('button', { name: '创建实验', exact: true }).click();
+  await page.getByRole('button', { name: '新增样品', exact: true }).first().click();
+  dialog = page.getByRole('dialog', { name: '添加样品', exact: true });
+  for (const label of forbidden) expect(await visibleLabels(dialog)).not.toContain(label);
+  await expect(dialog.getByLabel('样品统称 *', { exact: true })).toBeVisible();
+  await expect(dialog.getByLabel('材料牌号', { exact: true })).toBeHidden();
+  await dialog.getByLabel('样品统称 *', { exact: true }).fill('Ti2448合金');
+  await expect(dialog.getByLabel('快速添加名称预览')).toContainText('FOLDER-01_S01');
+  await expect(dialog.getByLabel('快速添加名称预览')).not.toContainText('FOLDER-01_S01_');
+  await dialog.getByRole('button', { name: '添加并安排测试', exact: true }).click();
+  await expect(dialog).toHaveCount(0);
+
+  const saved = await snapshot(page);
+  expect(saved.items.map((item) => item.plannedName)).toEqual(['FOLDER-01_S01']);
+  expect(saved.samples.map((sample) => sample.code)).toEqual(['S01']);
+  expect(saved.runs).toEqual([]);
+
+  await expect(page.getByRole('columnheader', { name: '数据文件夹', exact: true })).toBeVisible();
+  await page.getByRole('button', { name: '编辑 未指定', exact: true }).click();
+  dialog = page.getByRole('dialog');
+  for (const label of forbidden) expect(await visibleLabels(dialog)).not.toContain(label);
+  await expect(dialog.getByLabel('样品统称')).toBeVisible();
+  await expect(dialog.getByLabel('材料牌号', { exact: true })).toBeHidden();
+  await page.keyboard.press('Escape');
+
+  await page.getByRole('button', { name: '进入现场记录', exact: true }).click();
+  await expect(page.locator('.filename-card')).toContainText('数据文件夹');
+  await expect(page.locator('.filename-card')).not.toContainText('预期');
+  await expect(page.locator('.filename-card code')).toHaveText('FOLDER-01_S01');
+
+  await page.getByRole('button', { name: '打开设置', exact: true }).click();
+  dialog = page.getByRole('dialog');
+  for (const label of forbidden) expect(await visibleLabels(dialog)).not.toContain(label);
+  await expect(dialog.getByRole('heading', { name: '数据文件夹', exact: true })).toBeVisible();
+  await expect(
+    dialog.getByRole('button', { name: '实验编号和样品编号', exact: true }),
+  ).toBeHidden();
+  await expect(dialog.getByRole('button', { name: '带上材料和制度', exact: true })).toBeHidden();
+  await expect(dialog.locator('.filename-preview code')).toHaveText('FOLDER-01_S01');
 });
