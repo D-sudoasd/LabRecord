@@ -590,6 +590,11 @@ export function App() {
     [pendingDelete, setPendingDelete] = useState<PendingDelete | null>(null);
   const { open: openMenu, menu } = useContextMenu();
   const experiment = snapshot.experiments.find((e) => e.id === experimentId);
+  const runningItem = snapshot.items.find((item) => item.status === 'running');
+  const runningRun = runningItem && snapshot.runs.find((run) => run.itemId === runningItem.id);
+  const runningExperiment = snapshot.experiments.find(
+    (entry) => entry.id === runningItem?.experimentId,
+  );
   function navigate(action: () => void) {
     void flush()
       .then(action)
@@ -816,6 +821,35 @@ export function App() {
             )}
           </div>
         </header>
+        {!loading && page !== 'live' && runningItem && (
+          <div className="workspace-running" role="region" aria-label="进行中的操作">
+            <span className="pulse-dot" aria-hidden="true" />
+            <div>
+              <strong>
+                正在记录 ·{' '}
+                {runningRun?.snapshot.sample.code ||
+                  snapshot.samples.find((sample) => sample.id === runningItem.sampleId)?.code}
+              </strong>
+              <span>{runningExperiment?.name} · 切换页面后仍在进行</span>
+            </div>
+            <button
+              className="button small"
+              onClick={() =>
+                navigate(() => {
+                  const current = workspace
+                    .getSnapshot()
+                    .items.find((item) => item.status === 'running');
+                  if (!current) return;
+                  workspace.setExperimentId(current.experimentId);
+                  workspace.setItemId(current.id);
+                  setPage('live');
+                })
+              }
+            >
+              返回当前操作 <ArrowRight size={15} />
+            </button>
+          </div>
+        )}
         {loading ? (
           <div className="loading-screen">
             <LoaderCircle className="spin" />

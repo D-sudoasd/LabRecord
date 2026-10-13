@@ -1,4 +1,62 @@
-/* Extend the existing workspace layout without replacing its controls or typography. */
+/* Workspace surfaces keep the experiment controls and saved-state feedback in view. */
+.app-shell .app-rail {
+  background: #edf2ef;
+}
+
+.app-shell .app-rail nav button.active {
+  background: #ddece5;
+  box-shadow: inset 3px 0 var(--primary);
+}
+
+.app-shell .app-rail nav button.active:hover:not(:disabled) {
+  background: #d5e7dd;
+}
+
+.page-heading h1 {
+  letter-spacing: -0.5px;
+}
+
+.plan-page .page-heading,
+.review-page .page-heading {
+  margin-bottom: 20px;
+}
+
+.workspace-running {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 16px 32px 0;
+  padding: 12px 16px;
+  border: 1px solid #bfd6ca;
+  border-left: 3px solid var(--primary);
+  border-radius: var(--radius-control);
+  background: #eaf3ee;
+}
+
+.workspace-running > div {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 16px;
+  overflow-wrap: anywhere;
+}
+
+.workspace-running strong {
+  color: var(--primary);
+  font-size: 13px;
+}
+
+.workspace-running > div > span {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.workspace-running .button {
+  flex-shrink: 0;
+}
+
 .app-shell .workspace-header {
   gap: 12px;
 }
@@ -21,6 +79,77 @@
 
 .plan-page .plan-stats {
   grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 0;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-card);
+  overflow: hidden;
+  margin-bottom: 20px;
+}
+
+.plan-stats .stat {
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  min-height: 88px;
+  padding: 16px 18px;
+  gap: 12px;
+}
+
+.plan-stats .stat + .stat {
+  border-left: 1px solid var(--line);
+}
+
+.plan-stats .stat.accent {
+  background: #f0f7f3;
+}
+
+.plan-stats .stat > svg,
+.plan-stats .stat-icon {
+  width: 28px;
+  height: 28px;
+  padding: 4px;
+  border-radius: 0;
+  background: transparent;
+}
+
+.plan-stats .stat strong {
+  font-size: 26px;
+}
+
+.plan-page .planning-card > .card-toolbar {
+  padding-block: 16px;
+}
+
+.plan-table tbody > tr:not(.expanded-row):hover > td,
+.review-table tbody > tr:hover > td {
+  background: #f4f8f5;
+}
+
+.plan-table tbody > tr:focus-within > td {
+  background: #f0f7f3;
+}
+
+.live-page .queue-filters {
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.live-page .queue-filters button {
+  min-height: 32px;
+}
+
+.queue-filters button > span {
+  margin-left: 3px;
+  font-variant-numeric: tabular-nums;
+}
+
+.queue-empty {
+  text-align: center;
+}
+
+.queue-empty .text-button {
+  margin-top: 6px;
 }
 
 .plan-stats .stat {
@@ -55,6 +184,14 @@
   .plan-page .plan-stats {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
+
+  .plan-stats .stat:nth-child(4) {
+    border-left: 0;
+  }
+
+  .plan-stats .stat:nth-child(n + 4) {
+    border-top: 1px solid var(--line);
+  }
 }
 
 @media (max-width: 800px) {
@@ -64,5 +201,29 @@
 
   .plan-page .plan-stats {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .plan-stats .stat {
+    min-height: 78px;
+    padding: 12px;
+  }
+
+  .plan-stats .stat:nth-child(n) {
+    border-left: 0;
+  }
+
+  .plan-stats .stat:nth-child(2n) {
+    border-left: 1px solid var(--line);
+  }
+
+  .plan-stats .stat:nth-child(n + 3) {
+    border-top: 1px solid var(--line);
+  }
+
+  .workspace-running {
+    margin: 12px 16px 0;
+    gap: 8px;
+    padding: 10px;
+    flex-wrap: wrap;
   }
 }

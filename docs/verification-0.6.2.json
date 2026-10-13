@@ -1,0 +1,52 @@
+{
+  "version": "0.6.2",
+  "checkedAt": "2026-10-13T09:47:24.568813+00:00",
+  "baseCommit": "ebf1396ad561babd6c5524a6bf3b32013b41fef9",
+  "unitTests": {
+    "existingPassed": 69,
+    "newPassed": 1,
+    "failed": 0
+  },
+  "developmentDesktop": {
+    "scenariosPassed": 49,
+    "firstExistingRun": {
+      "passed": 45,
+      "failed": 1
+    },
+    "correctedTestRecheck": {
+      "passed": 1,
+      "cause": "Chromium datetime-local normalizes zero seconds; test input now uses the canonical value."
+    },
+    "newScenariosPassed": 3
+  },
+  "packagedDesktop": {
+    "startTime": "2026-10-13T09:44:34.216Z",
+    "duration": 142693.653,
+    "expected": 49,
+    "skipped": 0,
+    "unexpected": 0,
+    "flaky": 0
+  },
+  "runtime": {
+    "version": "0.6.2",
+    "packaged": true,
+    "appPath": "resources/app.asar",
+    "electron": "44.5.1",
+    "node": "24.21.0",
+    "sqlite": "3.53.4",
+    "platform": "win32",
+    "arch": "x64",
+    "displayScale": 1
+  },
+  "archive": {
+    "filename": "LabRecord-0.6.2-Windows-x64.zip",
+    "bytes": 163053315,
+    "sha256": "a45fcea9704ad107436ed52c935c5130beb17d1ffa05a92087c5528641257ce1"
+  },
+  "archiveCrcChecked": true,
+  "matchedPackagedFiles": 10,
+  "testData": "Synthetic data only; isolated LABRECORD_TEST_DATA temporary directories.",
+  "liveCloudTested": false,
+  "schemaVersion": 1,
+  "signed": false
+}

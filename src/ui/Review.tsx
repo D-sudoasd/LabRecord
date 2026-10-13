@@ -6,6 +6,7 @@ import {
   Clock,
   FileSpreadsheet,
   FileText,
+  ArrowLeftRight,
 } from 'lucide-react';
 import { useWorkspace, unwrap, type EventTarget } from './context';
 import { StatusPill, Empty, timeText, Modal, eventLabel, SearchField } from './components';
@@ -16,12 +17,19 @@ import { measurementFor, measurementSummary } from '../shared/measurement';
 import { materialSummary } from '../shared/materials';
 import { MaterialPreparationSummary } from './MaterialPreparation';
 import {
+  actualFileReferences,
+  matchesReviewFilters,
+  reviewFilterItemIds,
+  type ReviewFilterKey,
+} from './reviewFilters';
+import {
   DeleteConfirm,
   itemsDeleteReason,
   itemsDeleteRequest,
   useContextMenu,
   type PendingDelete,
 } from './rowMenu';
+import './review.css';
 export function Review() {
   const { snapshot, experimentId, notify, flush, setItemId, setPage, execute } = useWorkspace();
   const items = snapshot.items
@@ -29,6 +37,7 @@ export function Review() {
     .sort((a, b) => a.order - b.order);
   const [search, setSearch] = useState(''),
     [problemsOnly, setProblemsOnly] = useState(false),
+    [reviewFilters, setReviewFilters] = useState<ReviewFilterKey[]>([]),
     [history, setHistory] = useState<string | null>(null),
     [times, setTimes] = useState<EventTarget | null>(null),
     [exporting, setExporting] = useState(false),
@@ -38,15 +47,17 @@ export function Review() {
       (e) => e.experimentId === experimentId && e.type === 'issue',
     ),
     unresolved = issues.filter((e) => !e.data.resolvedAt);
+  const filterItemIds = reviewFilterItemIds(snapshot, experimentId);
   const visible = items.filter((item) => {
     const sample = snapshot.samples.find((s) => s.id === item.sampleId)!;
     const run = snapshot.runs.find((r) => r.itemId === item.id);
     const group = run?.snapshot.group || snapshot.groups.find((g) => g.id === sample.groupId)!;
     return (
-      `${sampleName(group)} ${group.state} ${materialSummary(group)} ${run?.actualSample?.name || ''} ${run?.snapshot.sample.code || sample.code} ${run?.notes || ''} ${run?.actual.filename || ''} ${run?.actual.scanId || ''} ${measurementSummary(measurementFor(snapshot, item))} ${run?.filename || item.plannedName || ''}`
+      `${sampleName(group)} ${group.state} ${materialSummary(group)} ${run?.actualSample?.name || ''} ${run?.snapshot.sample.code || sample.code} ${run?.notes || ''} ${run?.actual.filename || ''} ${run?.actual.scanId || ''} ${run?.actual.files || ''} ${measurementSummary(measurementFor(snapshot, item))} ${run?.filename || item.plannedName || ''}`
         .toLowerCase()
         .includes(search.toLowerCase()) &&
-      (!problemsOnly || issues.some((e) => e.itemId === item.id))
+      (!problemsOnly || issues.some((e) => e.itemId === item.id)) &&
+      matchesReviewFilters(item.id, reviewFilters, filterItemIds)
     );
   });
   async function save(format: 'xlsx' | 'csv' | 'json') {
@@ -62,6 +73,46 @@ export function Review() {
     }
   }
   const checks = reportInsights(snapshot, experimentId);
+  const filterOptions: {
+    key: ReviewFilterKey;
+    label: string;
+    count: number;
+    unit: string;
+    Icon: typeof Clock;
+  }[] = [
+    {
+      key: 'missingTimes',
+      label: '时间不完整',
+      count: checks.missingTimes,
+      unit: '次',
+      Icon: Clock,
+    },
+    {
+      key: 'missingFiles',
+      label: '文件关联未补充',
+      count: checks.missingFiles,
+      unit: '次',
+      Icon: FileText,
+    },
+    {
+      key: 'unresolvedIssues',
+      label: '未处理问题',
+      count: checks.unresolvedIssues,
+      unit: '条',
+      Icon: AlertTriangle,
+    },
+  ];
+  const hasActiveFilters = !!search || problemsOnly || reviewFilters.length > 0;
+  function clearFilters() {
+    setSearch('');
+    setProblemsOnly(false);
+    setReviewFilters([]);
+  }
+  function toggleReviewFilter(filter: ReviewFilterKey) {
+    setReviewFilters((current) =>
+      current.includes(filter) ? current.filter((key) => key !== filter) : [...current, filter],
+    );
+  }
   async function report() {
     setExporting(true);
     try {
@@ -104,10 +155,6 @@ export function Review() {
         <div className="report-action-copy">
           <h3>一键生成实验报告</h3>
           <p>PDF + 独立 HTML + 结构化 JSON + agent 说明 + 现场图片</p>
-          <small className="hint">
-            待核对：{checks.missingTimes} 次时间不完整 · {checks.missingFiles} 次文件关联未补充 ·{' '}
-            {checks.unresolvedIssues} 条未处理问题
-          </small>
         </div>
         <button
           className="button primary"
@@ -164,38 +211,46 @@ export function Review() {
             <span>{issues.length} 条记录</span>
           </div>
           <div className="issue-list">
-            {issues.map((issue) => (
-              <div
-                className={`review-issue ${issue.data.resolvedAt ? 'resolved' : ''}`}
-                key={issue.id}
-              >
-                <AlertTriangle size={16} />
-                <div>
-                  <strong>
-                    {String(issue.data.category)} ·{' '}
-                    {snapshot.samples.find(
-                      (s) => s.id === snapshot.items.find((i) => i.id === issue.itemId)?.sampleId,
-                    )?.code || '实验记录'}
-                  </strong>
-                  <p>{issue.text}</p>
-                  <small>{timeText(issue.createdAt, true)}</small>
+            {issues.map((issue) => {
+              const issueRun = snapshot.runs.find((run) => run.id === issue.runId);
+              const issueItem =
+                snapshot.items.find((item) => item.id === issue.itemId) ||
+                snapshot.items.find((item) => item.id === issueRun?.itemId);
+              const issueSampleCode =
+                issueRun?.snapshot.sample.code ||
+                snapshot.samples.find((sample) => sample.id === issueItem?.sampleId)?.code ||
+                '实验记录';
+              const resolved = !!issue.data.resolvedAt;
+              return (
+                <div className={`review-issue ${resolved ? 'resolved' : 'pending'}`} key={issue.id}>
+                  <AlertTriangle size={16} aria-hidden="true" />
+                  <div>
+                    <div className="review-issue-heading">
+                      <strong>
+                        {String(issue.data.category)} · {issueSampleCode}
+                      </strong>
+                      <span className={`review-issue-status ${resolved ? 'resolved' : 'pending'}`}>
+                        {resolved ? '已处理' : '待处理'}
+                      </span>
+                    </div>
+                    <p>{issue.text}</p>
+                    <small>{timeText(issue.createdAt, true)}</small>
+                  </div>
+                  {!resolved && (
+                    <button
+                      className="button small"
+                      onClick={() => {
+                        void execute({ type: 'resolveIssue', eventId: issue.id }, false).catch(
+                          () => {},
+                        );
+                      }}
+                    >
+                      标记已处理
+                    </button>
+                  )}
                 </div>
-                {issue.data.resolvedAt ? (
-                  <span className="resolved-label">已处理</span>
-                ) : (
-                  <button
-                    className="button small"
-                    onClick={() => {
-                      void execute({ type: 'resolveIssue', eventId: issue.id }, false).catch(
-                        () => {},
-                      );
-                    }}
-                  >
-                    标记已处理
-                  </button>
-                )}
-              </div>
-            ))}
+              );
+            })}
           </div>
         </section>
       )}
@@ -242,8 +297,49 @@ export function Review() {
             </button>
           </div>
         </div>
+        <div className="review-followup">
+          <div className="review-followup-copy">
+            <strong>待核对</strong>
+            <span>选择条件可与搜索和问题筛选叠加</span>
+          </div>
+          <div
+            className="review-followup-filters"
+            role="group"
+            aria-label="按待核对事项筛选操作记录"
+          >
+            {filterOptions.map(({ key, label, count, unit, Icon }) => {
+              const active = reviewFilters.includes(key);
+              return (
+                <button
+                  key={key}
+                  type="button"
+                  className="review-filter-button"
+                  aria-pressed={active}
+                  aria-label={`${label}，${count}${unit}`}
+                  onClick={() => toggleReviewFilter(key)}
+                >
+                  <Icon size={14} aria-hidden="true" />
+                  <span>{label}</span>
+                  <span className="review-filter-count">
+                    {count}
+                    {unit}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+          {hasActiveFilters && (
+            <button type="button" className="review-filter-clear" onClick={clearFilters}>
+              清除筛选
+            </button>
+          )}
+        </div>
+        <div className="review-scroll-hint">
+          <ArrowLeftRight size={14} aria-hidden="true" />
+          <span>表格可横向滚动，查看实际文件、备注和操作</span>
+        </div>
         {visible.length ? (
-          <div className="table-wrap">
+          <div className="table-wrap review-table-wrap">
             <table className="review-table">
               <thead>
                 <tr>
@@ -265,6 +361,7 @@ export function Review() {
                     ...snapshot.groups.find((g) => g.id === sample.groupId)!,
                     ...sample.parameters,
                   };
+                  const fileReferences = actualFileReferences(run);
                   const deleteReason = itemsDeleteReason(snapshot, [item.id]);
                   return (
                     <tr
@@ -344,8 +441,22 @@ export function Review() {
                         )}
                       </td>
                       <td>
-                        <code>{String(run?.actual.filename || run?.filename || '—')}</code>
-                        <small>{String(run?.actual.scanId || '')}</small>
+                        {run ? (
+                          fileReferences.length ? (
+                            <div className="review-actual-files">
+                              {fileReferences.map((reference) => (
+                                <div className="review-actual-file" key={reference.label}>
+                                  <small>{reference.label}</small>
+                                  <code>{reference.value}</code>
+                                </div>
+                              ))}
+                            </div>
+                          ) : (
+                            <span className="review-file-state">未关联</span>
+                          )
+                        ) : (
+                          <span className="review-file-state">尚未开始</span>
+                        )}
                       </td>
                       <td>
                         <p className="review-note">{run?.notes || '—'}</p>
@@ -396,8 +507,20 @@ export function Review() {
               </tbody>
             </table>
           </div>
+        ) : items.length === 0 ? (
+          <Empty
+            title="还没有计划操作"
+            description="先在规划页安排测量操作，之后可在这里回看实际记录。"
+          />
         ) : (
-          <Empty title="还没有操作记录" description="到现场开始记录，或补上已有实验的时间。" />
+          <Empty
+            title="没有符合条件的记录"
+            description="试试调整搜索或筛选条件。未关联到操作的问题仍保留在上方的问题明细中。"
+          >
+            <button type="button" className="button" onClick={clearFilters}>
+              清除筛选
+            </button>
+          </Empty>
         )}
         <div className="table-footer">
           <span>计划内容在开始操作时保存 · 修改历史可追溯</span>
