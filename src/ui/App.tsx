@@ -17,9 +17,11 @@ import {
   Trash2,
   FilePlus2,
   BookOpen,
+  Keyboard,
   Cloud,
   Eye,
   ArrowRight,
+  Search,
 } from 'lucide-react';
 import { useWorkspace, unwrap, DesktopReplyError } from './context';
 import { Plan } from './Plan';
@@ -28,6 +30,8 @@ import { Review } from './Review';
 import { Modal, useCommandClose } from './components';
 import { CloudPanel } from './CloudPanel';
 import { ExperimentOverview } from './ExperimentOverview';
+import { WorkspaceSearchDialog } from './FindDialog';
+import { ShortcutsDialog } from './Shortcuts';
 import {
   DeleteConfirm,
   experimentDeleteReason,
@@ -585,6 +589,8 @@ export function App() {
     notify,
   } = workspace;
   const [cloudFirst, setCloudFirst] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const [newExperiment, setNewExperiment] = useState(false),
     [settings, setSettings] = useState(false),
     [overview, setOverview] = useState(false),
@@ -624,6 +630,36 @@ export function App() {
     window.addEventListener('keydown', listener);
     return () => window.removeEventListener('keydown', listener);
   }, [experiment, flush, setPage, notify]);
+  useEffect(() => {
+    const listener = (event: KeyboardEvent) => {
+      if (
+        event.repeat ||
+        event.altKey ||
+        event.metaKey ||
+        event.shiftKey ||
+        event.isComposing ||
+        !event.ctrlKey ||
+        busy > 0 ||
+        document.querySelector('dialog[open]')
+      )
+        return;
+      const target = event.target;
+      if (
+        target instanceof HTMLElement &&
+        (target.matches('input, textarea, select') || target.isContentEditable)
+      )
+        return;
+      if (event.key.toLowerCase() === 'k') {
+        event.preventDefault();
+        setSearchOpen(true);
+      } else if (event.key === '/') {
+        event.preventDefault();
+        setShortcutsOpen(true);
+      }
+    };
+    window.addEventListener('keydown', listener);
+    return () => window.removeEventListener('keydown', listener);
+  }, [busy]);
   const nav = [
     { id: 'plan' as const, label: '实验规划', detail: '样品与测试安排', icon: LayoutList },
     { id: 'live' as const, label: '现场记录', detail: '操作与现场观察', icon: NotebookPen },
@@ -667,6 +703,22 @@ export function App() {
         </nav>
         <div className="rail-bottom">
           <button
+            aria-label="全库搜索"
+            title="全库搜索 · Ctrl + K"
+            onClick={() => setSearchOpen(true)}
+          >
+            <Search size={19} />
+            <span>全库搜索</span>
+          </button>
+          <button
+            aria-label="快捷键"
+            title="快捷键 · Ctrl + /"
+            onClick={() => setShortcutsOpen(true)}
+          >
+            <Keyboard size={19} />
+            <span>快捷键</span>
+          </button>
+          <button
             aria-label="打开使用说明"
             title="使用说明"
             onClick={() => {
@@ -693,7 +745,11 @@ export function App() {
               <small>记录自动保存到本机</small>
             </div>
           </div>
-          <small className="rail-shortcut">Ctrl + 1 / 2 / 3 切换页面</small>
+          <small className="rail-shortcut">
+            Ctrl + 1 / 2 / 3 切换页面
+            <br />
+            Ctrl + K 搜索
+          </small>
         </div>
       </aside>
       <main className="app-main">
@@ -739,7 +795,11 @@ export function App() {
               <FlaskConical size={19} aria-hidden="true" />
             </div>
             <div className="experiment-selection">
-              <span className="header-caption">当前实验</span>
+              <span className="header-caption">
+                {experiment
+                  ? `${experiment.name} / ${nav.find((item) => item.id === page)?.label}`
+                  : '当前实验'}
+              </span>
               <select
                 aria-label="选择实验"
                 value={experimentId}
@@ -898,6 +958,8 @@ export function App() {
           </button>
         </div>
       )}
+      {searchOpen && <WorkspaceSearchDialog onClose={() => setSearchOpen(false)} />}
+      {shortcutsOpen && <ShortcutsDialog onClose={() => setShortcutsOpen(false)} />}
       {newExperiment && <NewExperiment onClose={() => setNewExperiment(false)} />}{' '}
       {settings && (
         <SettingsDialog

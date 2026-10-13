@@ -32,6 +32,15 @@ export function MaterialPreparationFields({
                 <option key={option} value={option} />
               ))}
             </datalist>
+            {(field.key === 'processing' || field.key === 'heatTreatment') &&
+              (value[field.key] || '').includes('→') &&
+              value[field.key] !== '无' && (
+                <StepOrder
+                  label={field.label}
+                  value={value[field.key] || ''}
+                  onChange={(next) => onChange(field.key, next)}
+                />
+              )}
             {(field.key === 'heatTreatment' || field.key === 'otherTreatment') && (
               <button
                 type="button"
@@ -49,6 +58,52 @@ export function MaterialPreparationFields({
         按制备先后填写工艺、温度、时间和冷却方式。留空表示未填写，“无”表示明确没有；现场加载或升温另填实验制度。
       </p>
     </fieldset>
+  );
+}
+
+function StepOrder({
+  label,
+  value,
+  onChange,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  const parts = value.split('→');
+  function move(index: number, direction: -1 | 1) {
+    const next = index + direction;
+    if (next < 0 || next >= parts.length) return;
+    const copy = [...parts];
+    [copy[index], copy[next]] = [copy[next], copy[index]];
+    onChange(copy.join('→'));
+  }
+  return (
+    <div className="step-order" aria-label={`${label}工序顺序`}>
+      {parts.map((part, index) => (
+        <div key={`${index}-${part}`}>
+          <span>{part.trim() || '（空）'}</span>
+          <button
+            type="button"
+            className="text-button"
+            aria-label={`${label}第 ${index + 1} 段上移`}
+            disabled={index === 0}
+            onClick={() => move(index, -1)}
+          >
+            上移
+          </button>
+          <button
+            type="button"
+            className="text-button"
+            aria-label={`${label}第 ${index + 1} 段下移`}
+            disabled={index === parts.length - 1}
+            onClick={() => move(index, 1)}
+          >
+            下移
+          </button>
+        </div>
+      ))}
+    </div>
   );
 }
 

@@ -1,21 +1,27 @@
 :root {
-  --canvas: #f3f6f5;
+  --canvas: #f2f3f5;
   --surface: #ffffff;
-  --surface-secondary: #eef3f1;
+  --surface-secondary: #f4f5f7;
+  --rail: #f7f8f9;
   --ink: #253832;
   --muted: #5e7069;
   --primary: #196b5b;
   --primary-hover: #0d625b;
   --tint: #eaf5f2;
-  --line: #dce5e0;
+  --line: #d8dce2;
+  --line-strong: #c5cad0;
   --danger: #b13e38;
+  --danger-hover: #9c332e;
   --warning: #956017;
   --focus: #167c74;
-  --radius-card: 16px;
-  --radius-control: 9px;
-  --shadow-card: 0 2px 3px #202b3803, 0 8px 28px #202b3806;
+  --on-accent: #ffffff;
+  --radius-card: 12px;
+  --radius-control: 8px;
+  --shadow-card: 0 1px 2px #202b380a, 0 8px 24px #202b3808;
   --shadow-overlay: 0 24px 80px #17233126, 0 0 0 1px #ffffff80;
   --rail-width: 216px;
   --header-height: 80px;
+  --font-ui: 'Segoe UI', 'Microsoft YaHei', sans-serif;
+  --font-numeric: 'Cascadia Mono', 'Cascadia Code', Consolas, ui-monospace, monospace;
   color-scheme: light;
 }

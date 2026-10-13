@@ -18,8 +18,10 @@ import {
   Square,
   Link,
   ChevronDown,
+  MoreHorizontal,
 } from 'lucide-react';
 import type { PlanItem, Command } from '../shared/model';
+import { placeId, swapAdjacent } from '../shared/order';
 import {
   groupCounts,
   sampleName,
@@ -529,6 +531,14 @@ export function Live() {
   const filesWorking = useRef(false);
   const composing = useRef(false);
   const [fileBusy, setFileBusy] = useState(false);
+  const dragRef = useRef<{ id: string; x: number; y: number; active: boolean } | null>(null);
+  const hintRef = useRef<{ id: string; where: 'before' | 'after' } | null>(null);
+  const [dropHint, setDropHint] = useState<{
+    id: string;
+    where: 'before' | 'after';
+    label: string;
+  } | null>(null);
+  const [draggingId, setDraggingId] = useState('');
   useEffect(
     () => () => {
       if (actionTimer.current) clearTimeout(actionTimer.current);
@@ -661,18 +671,112 @@ export function Live() {
       })
       .catch((error) => notify(error.message, true));
   }
-  async function move(item: PlanItem, direction: number) {
-    const index = items.findIndex((i) => i.id === item.id);
-    const next = index + direction;
-    if (next < 0 || next >= items.length) return;
-    const ids = items.map((i) => i.id);
-    [ids[index], ids[next]] = [ids[next], ids[index]];
+  async function commitOrder(ids: string[] | null) {
+    if (!ids) return false;
     try {
       await flush();
-      await execute({ type: 'reorder', experimentId: item.experimentId, ids }, false);
+      const current = workspace
+        .getSnapshot()
+        .items.filter((entry) => entry.experimentId === experimentId)
+        .sort((a, b) => a.order - b.order)
+        .map((entry) => entry.id);
+      if (
+        ids.length !== current.length ||
+        new Set(ids).size !== ids.length ||
+        current.some((id) => !ids.includes(id))
+      ) {
+        notify('队列已变化，请重新排序。', true);
+        return false;
+      }
+      if (ids.every((id, index) => id === current[index])) return false;
+      await execute({ type: 'reorder', experimentId, ids }, false);
+      return true;
     } catch (error) {
       notify((error as Error).message, true);
+      return false;
     }
+  }
+  async function move(item: PlanItem, direction: number) {
+    const index = items.findIndex((entry) => entry.id === item.id);
+    const neighbor = items[index + direction];
+    if (!neighbor) return;
+    const hidden = !visible.some((entry) => entry.id === neighbor.id);
+    const moved = await commitOrder(
+      swapAdjacent(
+        items.map((entry) => entry.id),
+        item.id,
+        direction < 0 ? -1 : 1,
+      ),
+    );
+    if (moved && hidden) notify('已与被隐藏的相邻操作交换。');
+  }
+  function gripDown(event: React.PointerEvent<HTMLButtonElement>, id: string) {
+    if (event.button !== 0) return;
+    dragRef.current = { id, x: event.clientX, y: event.clientY, active: false };
+    event.currentTarget.setPointerCapture(event.pointerId);
+  }
+  function gripMove(event: React.PointerEvent<HTMLButtonElement>) {
+    const drag = dragRef.current;
+    if (!drag) return;
+    if (!drag.active && Math.hypot(event.clientX - drag.x, event.clientY - drag.y) < 4) return;
+    if (!drag.active) setDraggingId(drag.id);
+    drag.active = true;
+    const row = (
+      document.elementFromPoint(event.clientX, event.clientY) as HTMLElement | null
+    )?.closest('.queue-row');
+    const target = row?.getAttribute('data-item-id');
+    if (!row || !target || target === drag.id) {
+      hintRef.current = null;
+      setDropHint(null);
+      return;
+    }
+    const rect = row.getBoundingClientRect();
+    const where = event.clientY < rect.top + rect.height / 2 ? 'before' : 'after';
+    const next = placeId(
+      items.map((entry) => entry.id),
+      drag.id,
+      target,
+      where,
+    );
+    hintRef.current = { id: target, where };
+    setDropHint({
+      id: target,
+      where,
+      label: `插到完整队列第 ${next ? next.indexOf(drag.id) + 1 : 0} 位`,
+    });
+  }
+  function gripUp() {
+    const drag = dragRef.current;
+    const hint = hintRef.current;
+    dragRef.current = null;
+    hintRef.current = null;
+    setDraggingId('');
+    setDropHint(null);
+    if (!drag?.active || !hint) return;
+    void commitOrder(
+      placeId(
+        items.map((entry) => entry.id),
+        drag.id,
+        hint.id,
+        hint.where,
+      ),
+    );
+  }
+  function onQueueKey(event: React.KeyboardEvent, item: PlanItem) {
+    if (
+      !event.altKey ||
+      event.ctrlKey ||
+      event.metaKey ||
+      event.shiftKey ||
+      event.repeat ||
+      event.nativeEvent.isComposing ||
+      (event.key !== 'ArrowUp' && event.key !== 'ArrowDown')
+    )
+      return;
+    const target = event.target;
+    if (target instanceof HTMLElement && target.matches('input, textarea, select')) return;
+    event.preventDefault();
+    void move(item, event.key === 'ArrowUp' ? -1 : 1);
   }
   let proposed = '';
   if (sample) {
@@ -827,72 +931,96 @@ export function Live() {
         )}
       </div>
       <div className="queue-list">
-        {visible.map((item, index) => {
+        {visible.map((item) => {
           const history = snapshot.runs.find((run) => run.itemId === item.id);
           const sample =
             history?.snapshot.sample || snapshot.samples.find((s) => s.id === item.sampleId)!;
           const group =
             history?.snapshot.group || snapshot.groups.find((g) => g.id === sample.groupId)!;
           const repeated = !!item.repeatOf;
+          const queueIndex = items.findIndex((entry) => entry.id === item.id);
+          const deleteReason = itemsDeleteReason(snapshot, [item.id]);
+          const rowMenu = [
+            { kind: 'item' as const, label: '选择', onSelect: () => choose(item.id) },
+            {
+              kind: 'item' as const,
+              label: '上移',
+              disabled: queueIndex <= 0,
+              onSelect: () => void move(item, -1),
+            },
+            {
+              kind: 'item' as const,
+              label: '下移',
+              disabled: queueIndex < 0 || queueIndex >= items.length - 1,
+              onSelect: () => void move(item, 1),
+            },
+            { kind: 'separator' as const },
+            {
+              kind: 'item' as const,
+              label: deleteReason
+                ? item.status === 'running'
+                  ? '删除未开始的测量（进行中）'
+                  : '删除未开始的测量（已有记录）'
+                : '删除未开始的测量',
+              disabled: !!deleteReason,
+              danger: true,
+              title: deleteReason || undefined,
+              onSelect: () => setPendingDelete(itemsDeleteRequest(snapshot, [item.id])),
+            },
+          ];
           return (
             <div
-              className={`queue-row ${selected?.id === item.id ? 'current' : ''}`}
+              className={`queue-row ${selected?.id === item.id ? 'current' : ''} ${
+                dropHint?.id === item.id ? `drop-${dropHint.where}` : ''
+              } ${draggingId === item.id ? 'is-dragging' : ''}`}
               key={item.id}
-              onContextMenu={(event) => {
-                const reason = itemsDeleteReason(snapshot, [item.id]);
-                const index = items.findIndex((entry) => entry.id === item.id);
-                openMenu(event, [
-                  { kind: 'item', label: '选择', onSelect: () => choose(item.id) },
-                  {
-                    kind: 'item',
-                    label: '上移',
-                    disabled: index <= 0,
-                    onSelect: () => void move(item, -1),
-                  },
-                  {
-                    kind: 'item',
-                    label: '下移',
-                    disabled: index < 0 || index >= items.length - 1,
-                    onSelect: () => void move(item, 1),
-                  },
-                  { kind: 'separator' },
-                  {
-                    kind: 'item',
-                    label: reason
-                      ? item.status === 'running'
-                        ? '删除未开始的测量（进行中）'
-                        : '删除未开始的测量（已有记录）'
-                      : '删除未开始的测量',
-                    disabled: !!reason,
-                    danger: true,
-                    title: reason || undefined,
-                    onSelect: () => setPendingDelete(itemsDeleteRequest(snapshot, [item.id])),
-                  },
-                ]);
-              }}
+              data-item-id={item.id}
+              onKeyDown={(event) => onQueueKey(event, item)}
+              onContextMenu={(event) => openMenu(event, rowMenu)}
             >
-              <button
-                className="queue-choice"
-                aria-label={`选择样品 ${sample.code} 操作 ${item.order + 1}`}
-                aria-pressed={selected?.id === item.id}
-                onClick={() => choose(item.id)}
-              >
-                <span className="queue-index">{String(item.order + 1).padStart(2, '0')}</span>
-                <div>
-                  <strong>{sample.parameters.name?.trim() || sample.code}</strong>
-                  <small>
-                    {sample.parameters.name?.trim()
-                      ? `${sample.code} · ${group.state}`
-                      : sampleName(group)}
-                    {repeated ? ' · 重测安排' : ''}
-                  </small>
-                  {(item.measurement || history?.snapshot.measurement) && (
-                    <small>{measurementSummary(measurementFor(snapshot, item))}</small>
-                  )}
-                  <StatusPill status={item.status} />
-                </div>
-                <PriorityPill value={group.priority} />
-              </button>
+              <div className="queue-line">
+                <button
+                  type="button"
+                  className="queue-grip queue-index"
+                  aria-label={`拖动调整样品 ${sample.code} 的完整队列顺序`}
+                  onPointerDown={(event) => gripDown(event, item.id)}
+                  onPointerMove={gripMove}
+                  onPointerUp={gripUp}
+                  onPointerCancel={gripUp}
+                >
+                  {String(item.order + 1).padStart(2, '0')}
+                </button>
+                <button
+                  className="queue-choice"
+                  aria-label={`选择样品 ${sample.code} 操作 ${item.order + 1}`}
+                  aria-pressed={selected?.id === item.id}
+                  onClick={() => choose(item.id)}
+                >
+                  <div>
+                    <strong>{sample.parameters.name?.trim() || sample.code}</strong>
+                    <small>
+                      {sample.parameters.name?.trim()
+                        ? `${sample.code} · ${group.state}`
+                        : sampleName(group)}
+                      {repeated ? ' · 重测安排' : ''}
+                    </small>
+                    {(item.measurement || history?.snapshot.measurement) && (
+                      <small>{measurementSummary(measurementFor(snapshot, item))}</small>
+                    )}
+                    <StatusPill status={item.status} />
+                  </div>
+                  <PriorityPill value={group.priority} />
+                </button>
+                <button
+                  type="button"
+                  className="queue-more"
+                  aria-label={`更多 ${sample.code}`}
+                  aria-haspopup="menu"
+                  onClick={(event) => openMenu(event, rowMenu)}
+                >
+                  <MoreHorizontal size={16} />
+                </button>
+              </div>
               {selected?.id === item.id && (
                 <div className="queue-order">
                   <button
@@ -949,7 +1077,7 @@ export function Live() {
       </div>
       <footer>
         <span className="pulse-dot neutral" />
-        备样不在队列中 · 右键可调整顺序或删除还没开始的测量
+        {dropHint?.label || '按住序号拖动可调整完整队列。备样不在队列中。'}
       </footer>
     </aside>
   );
@@ -1122,6 +1250,21 @@ export function Live() {
                         {displayedGroup.name ? ` · ${displayedGroup.state}` : ''}
                       </>
                     )}
+                  </p>
+                  <p className="next-step">
+                    {selected.status === 'pending' &&
+                    globalRunning &&
+                    globalRunning.id !== selected.id
+                      ? '待测。先完成正在进行的操作。'
+                      : selected.status === 'pending'
+                        ? '待测。下一步：开始。'
+                        : selected.status === 'running'
+                          ? '进行中。下一步：完成。'
+                          : selected.status === 'completed'
+                            ? '已完成。'
+                            : selected.status === 'skipped'
+                              ? '已跳过。'
+                              : '已中断。'}
                   </p>
                 </div>
                 <div className="current-state">

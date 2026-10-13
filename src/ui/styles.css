@@ -466,6 +466,7 @@ a {
   flex-direction: column;
 }
 .stat strong {
+  font-family: var(--font-numeric);
   font-weight: 650;
   line-height: 1.15;
   font-size: 26px;
@@ -473,6 +474,7 @@ a {
   font-variant-numeric: tabular-nums;
 }
 .stat strong small {
+  font-family: var(--font-ui);
   font-size: 12px;
   font-weight: 400;
   margin-left: 7px;
@@ -970,6 +972,11 @@ a {
   box-shadow: var(--shadow-overlay);
   border: 1px solid #ffffff90;
 }
+.modal[open] {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
 .modal.wide {
   width: 850px;
 }
@@ -995,6 +1002,8 @@ a {
   letter-spacing: -0.3px;
 }
 .modal-body {
+  flex: 1;
+  min-height: 0;
   overflow: auto;
   padding: 22px 24px;
 }
@@ -1007,6 +1016,12 @@ a {
   align-items: center;
   flex-wrap: wrap;
   padding-top: 18px;
+  position: sticky;
+  bottom: 0;
+  background: var(--surface);
+}
+.modal-actions > .button:first-of-type:not(:last-of-type) {
+  margin-right: auto;
 }
 .callout {
   border: 1px solid #dcebe3;
@@ -1182,6 +1197,51 @@ a {
   overflow: hidden;
   border-radius: 14px;
   margin-bottom: 6px;
+}
+.queue-line {
+  display: flex;
+  align-items: flex-start;
+}
+.queue-line .queue-choice {
+  width: auto;
+  flex: 1;
+  min-width: 0;
+}
+.queue-grip {
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font-family: var(--font-numeric);
+  font-variant-numeric: tabular-nums;
+  cursor: grab;
+  min-width: 36px;
+  padding: 16px 2px 0 8px;
+}
+.queue-grip:active {
+  cursor: grabbing;
+}
+.queue-more {
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  min-width: 32px;
+  min-height: 32px;
+  margin: 10px 6px 0 0;
+  border-radius: 8px;
+}
+.queue-row.drop-before {
+  box-shadow: inset 0 2px 0 var(--primary);
+}
+.queue-row.drop-after {
+  box-shadow: inset 0 -2px 0 var(--primary);
+}
+.queue-row.is-dragging {
+  opacity: 0.55;
+}
+.next-step {
+  margin-top: 8px;
+  font-size: 14px;
+  font-weight: 650;
 }
 .queue-row.current {
   background: var(--tint);
@@ -2484,6 +2544,9 @@ a {
   font-size: 10px;
   color: var(--muted);
   margin-bottom: 1px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .cloud-open {
   color: var(--muted);

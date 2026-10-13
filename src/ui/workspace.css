@@ -1,6 +1,6 @@
 /* Workspace surfaces keep the experiment controls and saved-state feedback in view. */
 .app-shell .app-rail {
-  background: #edf2ef;
+  background: var(--rail);
 }
 
 .app-shell .app-rail nav button.active {
@@ -75,6 +75,66 @@
 .workspace-header .cloud-open,
 .workspace-header .save-indicator {
   flex-shrink: 0;
+}
+
+.workspace-hits {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 12px;
+}
+.workspace-hits button {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  width: 100%;
+  text-align: left;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  border-radius: var(--radius-control);
+  padding: 10px 12px;
+}
+.workspace-hits small,
+.shortcut-table small,
+.step-order span {
+  color: var(--muted);
+}
+.shortcut-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+.shortcut-table th {
+  white-space: nowrap;
+  text-align: left;
+  vertical-align: top;
+  padding: 8px 12px 8px 0;
+  font-family: var(--font-numeric);
+  font-size: 12px;
+  font-weight: 600;
+}
+.shortcut-table td {
+  padding: 8px 0;
+  border-bottom: 1px solid var(--line);
+}
+.shortcut-table small {
+  display: block;
+  margin-top: 2px;
+}
+.step-order {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 6px;
+}
+.step-order div {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.step-order span {
+  flex: 1;
+  min-width: 0;
 }
 
 .plan-page .plan-stats {

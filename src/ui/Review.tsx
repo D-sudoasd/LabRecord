@@ -406,6 +406,17 @@ export function Review() {
                     >
                       <td>
                         <strong>{sample.code}</strong>
+                        <button
+                          type="button"
+                          className="text-button"
+                          aria-label={`查看现场 ${sample.code}`}
+                          onClick={() => {
+                            setItemId(item.id);
+                            setPage('live');
+                          }}
+                        >
+                          查看现场
+                        </button>
                         <small>
                           {run?.actualSample?.name ||
                             run?.snapshot.group.name ||

@@ -17,7 +17,7 @@ import { useWorkspace, DesktopReplyError } from './context';
 import { Modal, FieldInputs, useCommandClose } from './components';
 
 export function QuickAdd({ onClose }: { onClose: () => void }) {
-  const { experimentId, snapshot, execute } = useWorkspace();
+  const { experimentId, snapshot, execute, getSnapshot } = useWorkspace();
   const experiment = snapshot.experiments.find((e) => e.id === experimentId)!;
   const latest = snapshot.groups.filter((g) => g.experimentId === experimentId).at(-1);
   const [patch, setPatch] = useState<GroupPatch>({
@@ -46,6 +46,7 @@ export function QuickAdd({ onClose }: { onClose: () => void }) {
   const [busy, setBusy] = useState(false),
     [error, setError] = useState(''),
     [added, setAdded] = useState(0),
+    [addedLine, setAddedLine] = useState(''),
     [copied, setCopied] = useState(false);
   const planned = count.trim() ? Number(count) : null;
   const prepared = patch.preparedCount ?? null;
@@ -95,13 +96,34 @@ export function QuickAdd({ onClose }: { onClose: () => void }) {
         requestId: crypto.randomUUID(),
         continueAdding,
       };
+      const before = new Set(
+        getSnapshot()
+          .samples.filter((sample) => sample.experimentId === experimentId)
+          .map((sample) => sample.code),
+      );
       await execute(intent.current.command, true, intent.current.requestId);
       const keepAdding = intent.current.continueAdding;
+      const plannedCount = Number(count);
       intent.current = null;
       if (!keepAdding) {
         onClose();
         return;
       }
+      const samples = getSnapshot().samples.filter(
+        (sample) => sample.experimentId === experimentId,
+      );
+      const created = samples.map((sample) => sample.code).filter((code) => !before.has(code));
+      const span = (codes: string[]) =>
+        codes.length > 1 ? `${codes[0]}–${codes[codes.length - 1]}` : codes[0] || '';
+      if (plannedCount > 0) {
+        const next = planSpecimens(
+          samples.map((sample) => sample.code),
+          plannedCount,
+          prefix,
+          { state: patch.state || '未指定' },
+        ).map((row) => row.code);
+        setAddedLine(`已加入 ${span(created)}。下一组 ${span(next)}。`);
+      } else setAddedLine('已加入备样。');
       setAdded((n) => n + 1);
       setPatch((old) => ({ ...old, name: '', state: '' }));
     } catch (failure) {
@@ -217,6 +239,12 @@ export function QuickAdd({ onClose }: { onClose: () => void }) {
               样品信息
             </legend>
             <div className="form-grid">
+              {addedLine && (
+                <p className="template-feedback span-2" role="status">
+                  <CheckCircle2 size={15} />
+                  {addedLine}
+                </p>
+              )}
               <label className="field">
                 <span>样品统称 *</span>
                 <input
