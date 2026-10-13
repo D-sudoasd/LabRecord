@@ -19,6 +19,7 @@ import {
   BookOpen,
   Cloud,
   Eye,
+  ArrowRight,
 } from 'lucide-react';
 import { useWorkspace, unwrap, DesktopReplyError } from './context';
 import { Plan } from './Plan';
