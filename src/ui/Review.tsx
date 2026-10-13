@@ -82,9 +82,8 @@ export function Review() {
     <div className="page review-page">
       <div className="page-heading">
         <div>
-          <div className="eyebrow">03 / 回看导出</div>
-          <h1>回看实验，把记录带走</h1>
-          <p>核对计划与实际操作，按样品、文件名或备注查找记录。</p>
+          <h1>回看导出</h1>
+          <p>核对计划与记录，按样品或备注查找。</p>
         </div>
         <button
           className="button"
@@ -398,10 +397,7 @@ export function Review() {
             </table>
           </div>
         ) : (
-          <Empty
-            title="还没有操作记录"
-            description="在现场页开始操作，或补录已有实验的时间与备注。"
-          />
+          <Empty title="还没有操作记录" description="到现场开始记录，或补上已有实验的时间。" />
         )}
         <div className="table-footer">
           <span>计划内容在开始操作时保存 · 修改历史可追溯</span>

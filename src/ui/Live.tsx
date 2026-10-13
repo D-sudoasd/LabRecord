@@ -905,7 +905,9 @@ export function Live() {
             </div>
           );
         })}
-        {!visible.length && <p className="hint queue-empty">当前没有符合条件的操作。</p>}
+        {!visible.length && (
+          <p className="hint queue-empty">没有符合条件的操作。清除搜索或换筛选。</p>
+        )}
       </div>
       <footer>
         <span className="pulse-dot neutral" />
@@ -913,12 +915,20 @@ export function Live() {
       </footer>
     </aside>
   );
+  const liveCode = (run ? run.snapshot.sample.code : sample?.code) || '';
+  const liveGiven = (run ? run.snapshot.sample.parameters.name : sample?.parameters.name)?.trim();
+  const liveName = liveGiven || (displayedGroup ? sampleName(displayedGroup) : '');
+  const liveTitle =
+    selected && liveCode
+      ? !liveName || liveName === liveCode
+        ? liveCode
+        : `${liveCode} · ${liveName}`
+      : '现场记录';
   return (
     <div className={`page live-page${focused ? ' is-focused' : ''}`}>
       <div className="page-heading compact-heading">
         <div>
-          <div className="eyebrow">02 / 现场记录</div>
-          <h1>专注当前样品</h1>
+          <h1>{liveTitle}</h1>
           <p className="live-progress">
             <progress aria-label="完成进度" value={completed} max={Math.max(1, items.length)} />
             <span>
@@ -1033,10 +1043,7 @@ export function Live() {
         {!focused && !queueOpen && queue}
         {!selected ? (
           <section className="card current-card">
-            <Empty
-              title="先安排要测试的样品"
-              description="实验规划中准备的样品不会自动成为待测样品。"
-            >
+            <Empty title="还没有待测样品" description="回到实验规划，把要测的样品加入队列。">
               <button
                 className="button primary"
                 onClick={() => {

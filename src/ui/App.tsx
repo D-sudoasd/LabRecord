@@ -10,7 +10,6 @@ import {
   LoaderCircle,
   AlertCircle,
   X,
-  ArrowRight,
   HardDrive,
   Download,
   Upload,
@@ -824,18 +823,11 @@ export function App() {
           </div>
         ) : !experiment ? (
           <div className="welcome">
-            <div className="welcome-decoration">
-              <span className="deco-line" />
-              <FlaskConical size={46} />
-              <span className="deco-line" />
+            <div className="welcome-mark" aria-hidden="true">
+              <FlaskConical size={28} />
             </div>
-            <div className="eyebrow">PLAN. RECORD. REVISIT.</div>
-            <h1>让每一次实验，都有清楚的记录。</h1>
-            <p>
-              先排好样品和数据文件夹，现场随手记录。
-              <br />
-              准备、测试、备样分开管理；所有内容离线保存在本机。
-            </p>
+            <h1>开始记录这次实验</h1>
+            <p>先建立实验，再安排样品。记录保存在本机。</p>
             <div className="welcome-actions">
               <button className="button primary" onClick={() => setNewExperiment(true)}>
                 <Plus size={18} />
@@ -851,25 +843,6 @@ export function App() {
                 <FilePlus2 size={17} />
                 载入演示实验
               </button>
-            </div>
-            <div className="welcome-steps">
-              <div>
-                <span>01</span>
-                <strong>实验规划</strong>
-                <p>样品状态、制备、数量与参数</p>
-              </div>
-              <ArrowRight size={18} />
-              <div>
-                <span>02</span>
-                <strong>现场记录</strong>
-                <p>开始、结束、备注与问题</p>
-              </div>
-              <ArrowRight size={18} />
-              <div>
-                <span>03</span>
-                <strong>回看导出</strong>
-                <p>操作历史、表格与完整备份</p>
-              </div>
             </div>
           </div>
         ) : (

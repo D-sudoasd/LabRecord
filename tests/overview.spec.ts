@@ -237,10 +237,10 @@ test('overview: prepared 6 / physical samples 4 / operations 4 / spares 2; real 
   const experiment = await createExperiment('准备充足实验', 'EXP-001', true);
   await addSamples('试样 A', '标准状态 A', '6', '4');
   await expect(planStat('样品组').locator('strong')).toHaveText('1组');
-  await expect(planStat('已知准备数量 · 包含备样').locator('strong')).toHaveText('6个');
-  await expect(planStat('已加入计划的不同样品').locator('strong')).toHaveText('4个');
+  await expect(planStat('准备').locator('strong')).toHaveText('6个');
+  await expect(planStat('计划样品').locator('strong')).toHaveText('4个');
   await expect(planStat('计划操作').locator('strong')).toHaveText('4项');
-  await expect(planStat('备样 · 现场按需启用').locator('strong')).toHaveText('2个');
+  await expect(planStat('备样').locator('strong')).toHaveText('2个');
   let modal = await openOverview();
   await expectCounts(modal, '6个', 4, 4, '2个');
   await expectStatuses(modal, [4, 0, 0, 0, 0]);
@@ -537,7 +537,9 @@ test('real 900x700 Electron window at 150% zoom: search/save/overview stay acces
   );
 
   await page.getByRole('button', { name: '现场记录', exact: true }).click();
-  await expect(page.getByRole('heading', { name: '专注当前样品', exact: true })).toBeVisible();
+  await expect(
+    page.getByRole('heading', { name: 'TA-01 · Ti-A 拉伸试样', exact: true }),
+  ).toBeVisible();
   await noHorizontalOverflow();
   const start = page.getByRole('button', { name: '开始操作', exact: true });
   await start.scrollIntoViewIfNeeded();
@@ -578,8 +580,8 @@ test('two unknown preparation groups show unknown totals; mixed known subtotal a
   await createExperiment('准备未知实验', 'EXP-002', true);
   await addSamples('未知样品 1', '未知状态 1', '', '0');
   await addSamples('未知样品 2', '未知状态 2', '', '0');
-  await expect(planStat('已知准备数量 · 包含备样').locator('strong')).toHaveText('未知');
-  await expect(planStat('备样 · 现场按需启用').locator('strong')).toHaveText('未知');
+  await expect(planStat('准备').locator('strong')).toHaveText('未知');
+  await expect(planStat('备样').locator('strong')).toHaveText('未知');
   let modal = await openOverview();
   await expectCounts(modal, '未知', 0, 0, '未知');
   await expect(modal.getByRole('article', { name: '准备数量', exact: true })).toContainText(
@@ -599,14 +601,10 @@ test('two unknown preparation groups show unknown totals; mixed known subtotal a
     5,
   ]);
   await expect(planStat('样品组').locator('strong')).toHaveText('3组');
-  await expect(planStat('已知准备数量 · 包含备样').locator('strong')).toHaveText('5个');
-  await expect(planStat('已知准备数量 · 包含备样').locator('.stat-unknown')).toHaveText(
-    '2 组准备数量未知',
-  );
-  await expect(planStat('备样 · 现场按需启用').locator('strong')).toHaveText('4个');
-  await expect(planStat('备样 · 现场按需启用').locator('.stat-unknown')).toHaveText(
-    '2 组备样数量未知',
-  );
+  await expect(planStat('准备').locator('strong')).toHaveText('5个');
+  await expect(planStat('准备').locator('.stat-unknown')).toHaveText('2 组准备数量未知');
+  await expect(planStat('备样').locator('strong')).toHaveText('4个');
+  await expect(planStat('备样').locator('.stat-unknown')).toHaveText('2 组备样数量未知');
   modal = await openOverview();
   await expectCounts(modal, '5个', 1, 1, '4个');
   for (const label of ['准备数量', '备样'])
@@ -818,7 +816,7 @@ test('viewing B while A runs: actual draft flush failure blocks return; delayed 
   await application.evaluate(() => (globalThis as any).overviewReleaseSave());
   await expect(modal).toHaveCount(0);
   await expect(page.getByLabel('选择实验', { exact: true })).toHaveValue(experimentA.id);
-  await expect(page.getByRole('heading', { name: '专注当前样品', exact: true })).toBeVisible();
+  await expect(page.getByRole('heading', { level: 1 })).toHaveText(`${sampleA.code} · 样品 A`);
   await expect(page.locator('.current-heading h2')).toHaveText(sampleA.code);
   await expect(page.locator('.queue-choice[aria-pressed="true"]')).toHaveAttribute(
     'aria-label',

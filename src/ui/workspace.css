@@ -31,10 +31,15 @@
   min-width: 0;
 }
 
+.plan-stats .stat span:not(.stat-icon) {
+  white-space: nowrap;
+}
+
 .plan-stats .stat-unknown {
   display: block;
   margin-top: 4px;
   line-height: 1.5;
+  white-space: normal;
 }
 
 .plan-page .toolbar-actions {

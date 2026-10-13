@@ -895,12 +895,11 @@ export function Plan() {
     <div className="page plan-page">
       <div className="page-heading">
         <div>
-          <div className="eyebrow">01 / 实验规划</div>
-          <h1>实验前，把样品安排好</h1>
-          <p>按状态整理准备情况，把要测试的样品加入待测队列。</p>
+          <h1>实验规划</h1>
+          <p>安排样品组，并把要测的样品放进队列。</p>
         </div>
         <button
-          className="button primary"
+          className="button"
           onClick={() => {
             void workspace
               .flush()
@@ -929,7 +928,7 @@ export function Plan() {
               {preparationUnknown ? '未知' : insights.preparedKnown}
               {!preparationUnknown && <small>个</small>}
             </strong>
-            <span>已知准备数量 · 包含备样</span>
+            <span>准备</span>
             {insights.unknownPreparation > 0 && (
               <small className="stat-unknown">{insights.unknownPreparation} 组准备数量未知</small>
             )}
@@ -942,7 +941,7 @@ export function Plan() {
               {insights.plannedSamples}
               <small>个</small>
             </strong>
-            <span>已加入计划的不同样品</span>
+            <span>计划样品</span>
           </div>
         </div>
         <div className="stat">
@@ -962,7 +961,7 @@ export function Plan() {
               {preparationUnknown ? '未知' : insights.spareKnown}
               {!preparationUnknown && <small>个</small>}
             </strong>
-            <span>备样 · 现场按需启用</span>
+            <span>备样</span>
             {insights.unknownPreparation > 0 && (
               <small className="stat-unknown">{insights.unknownPreparation} 组备样数量未知</small>
             )}
@@ -1030,10 +1029,7 @@ export function Plan() {
           </div>
         )}
         {groups.length === 0 ? (
-          <Empty
-            title="添加第一份实验样品"
-            description="填写名称和尺寸，直接安排测试；已有表格也可导入或粘贴。"
-          >
+          <Empty title="添加第一份实验样品" description="填写样品统称，或导入已有表格。">
             <button className="button primary" onClick={() => setQuickAdd(true)}>
               <Plus size={16} />
               新增样品
@@ -1068,7 +1064,7 @@ export function Plan() {
                 {!visible.length && (
                   <tr>
                     <td colSpan={6}>
-                      <Empty title="没有找到样品" description="试试其他名称、状态或备注。">
+                      <Empty title="没有找到样品" description="换一个名称、状态或备注。">
                         <button className="button" onClick={() => setSearch('')}>
                           清除筛选
                         </button>

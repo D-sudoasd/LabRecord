@@ -116,7 +116,7 @@ test('Windows desktop: plan → notes/problem/image → finish → export → co
   await page.context().setOffline(true);
   await capture(application, info.outputPath('welcome.png'));
   await page.getByRole('button', { name: '载入演示实验' }).click();
-  await expect(page.getByRole('heading', { name: '实验前，把样品安排好' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: '实验规划' })).toBeVisible();
   await expect(page.locator('tr', { hasText: 'Ti-A-热处理' }).locator('.count-cell')).toContainText(
     '2 备样',
   );
@@ -251,7 +251,7 @@ test('unfinished operation and immediate note flush survive normal close and abr
   await page.getByLabel('现场备注', { exact: true }).fill('关闭前刚刚输入');
   await application.close();
   ({ application, page } = await launch(directory));
-  await expect(page.getByRole('heading', { name: '专注当前样品' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'TA-01 · Ti-A 拉伸试样' })).toBeVisible();
   await expect(page.getByLabel('现场备注', { exact: true })).toHaveValue('关闭前刚刚输入');
   expect((await snapshot(page)).runs[0].endedAt).toBeNull();
   const actualMainPid = await application.evaluate(() => process.pid);
@@ -289,9 +289,9 @@ test('failed save retains input, shows failure and can retry through the desktop
   await expect(page.getByLabel('现场备注', { exact: true })).toHaveValue('未保存的中文记录');
   expect((await snapshot(page)).runs[0].notes).toBe('');
   await page.getByRole('button', { name: '实验规划', exact: true }).click();
-  await expect(page.getByRole('heading', { name: '专注当前样品' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'TA-01 · Ti-A 拉伸试样' })).toBeVisible();
   await page.keyboard.press('Control+1');
-  await expect(page.getByRole('heading', { name: '专注当前样品' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'TA-01 · Ti-A 拉伸试样' })).toBeVisible();
   await application.evaluate(() => (globalThis as any).restoreSaveHandler());
   await page.locator('.save-indicator').getByRole('button', { name: '重试' }).click();
   await expect(page.locator('.save-indicator')).toContainText('已保存到本机');
@@ -309,7 +309,7 @@ test('workspace shortcuts, quantity guidance and clear search keep the workflow 
   await page.getByRole('button', { name: '开始操作', exact: true }).click();
   await page.getByLabel('现场备注', { exact: true }).fill('切换页面前立即保留的观察记录');
   await page.keyboard.press('Control+1');
-  await expect(page.getByRole('heading', { name: '实验前，把样品安排好' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: '实验规划' })).toBeVisible();
   expect((await snapshot(page)).runs[0].notes).toBe('切换页面前立即保留的观察记录');
 
   await page.keyboard.press('Alt+n');
@@ -368,7 +368,7 @@ test('workspace shortcuts, quantity guidance and clear search keep the workflow 
   for (const pair of contrast) expect(pair.ratio, pair.selector).toBeGreaterThanOrEqual(4.5);
   await writeFile(info.outputPath('ui-contrast.json'), JSON.stringify(contrast, null, 2));
   await page.keyboard.press('Control+3');
-  await expect(page.getByRole('heading', { name: '回看实验，把记录带走' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: '回看导出' })).toBeVisible();
   await page.getByLabel('搜索操作记录', { exact: true }).fill('TA-01');
   await expect(page.locator('.review-table tbody tr')).toHaveCount(1);
   await page.getByRole('button', { name: '清除搜索操作记录', exact: true }).click();
@@ -386,7 +386,7 @@ test('operation duration uses recorded timestamps across midnight, corrections a
     reason: '合成跨日时段',
   });
   await page.reload();
-  await expect(page.getByRole('heading', { name: '实验前，把样品安排好' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: '实验规划' })).toBeVisible();
   await page.keyboard.press('Control+2');
   await page.getByRole('button', { name: '选择样品 TA-01 操作 1', exact: true }).click();
   await expect(page.getByLabel('本次操作用时', { exact: true })).toHaveText('24:03:00');
@@ -426,7 +426,7 @@ test('keyboard operation, small window and display zoom keep current controls us
   await expect(page.getByRole('button', { name: '现场记录', exact: true })).toBeEnabled();
   await page.getByRole('button', { name: '现场记录', exact: true }).focus();
   await page.keyboard.press('Enter');
-  await expect(page.getByRole('heading', { name: '专注当前样品' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'TA-01 · Ti-A 拉伸试样' })).toBeVisible();
   for (const [width, height, zoom] of [
     [1366, 768, 1],
     [1100, 800, 1.25],
