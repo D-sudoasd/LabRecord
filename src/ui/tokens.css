@@ -1,18 +1,18 @@
 :root {
-  --canvas: #f5f6f8;
+  --canvas: #f3f6f5;
   --surface: #ffffff;
-  --surface-secondary: #f3f5f7;
-  --ink: #202b38;
-  --muted: #606c7b;
-  --primary: #13766e;
+  --surface-secondary: #eef3f1;
+  --ink: #253832;
+  --muted: #5e7069;
+  --primary: #196b5b;
   --primary-hover: #0d625b;
   --tint: #eaf5f2;
-  --line: #e3e7ec;
+  --line: #dce5e0;
   --danger: #b13e38;
   --warning: #956017;
   --focus: #167c74;
-  --radius-card: 22px;
-  --radius-control: 12px;
+  --radius-card: 16px;
+  --radius-control: 9px;
   --shadow-card: 0 2px 3px #202b3803, 0 8px 28px #202b3806;
   --shadow-overlay: 0 24px 80px #17233126, 0 0 0 1px #ffffff80;
   --rail-width: 216px;

@@ -769,7 +769,9 @@ export function Live() {
           <List size={18} />
           待测队列
         </h2>
-        <span>{items.length} 项</span>
+        <span>
+          {filter !== 'all' || search ? `${visible.length} / ${items.length}` : items.length} 项
+        </span>
       </header>
       <SearchField
         className="queue-search"
@@ -780,26 +782,49 @@ export function Live() {
       />
       <div className="queue-filters" role="group" aria-label="队列筛选">
         <button
+          aria-label="全部"
           aria-pressed={filter === 'all'}
           className={filter === 'all' ? 'active' : ''}
           onClick={() => setFilter('all')}
         >
-          全部
+          全部 <span aria-hidden="true">{items.length}</span>
         </button>
         <button
+          aria-label="待测"
           className={filter === 'pending' ? 'active' : ''}
           aria-pressed={filter === 'pending'}
           onClick={() => setFilter('pending')}
         >
-          待测
+          待测 <span aria-hidden="true">{pending}</span>
         </button>
         <button
+          aria-label="已完成"
           className={filter === 'completed' ? 'active' : ''}
           aria-pressed={filter === 'completed'}
           onClick={() => setFilter('completed')}
         >
-          已完成
+          已完成 <span aria-hidden="true">{completed}</span>
         </button>
+        {skipped > 0 && (
+          <button
+            aria-label="已跳过"
+            aria-pressed={filter === 'skipped'}
+            className={filter === 'skipped' ? 'active' : ''}
+            onClick={() => setFilter('skipped')}
+          >
+            已跳过 <span aria-hidden="true">{skipped}</span>
+          </button>
+        )}
+        {interrupted > 0 && (
+          <button
+            aria-label="已中断"
+            aria-pressed={filter === 'interrupted'}
+            className={filter === 'interrupted' ? 'active' : ''}
+            onClick={() => setFilter('interrupted')}
+          >
+            已中断 <span aria-hidden="true">{interrupted}</span>
+          </button>
+        )}
       </div>
       <div className="queue-list">
         {visible.map((item, index) => {
@@ -905,7 +930,22 @@ export function Live() {
             </div>
           );
         })}
-        {!visible.length && <p className="hint queue-empty">当前没有符合条件的操作。</p>}
+        {!visible.length && (
+          <div className="queue-empty">
+            <p className="hint">{items.length ? '没有符合筛选条件的操作' : '还没有安排测量'}</p>
+            {(filter !== 'all' || search) && (
+              <button
+                className="text-button"
+                onClick={() => {
+                  setFilter('all');
+                  setSearch('');
+                }}
+              >
+                清除队列筛选
+              </button>
+            )}
+          </div>
+        )}
       </div>
       <footer>
         <span className="pulse-dot neutral" />

@@ -384,7 +384,11 @@ test('time dialog survives delayed completion, disables Cancel/Escape while savi
   const finished = (await snapshot()).runs[0];
   const end = await page.evaluate((time) => {
     const date = new Date(Date.parse(time!) + 60000);
-    return new Date(date.getTime() - date.getTimezoneOffset() * 60000).toISOString().slice(0, 19);
+    // datetime-local canonicalizes zero seconds to minute precision in Chromium.
+    return new Date(date.getTime() - date.getTimezoneOffset() * 60000)
+      .toISOString()
+      .slice(0, 19)
+      .replace(/:00$/, '');
   }, run.startedAt);
   await expect(dialog.locator('.dialog-target')).toContainText('TA-01');
   await dialog.getByLabel('结束时间', { exact: true }).fill(end);

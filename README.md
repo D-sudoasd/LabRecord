@@ -16,7 +16,7 @@
 | ------------------------ | ------------------------------- | ----------------------------------------- |
 | 添加样品、尺寸与计划操作 | 开始/完成、现场备注、问题与图片 | 导出 PDF、独立 HTML、完整 JSON 与校验清单 |
 
-**当前本地版本：** `0.6.1`，普通测试使用 `S01、S02、S03` 连续编号；材料准备分别记录成分、加工工艺、热处理制度与其他工艺，明确区分“无”和未填写。截图使用合成实验与独立临时数据，逐图版本见[截图来源](docs/images/sources.json)；本地交付检查见[0.6.1 验证记录](docs/verification-0.6.1.md)。GitHub 下载入口以 Releases 中的实际版本为准。
+**当前本地版本：** `0.6.2`，规划数量以紧凑信息栏呈现，新增样品先填写数量与尺寸；离开现场页后可直接返回进行中的操作，回看可筛出待核对记录。普通测试仍使用 `S01、S02、S03` 连续编号，成分、加工、热处理与其他工艺分别保留。截图使用合成实验与独立临时数据，逐图版本见[截图来源](docs/images/sources.json)；本地交付检查见[0.6.2 验证记录](docs/verification-0.6.2.md)。GitHub 下载入口以 Releases 中的实际版本为准。
 
 _LabRecord is an offline-first Windows app for experiment planning, live sample records, and traceable reports. Experimental records and reports can be synchronized to your own private repository._
 
@@ -58,6 +58,8 @@ _Conceptual schematic: a stable sample ID links planned and repeat operations; r
 
 “已装样”“已调整位置”等常用按钮创建带时间的记录，与自动保存的现场备注分开。“数据待检查”及问题模板表示后续检查事项，实验数据是否合格仍由仪器数据和实验条件判断。取消问题或时间线弹窗后，同一窗口内再次打开会保留类别、模板和文字；未提交草稿不写入数据库，也不在退出或崩溃后恢复。已提交记录保存失败时保留目标、内容与同一请求供重试，保存成功才清除。
 
+切换到规划或回看页后，进行中的样品仍显示在页头，点击“返回当前操作”即可回到对应实验。队列中的跳过、中断项可单独查找；清除筛选不改变下一待测的顺序。
+
 ![真实现场界面：当前样品、大按钮、现场备注和操作时间线；使用合成演示数据](docs/images/live.png)
 
 900 × 700 窗口、150% 应用缩放时，专注首屏直接显示当前编号、主要按钮、常用快记、保存状态和概览入口。[正在输入时的界面](docs/images/focus-input.png)也保留当前目标与主按钮。
@@ -68,7 +70,7 @@ _Conceptual schematic: a stable sample ID links planned and repeat operations; r
 
 填写名称即可添加样品并安排测试。信息、数量和尺寸分别填写，实时预览准备 / 测试 / 备样；数量不合适时直接提示。厚度与宽度直接录入，高度和其他参数按需展开；“保存并继续添加”保留参数，编号自动连续。
 
-![0.5.0 真实规划界面，分别统计准备数量、不同样品、计划操作和备样](docs/images/planning.png)
+![0.6.2 真实规划界面，分别统计准备数量、不同样品、计划操作和备样](docs/images/planning.png)
 
 ![真实快速添加界面：样品名称、准备数量、测试数量、厚度与宽度](docs/images/quick-add.png)
 
@@ -105,6 +107,8 @@ manifest.json    文件大小与 SHA-256
 ```
 
 将完整目录交给后续 agent，先读 `README-agent.md`，再核对 `records.json`。未知时间保持空白，计划参数与实际修改分别保存。
+
+回看页的“待核对”可以筛出时间不完整、文件未关联或仍有问题的操作。预期文件夹名在样品信息下保留，实际文件引用单独显示；未开始的计划不计入实际记录缺项。筛选不改变导出范围。窄窗口可横向滚动表格，样品编号固定在左侧。
 
 ![真实回看与报告导出界面，使用合成演示数据](docs/images/review.png)
 

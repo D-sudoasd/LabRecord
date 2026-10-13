@@ -973,7 +973,7 @@ export function Plan() {
         <div className="card-toolbar">
           <div className="toolbar-title">
             <h2>样品准备</h2>
-            <span>{groups.length} 个样品组</span>
+            <span>{search ? `${visible.length} / ${groups.length}` : groups.length} 个样品组</span>
           </div>
           <div className="toolbar-actions">
             <SearchField
