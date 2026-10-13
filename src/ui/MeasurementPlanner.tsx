@@ -1,5 +1,6 @@
 import { useId, useRef, useState } from 'react';
-import { Copy, Plus, SlidersHorizontal, Trash2 } from 'lucide-react';
+import { ArrowDown, ArrowUp, Copy, Plus, SlidersHorizontal, Trash2 } from 'lucide-react';
+import { placeId } from '../shared/order';
 import type { MeasurementPlan, PlanItem } from '../shared/model';
 import { MODE_OPTIONS } from '../shared/model';
 import {
@@ -358,7 +359,7 @@ export function MeasurementDialog({
 
 export function MeasurementPlanner() {
   const workspace = useWorkspace();
-  const { snapshot, experimentId, setItemId, setPage, notify, flush } = workspace;
+  const { snapshot, experimentId, setItemId, setPage, notify, flush, execute } = workspace;
   const items = snapshot.items
     .filter((item) => item.experimentId === experimentId)
     .sort((a, b) => a.order - b.order);
@@ -410,6 +411,36 @@ export function MeasurementPlanner() {
         ['pending', 'skipped'].includes(item.status) &&
         !snapshot.runs.some((run) => run.itemId === item.id),
     );
+  function movable(item: PlanItem, recorded = new Set(snapshot.runs.map((run) => run.itemId))) {
+    return ['pending', 'skipped'].includes(item.status) && !recorded.has(item.id);
+  }
+  function shiftMeasurement(item: PlanItem, direction: -1 | 1) {
+    if (!movable(item)) return;
+    const index = items.findIndex((entry) => entry.id === item.id);
+    let neighbor = index + direction;
+    while (neighbor >= 0 && neighbor < items.length && !movable(items[neighbor]))
+      neighbor += direction;
+    if (neighbor < 0 || neighbor >= items.length) return;
+    const ids = placeId(
+      items.map((entry) => entry.id),
+      item.id,
+      items[neighbor].id,
+      direction < 0 ? 'before' : 'after',
+    );
+    void flush()
+      .then(async () => {
+        const latest = workspace.getSnapshot();
+        const ordered = latest.items
+          .filter((entry) => entry.experimentId === experimentId)
+          .sort((a, b) => a.order - b.order)
+          .map((entry) => entry.id);
+        if (!ids || ids.length !== ordered.length || ordered.some((id) => !ids.includes(id)))
+          throw new Error('队列已变化，请重新排序。');
+        if (ids.every((id, position) => id === ordered[position])) return;
+        await execute({ type: 'reorder', experimentId, ids }, false);
+      })
+      .catch((error) => notify(error instanceof Error ? error.message : '无法调整顺序。', true));
+  }
   function open(ids: string[], append: boolean) {
     void flush()
       .then(() => setDialog({ ids, append }))
@@ -565,6 +596,22 @@ export function MeasurementPlanner() {
                               .catch((error) => notify(error.message, true));
                           },
                         },
+                        {
+                          kind: 'item',
+                          label: '上移',
+                          disabled:
+                            !configurable ||
+                            !items.slice(0, items.indexOf(item)).some((entry) => movable(entry)),
+                          onSelect: () => shiftMeasurement(item, -1),
+                        },
+                        {
+                          kind: 'item',
+                          label: '下移',
+                          disabled:
+                            !configurable ||
+                            !items.slice(items.indexOf(item) + 1).some((entry) => movable(entry)),
+                          onSelect: () => shiftMeasurement(item, 1),
+                        },
                         { kind: 'separator' },
                         {
                           kind: 'item',
@@ -644,6 +691,32 @@ export function MeasurementPlanner() {
                         }}
                       >
                         现场查看
+                      </button>
+                      <button
+                        type="button"
+                        className="text-button"
+                        aria-label={`上移测量 ${sample.code}`}
+                        disabled={
+                          !configurable ||
+                          !items.slice(0, items.indexOf(item)).some((entry) => movable(entry))
+                        }
+                        onClick={() => shiftMeasurement(item, -1)}
+                      >
+                        <ArrowUp size={13} />
+                        上移
+                      </button>
+                      <button
+                        type="button"
+                        className="text-button"
+                        aria-label={`下移测量 ${sample.code}`}
+                        disabled={
+                          !configurable ||
+                          !items.slice(items.indexOf(item) + 1).some((entry) => movable(entry))
+                        }
+                        onClick={() => shiftMeasurement(item, 1)}
+                      >
+                        <ArrowDown size={13} />
+                        下移
                       </button>
                       <button
                         type="button"

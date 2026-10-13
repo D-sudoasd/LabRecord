@@ -36,6 +36,7 @@ import {
 } from '../shared/model';
 import { reportInsights } from '../shared/summary';
 import { useWorkspace, unwrap, DesktopReplyError } from './context';
+import { consumePendingGroup } from './workspaceSearch';
 import {
   AutoInput,
   Modal,
@@ -852,6 +853,15 @@ export function Plan() {
   const [search, setSearch] = useState(''),
     [expanded, setExpanded] = useState(new Set<string>()),
     [selected, setSelected] = useState(new Set<string>());
+  useEffect(() => {
+    const apply = () => {
+      const id = consumePendingGroup();
+      if (!id) return;
+      setExpanded((old) => new Set(old).add(id));
+    };
+    window.addEventListener('labrecord-focus-group', apply);
+    return () => window.removeEventListener('labrecord-focus-group', apply);
+  }, []);
   const [editing, setEditing] = useState<Group | 'new' | 'bulk' | null>(null),
     [arranging, setArranging] = useState<Group | null>(null),
     [sample, setSample] = useState<Sample | null>(null);
@@ -921,7 +931,7 @@ export function Plan() {
             <span>样品组</span>
           </div>
         </div>
-        <div className="stat">
+        <div className="stat" title="已知准备数量，含尚未启用的备样">
           <Package size={20} />
           <div>
             <strong>
@@ -934,7 +944,7 @@ export function Plan() {
             )}
           </div>
         </div>
-        <div className="stat accent">
+        <div className="stat accent" title="不同物理样品，重测不另计">
           <span className="stat-icon">↗</span>
           <div>
             <strong>
@@ -944,7 +954,7 @@ export function Plan() {
             <span>计划样品</span>
           </div>
         </div>
-        <div className="stat">
+        <div className="stat" title="每次测量各计一项，含重测">
           <TrendingUp size={20} />
           <div>
             <strong>
@@ -954,7 +964,7 @@ export function Plan() {
             <span>计划操作</span>
           </div>
         </div>
-        <div className="stat">
+        <div className="stat" title="尚未启用，不计入计划样品">
           <Boxes size={20} />
           <div>
             <strong>
