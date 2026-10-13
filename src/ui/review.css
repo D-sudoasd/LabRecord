@@ -1,0 +1,203 @@
+.review-page .review-followup {
+  display: flex;
+  align-items: center;
+  gap: 13px;
+  flex-wrap: wrap;
+  padding: 11px 20px;
+  border-bottom: 1px solid var(--line);
+  background: #fbfcfb;
+}
+.review-page .review-followup-copy {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-shrink: 0;
+}
+.review-page .review-followup-copy strong {
+  color: var(--ink);
+  font-size: 12px;
+}
+.review-page .review-followup-copy span {
+  color: var(--muted);
+  font-size: 11px;
+}
+.review-page .review-followup-filters {
+  display: flex;
+  gap: 7px;
+  flex: 1;
+  flex-wrap: wrap;
+}
+.review-page .review-filter-button {
+  min-height: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 5px 10px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--muted);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+  transition:
+    background 120ms ease,
+    border-color 120ms ease,
+    color 120ms ease;
+}
+.review-page .review-filter-button:hover {
+  border-color: #b8d2c9;
+  color: var(--primary);
+}
+.review-page .review-filter-button[aria-pressed='true'] {
+  border-color: #a7cbc0;
+  background: var(--tint);
+  color: var(--primary);
+  font-weight: 650;
+}
+.review-page .review-filter-button:focus-visible,
+.review-page .review-filter-clear:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+.review-page .review-filter-button svg {
+  flex-shrink: 0;
+}
+.review-page .review-filter-count {
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+  font-weight: 650;
+}
+.review-page .review-filter-clear {
+  border: 0;
+  padding: 5px 2px;
+  background: transparent;
+  color: var(--primary);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.review-page .review-issue-heading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.review-page .review-issue-status {
+  display: inline-flex;
+  align-items: center;
+  min-height: 20px;
+  padding: 2px 7px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 650;
+  white-space: nowrap;
+}
+.review-page .review-issue-status.pending {
+  color: #82541b;
+  background: #fbf1df;
+}
+.review-page .review-issue-status.resolved {
+  color: #346c52;
+  background: #edf5ef;
+}
+.review-page .review-scroll-hint {
+  display: none;
+}
+.review-page .review-actual-files {
+  display: grid;
+  gap: 7px;
+  min-width: 0;
+}
+.review-page .review-actual-file {
+  min-width: 0;
+}
+.review-page .review-actual-file small {
+  color: var(--muted);
+}
+.review-page .review-actual-file code {
+  display: block;
+  max-width: 300px;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+.review-page .review-file-state {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+@media (max-width: 1050px) {
+  .review-page .review-scroll-hint {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 15px;
+    color: var(--muted);
+    background: #f8faf9;
+    border-bottom: 1px solid var(--line);
+    font-size: 11px;
+  }
+  .review-page .review-table-wrap {
+    max-width: 100%;
+    overflow: auto;
+    overscroll-behavior-x: contain;
+    scrollbar-color: #b9c9c2 transparent;
+    scrollbar-width: thin;
+  }
+  .review-page .review-table-wrap table.review-table {
+    min-width: 1180px;
+  }
+  .review-page .review-table-wrap table.review-table th:first-child,
+  .review-page .review-table-wrap table.review-table td:first-child {
+    position: sticky;
+    left: 0;
+    width: 180px;
+    min-width: 170px;
+    max-width: 180px;
+    overflow-wrap: anywhere;
+    background: var(--surface);
+    box-shadow: 2px 0 5px #25383212;
+    z-index: 2;
+  }
+  .review-page .review-table-wrap table.review-table th:first-child {
+    background: var(--surface-secondary);
+    z-index: 3;
+  }
+  .review-page .review-table-wrap table.review-table tbody tr:hover td:first-child {
+    background: #f9fafb;
+  }
+}
+
+@media (max-width: 650px) {
+  .review-page .review-followup {
+    align-items: flex-start;
+    padding: 10px 14px;
+    gap: 9px;
+  }
+  .review-page .review-followup-copy {
+    width: 100%;
+    align-items: baseline;
+  }
+  .review-page .review-followup-filters {
+    flex-basis: 100%;
+  }
+  .review-page .review-filter-clear {
+    margin-left: auto;
+  }
+  .review-page .review-table-wrap table.review-table th:first-child,
+  .review-page .review-table-wrap table.review-table td:first-child {
+    width: 145px;
+    min-width: 138px;
+    max-width: 145px;
+  }
+}
+
+@media print {
+  .review-page .review-followup,
+  .review-page .review-scroll-hint {
+    display: none;
+  }
+}

@@ -242,7 +242,6 @@ export function QuickAdd({ onClose }: { onClose: () => void }) {
               </label>
             </div>
           </fieldset>
-          <MaterialPreparationFields value={patch} onChange={(key, value) => set(key, value)} />
           <fieldset className="form-section span-2">
             <legend>
               <Package size={16} />
@@ -405,6 +404,7 @@ export function QuickAdd({ onClose }: { onClose: () => void }) {
               </label>
             </div>
           </fieldset>
+          <MaterialPreparationFields value={patch} onChange={(key, value) => set(key, value)} />
           <details className="span-2 quick-add-extra">
             <summary>更多信息 · 高度、制备、条件与备注</summary>
             <div className="form-grid">
