@@ -5,7 +5,7 @@ import { readFile } from 'node:fs/promises';
 import { fixture } from './helpers.js';
 import { CommandRejectedError } from '../src/desktop/store.js';
 import { filenameFor, groupCounts, type MeasurementPlan } from '../src/shared/model.js';
-import { measurementFor, reserveMeasurementNames } from '../src/shared/measurement.js';
+import { measurementFor, operationProtocolLabel, reserveMeasurementNames } from '../src/shared/measurement.js';
 import { createBackup, unpackBackup, inspectDatabase } from '../src/desktop/backups.js';
 import {
   operationRows,
@@ -632,4 +632,48 @@ test('backup rejects new cross-experiment name collisions while preserving old v
   await createBackup(store, path);
   const restored = await unpackBackup(path, join(directory, 'legacy-duplicates'));
   assert.deepEqual(restored, before);
+});
+
+test('operation protocol label keeps the start text after the plan changes', (t) => {
+  const { store } = fixture(t);
+  const experimentId = store.command({
+    type: 'createExperiment',
+    code: 'PROT',
+    name: '制度显示',
+  }).experimentId!;
+  store.command({
+    type: 'addSamples',
+    experimentId,
+    patch: {
+      state: '原状态',
+      preparedCount: 2,
+      protocol: '10 °C/min 升至 375 °C',
+      notes: '样品组备注ZZZ',
+    },
+    count: 2,
+  });
+  const [first, second] = store.snapshot().items;
+  const groupId = store.snapshot().groups[0].id;
+  assert.equal(operationProtocolLabel(store.snapshot(), first), '实验制度 10 °C/min 升至 375 °C');
+  store.command({ type: 'start', itemId: first.id });
+  store.command({
+    type: 'updateGroups',
+    ids: [groupId],
+    patch: { protocol: '后来改成 450 °C' },
+  });
+  const current = store.snapshot();
+  const started = current.items.find((item) => item.id === first.id)!;
+  assert.equal(operationProtocolLabel(current, started), '实验制度 10 °C/min 升至 375 °C');
+  assert.equal(operationProtocolLabel(current, second), '实验制度 后来改成 450 °C');
+  assert.equal(operationProtocolLabel(current, started).includes('样品组备注ZZZ'), false);
+  assert.equal(current.runs[0].snapshot.group.protocol, '10 °C/min 升至 375 °C');
+  assert.equal(current.runs[0].originalStartedAt, current.runs[0].startedAt);
+  store.command({
+    type: 'updateGroups',
+    ids: [groupId],
+    patch: { protocol: '   ' },
+  });
+  const cleared = store.snapshot();
+  assert.equal(operationProtocolLabel(cleared, started), '实验制度 10 °C/min 升至 375 °C');
+  assert.equal(operationProtocolLabel(cleared, second), '');
 });

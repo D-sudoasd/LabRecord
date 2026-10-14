@@ -457,13 +457,22 @@ export function Details({
   title,
   children,
   open = false,
+  onToggle,
+  id,
 }: {
   title: string;
   children: ReactNode;
   open?: boolean;
+  onToggle?: (open: boolean) => void;
+  id?: string;
 }) {
   return (
-    <details className="details" open={open}>
+    <details
+      id={id}
+      className="details"
+      open={open}
+      onToggle={(event) => onToggle?.(event.currentTarget.open)}
+    >
       <summary>
         {title}
         <ChevronDown size={15} />

@@ -381,6 +381,11 @@ a {
   min-height: 38px;
   padding: 7px 12px;
 }
+.button.active {
+  background: var(--tint);
+  border-color: var(--primary);
+  color: var(--primary);
+}
 .button.warning,
 .issue-button {
   color: var(--warning);
@@ -717,6 +722,11 @@ a {
   font-size: 10px;
   margin-top: 3px;
 }
+.group-operation-status,
+.group-recorded-duration {
+  max-width: 8.5rem;
+  overflow-wrap: anywhere;
+}
 .priority-select.p0,
 .priority.p0 {
   color: var(--primary);
@@ -810,6 +820,38 @@ a {
 }
 .sample-strip code {
   display: block;
+}
+.sample-override,
+.group-sample-overrides,
+.group-plan-drift {
+  display: block;
+  max-width: 16rem;
+  overflow-wrap: anywhere;
+  color: var(--ink);
+}
+.sample-operations {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 8px;
+  margin-top: 4px;
+}
+.sample-operations .text-button {
+  min-width: 0;
+  font-size: 12px;
+}
+.queue-protocol,
+.measurement-protocol,
+.operation-protocol {
+  display: block;
+  max-width: 36rem;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+.operation-protocol {
+  margin: 0 0 4px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.45;
 }
 .specimen-fields {
   display: grid;
@@ -938,6 +980,10 @@ a {
   display: flex;
   align-items: center;
   gap: 6px;
+}
+.field > span .field-copy {
+  margin-left: auto;
+  font-weight: 400;
 }
 .field > span small {
   margin-left: auto;
@@ -1790,8 +1836,10 @@ a {
 }
 .running-banner {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
+  gap: 8px 12px;
   background: #e9f4ed;
   border: 1px solid #cee5d7;
   border-radius: 8px;
@@ -1802,8 +1850,18 @@ a {
 }
 .running-banner > span {
   display: flex;
+  flex: 1 1 16rem;
+  flex-wrap: wrap;
   align-items: center;
   gap: 8px;
+  min-width: 0;
+}
+.running-banner-text {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.running-banner > .text-button {
+  flex-shrink: 0;
 }
 .pulse-dot {
   width: 6px;
@@ -1885,6 +1943,10 @@ a {
 .spare-group:hover {
   border-color: var(--primary);
 }
+.spare-group.is-current {
+  border-color: var(--primary);
+  background: var(--tint);
+}
 .issues-card {
   margin-bottom: 24px;
 }
@@ -1919,6 +1981,7 @@ a {
 }
 .review-issue small {
   font-size: 11px;
+  overflow-wrap: anywhere;
 }
 .review-issue.resolved > svg {
   color: #92ac97;
@@ -2091,10 +2154,34 @@ a {
   line-height: 1.7;
   font-size: 15px;
 }
+.welcome-steps {
+  list-style: none;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin: 0 0 28px;
+  padding: 0;
+  text-align: left;
+}
+.welcome-steps li {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-control);
+  padding: 12px;
+}
+.welcome-steps strong {
+  display: block;
+  font-size: 13px;
+}
+.welcome-steps span {
+  color: var(--muted);
+  font-size: 12px;
+}
 .welcome-actions {
   display: flex;
   justify-content: center;
   gap: 12px;
+  flex-wrap: wrap;
 }
 .welcome-actions .button {
   min-height: 48px;
@@ -2585,6 +2672,10 @@ a {
   flex-wrap: wrap;
   gap: 10px;
   align-items: center;
+}
+.live-progress span {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 .live-progress progress {
   appearance: none;
@@ -3240,6 +3331,7 @@ summary:focus-visible {
   color: var(--muted);
   margin-top: 5px;
   line-height: 1.5;
+  overflow-wrap: anywhere;
 }
 .measurement-table td code,
 .review-folder-name {

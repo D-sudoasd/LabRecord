@@ -1,7 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { sharedSamplePrefix } from '../src/shared/model.js';
 import { overviewIssue, overviewOperation } from '../src/ui/overview.js';
-import { reportInsights } from '../src/shared/summary.js';
+import {
+  enableGroupSpareLabel,
+  groupSpareLabel,
+  reportInsights,
+  spareProgressLabel,
+} from '../src/shared/summary.js';
 import { fixture } from './helpers.js';
 
 test('overview uses physical identities through repeat/spare transitions and frozen run details after plan edits', (t) => {
@@ -122,4 +128,25 @@ test('experiment-level issues have no sample target; run-only issues locate the 
   assert.equal(reportInsights(resolved, experimentId).unresolvedIssues, 1);
   assert.deepEqual(resolved.runs, snapshot.runs);
   assert.deepEqual(resolved.items, snapshot.items);
+});
+
+test('spare progress keeps unknown preparation separate from a known zero', () => {
+  assert.equal(spareProgressLabel(5, 0, 2), '备样 5');
+  assert.equal(spareProgressLabel(0, 0, 1), '备样 0');
+  assert.equal(spareProgressLabel(0, 2, 2), '备样数量未定');
+  assert.equal(spareProgressLabel(2, 1, 2), '备样 2 · 1 组数量未定');
+  assert.equal(groupSpareLabel(2), '本组备样 2');
+  assert.equal(groupSpareLabel(0), '本组备样 0');
+  assert.equal(groupSpareLabel(null), '本组备样数量未定');
+  assert.equal(enableGroupSpareLabel(2), '启用本组备样（2）');
+  assert.equal(enableGroupSpareLabel(0), '本组没有剩余备样');
+  assert.equal(enableGroupSpareLabel(null), '启用本组备样（数量未定）');
+});
+
+test('shared sample prefix is offered only when every code in the group uses it', () => {
+  assert.equal(sharedSamplePrefix(['TA-01', 'TA-02', 'TA-04']), 'TA-');
+  assert.equal(sharedSamplePrefix(['S01', 'S02']), 'S');
+  assert.equal(sharedSamplePrefix(['TA-01', 'S01']), '');
+  assert.equal(sharedSamplePrefix([]), '');
+  assert.equal(sharedSamplePrefix(['01']), '');
 });

@@ -59,6 +59,13 @@ export const fieldSchema = z
   })
   .strict();
 const itemCommand = (type: string) => z.object({ type: z.literal(type), itemId: id }).strict();
+const statusReason = z
+  .string()
+  .trim()
+  .min(1, '原因请写成一行，不超过 80 个字。')
+  .max(80, '原因请写成一行，不超过 80 个字。')
+  .refine((value) => !/[\r\n\u0000]/.test(value), '原因请写成一行，不超过 80 个字。')
+  .optional();
 const schemas: Record<string, z.ZodType> = {
   createExperiment: z
     .object({
@@ -155,8 +162,10 @@ const schemas: Record<string, z.ZodType> = {
     .strict(),
   start: itemCommand('start'),
   finish: itemCommand('finish'),
-  interrupt: itemCommand('interrupt'),
-  skip: itemCommand('skip'),
+  interrupt: z
+    .object({ type: z.literal('interrupt'), itemId: id, reason: statusReason })
+    .strict(),
+  skip: z.object({ type: z.literal('skip'), itemId: id, reason: statusReason }).strict(),
   unskip: itemCommand('unskip'),
   repeat: itemCommand('repeat'),
   saveRun: z
@@ -188,6 +197,20 @@ const schemas: Record<string, z.ZodType> = {
     })
     .strict(),
   resolveIssue: z.object({ type: z.literal('resolveIssue'), eventId: id }).strict(),
+  editIssue: z
+    .object({
+      type: z.literal('editIssue'),
+      eventId: id,
+      text: z.string().trim().min(1).max(50000),
+    })
+    .strict(),
+  editNote: z
+    .object({
+      type: z.literal('editNote'),
+      eventId: id,
+      text: z.string().trim().min(1).max(50000),
+    })
+    .strict(),
   times: z
     .object({
       type: z.literal('times'),

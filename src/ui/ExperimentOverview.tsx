@@ -3,8 +3,15 @@ import { AlertCircle, CheckCircle2, ArrowRight, ChevronRight } from 'lucide-reac
 import type { Experiment, PlanItem, Status } from '../shared/model';
 import { sampleName, STATUS_LABEL } from '../shared/model';
 import { reportInsights } from '../shared/summary';
-import { useWorkspace } from './context';
+import { formatRecordedDuration, recordedDuration } from '../shared/duration';
+import { followUpRoster, followUpSets } from '../shared/followUps';
+import { recordedPlanChangeText } from '../shared/planChanges';
+import { latestRecorded } from '../shared/library';
+import { actualFilenameLabel, actualScanLabel, canCopyName } from '../shared/copyText';
+import { unwrap, useWorkspace } from './context';
 import { Modal, timeText } from './components';
+import { recordedClock } from '../shared/recordedTime';
+import { eventTimeLabel, issueEarlierText } from '../shared/history';
 import { overviewIssue, overviewOperation } from './overview';
 import './overview.css';
 
@@ -17,11 +24,26 @@ export function ExperimentOverview({
   experiment: Experiment;
   onClose: () => void;
 }) {
-  const { snapshot, setPage, setItemId, setExperimentId, execute, flush, notify } = useWorkspace();
+  const { snapshot, getSnapshot, setPage, setItemId, setExperimentId, execute, flush, notify } =
+    useWorkspace();
   const [resolving, setResolving] = useState<string | null>(null);
   const [navigating, setNavigating] = useState(false);
   const groups = snapshot.groups.filter((g) => g.experimentId === experiment.id);
   const insights = reportInsights(snapshot, experiment.id);
+  const duration = recordedDuration(
+    snapshot.runs.filter((run) => run.experimentId === experiment.id),
+  );
+  const roster = followUpRoster(snapshot, experiment.id);
+  const unlinkedIssues = followUpSets(snapshot, experiment.id).unlinkedIssues;
+  const actualChanges = snapshot.items
+    .filter((item) => item.experimentId === experiment.id)
+    .sort((a, b) => a.order - b.order)
+    .flatMap((item) => {
+      const run = snapshot.runs.find((entry) => entry.itemId === item.id);
+      const text = recordedPlanChangeText(run);
+      if (!text || !run) return [];
+      return [{ item, code: run.snapshot.sample.code, text: text.replaceAll('\n', '；') }];
+    });
   const issues = snapshot.events.filter(
     (e) => e.experimentId === experiment.id && e.type === 'issue' && !e.data.resolvedAt,
   );
@@ -29,9 +51,13 @@ export function ExperimentOverview({
   const completion = insights.plannedOperations
     ? Math.round((insights.completed / insights.plannedOperations) * 100)
     : 0;
+  const recent = latestRecorded(snapshot, experiment.id);
   const running = snapshot.items.find((i) => i.status === 'running');
   const runningExperiment = snapshot.experiments.find((e) => e.id === running?.experimentId);
   const current = running && overviewOperation(snapshot, running);
+  const runningClock = current?.run
+    ? recordedClock(current.run.startedAt, current.run.offsetMinutes, current.run.timezone)
+    : null;
   const blocked = navigating || resolving !== null;
 
   useEffect(() => {
@@ -117,9 +143,182 @@ export function ExperimentOverview({
                   <small>
                     物理样品 ID：<code>{current.sample.id}</code>
                   </small>
+                  {current.run?.filename && <small>数据文件夹：{current.run.filename}</small>}
+                  {actualFilenameLabel(current.run) && <small>{actualFilenameLabel(current.run)}</small>}
+                  {actualScanLabel(current.run) && <small>{actualScanLabel(current.run)}</small>}
+                  {canCopyName(current.run?.filename) && (
+                    <button
+                      type="button"
+                      className="text-button"
+                      aria-label="在概览中复制进行中的数据文件夹"
+                      disabled={blocked}
+                      onClick={() => {
+                        void flush()
+                          .then(async () => {
+                            const data = getSnapshot();
+                            const runningItem = data.items.find((item) => item.status === 'running');
+                            const record =
+                              runningItem && data.runs.find((run) => run.itemId === runningItem.id);
+                            const name = record?.filename || '';
+                            if (!canCopyName(name)) throw new Error('还没有可复制的数据文件夹名。');
+                            await unwrap(window.labrecord.copyName(name));
+                            notify('进行中的数据文件夹名已复制。');
+                          })
+                          .catch((error) => notify((error as Error).message, true));
+                      }}
+                    >
+                      复制文件夹
+                    </button>
+                  )}
+                  {canCopyName(String(current.run?.actual.filename || '').trim()) && (
+                    <button
+                      type="button"
+                      className="text-button"
+                      aria-label="在概览中复制进行中的实际文件名"
+                      disabled={blocked}
+                      onClick={() => {
+                        void flush()
+                          .then(async () => {
+                            const data = getSnapshot();
+                            const runningItem = data.items.find((item) => item.status === 'running');
+                            const record =
+                              runningItem && data.runs.find((run) => run.itemId === runningItem.id);
+                            const name = String(record?.actual.filename || '').trim();
+                            if (!canCopyName(name)) throw new Error('还没有可复制的实际文件名。');
+                            await unwrap(window.labrecord.copyName(name));
+                            notify('进行中的实际文件名已复制。');
+                          })
+                          .catch((error) => notify((error as Error).message, true));
+                      }}
+                    >
+                      复制文件名
+                    </button>
+                  )}
+                  {canCopyName(String(current.run?.actual.scanId || '').trim()) && (
+                    <button
+                      type="button"
+                      className="text-button"
+                      aria-label="在概览中复制进行中的扫描编号"
+                      disabled={blocked}
+                      onClick={() => {
+                        void flush()
+                          .then(async () => {
+                            const data = getSnapshot();
+                            const runningItem = data.items.find((item) => item.status === 'running');
+                            const record =
+                              runningItem && data.runs.find((run) => run.itemId === runningItem.id);
+                            const name = String(record?.actual.scanId || '').trim();
+                            if (!canCopyName(name)) throw new Error('还没有可复制的扫描编号。');
+                            await unwrap(window.labrecord.copyName(name));
+                            notify('进行中的扫描编号已复制。');
+                          })
+                          .catch((error) => notify((error as Error).message, true));
+                      }}
+                    >
+                      复制扫描编号
+                    </button>
+                  )}
                 </div>
-                <span>{timeText(current.run?.startedAt || null, true)}</span>
+                <span>
+                  {runningClock ? `${runningClock.clock} ${runningClock.zone}` : '尚未记录'}
+                </span>
               </div>
+            )}
+          </section>
+        )}
+        {recent && (
+          <section className="overview-record" aria-label="最近记录">
+            <div className="overview-section-heading">
+              <h3>
+                {recent.status === 'interrupted' ? '最近中断' : '最近完成'} {recent.sampleCode}
+              </h3>
+              <button
+                type="button"
+                className="button small"
+                aria-label={`打开最近记录 ${recent.sampleCode}`}
+                disabled={blocked}
+                onClick={() => {
+                  const item = snapshot.items.find((entry) => entry.id === recent.itemId);
+                  if (item) void viewOperation(item);
+                }}
+              >
+                打开
+              </button>
+            </div>
+            <p>
+              {[
+                recent.duration ? `用时 ${recent.duration}` : '',
+                recent.endedClock,
+                recent.scanId ? `扫描 ${recent.scanId}` : '',
+                recent.fileLabel,
+                recent.folder,
+                recent.openIssue,
+              ]
+                .filter(Boolean)
+                .join(' · ')}
+            </p>
+            {canCopyName(recent.folder) && (
+              <button
+                type="button"
+                className="text-button"
+                aria-label={`复制最近记录文件夹 ${recent.sampleCode}`}
+                disabled={blocked}
+                onClick={() => {
+                  void flush()
+                    .then(async () => {
+                      const fresh = latestRecorded(getSnapshot(), experiment.id);
+                      const name = fresh?.folder || '';
+                      if (!canCopyName(name)) throw new Error('还没有可复制的数据文件夹名。');
+                      await unwrap(window.labrecord.copyName(name));
+                      notify('最近记录的数据文件夹名已复制。');
+                    })
+                    .catch((error) => notify((error as Error).message, true));
+                }}
+              >
+                复制文件夹
+              </button>
+            )}
+            {canCopyName(recent.scanId) && (
+              <button
+                type="button"
+                className="text-button"
+                aria-label={`复制最近记录扫描编号 ${recent.sampleCode}`}
+                disabled={blocked}
+                onClick={() => {
+                  void flush()
+                    .then(async () => {
+                      const fresh = latestRecorded(getSnapshot(), experiment.id);
+                      const name = fresh?.scanId || '';
+                      if (!canCopyName(name)) throw new Error('还没有可复制的扫描编号。');
+                      await unwrap(window.labrecord.copyName(name));
+                      notify('最近记录的扫描编号已复制。');
+                    })
+                    .catch((error) => notify((error as Error).message, true));
+                }}
+              >
+                复制扫描编号
+              </button>
+            )}
+            {canCopyName(recent.filename) && (
+              <button
+                type="button"
+                className="text-button"
+                aria-label={`复制最近记录文件名 ${recent.sampleCode}`}
+                disabled={blocked}
+                onClick={() => {
+                  void flush()
+                    .then(async () => {
+                      const fresh = latestRecorded(getSnapshot(), experiment.id);
+                      const name = fresh?.filename || '';
+                      if (!canCopyName(name)) throw new Error('还没有可复制的实际文件名。');
+                      await unwrap(window.labrecord.copyName(name));
+                      notify('最近记录的实际文件名已复制。');
+                    })
+                    .catch((error) => notify((error as Error).message, true));
+                }}
+              >
+                复制文件名
+              </button>
             )}
           </section>
         )}
@@ -204,6 +403,80 @@ export function ExperimentOverview({
           </div>
         </section>
 
+        <section className="overview-record" aria-label="已记录用时">
+          <div className="overview-section-heading">
+            <h3>已记录用时</h3>
+            <span>
+              {duration.completeCount
+                ? formatRecordedDuration(duration.milliseconds)
+                : '尚无完整起止'}
+            </span>
+          </div>
+          <p>
+            {duration.incompleteCount
+              ? `${duration.incompleteCount} 次起止不完整，未计入。`
+              : '只累加起止都已写下、且结束不早于开始的间隔。'}
+          </p>
+        </section>
+
+        {actualChanges.length > 0 && (
+          <section className="overview-roster" aria-label="实际与开始时不同">
+            <div className="overview-section-heading">
+              <h3>实际与开始时不同</h3>
+              <span>尚未开始的计划不列入</span>
+            </div>
+            <ul className="follow-up-roster" aria-label="实际与开始时不同的操作">
+              {actualChanges.map((entry) => (
+                <li key={entry.item.id}>
+                  <button
+                    type="button"
+                    aria-label={`打开实际已改 ${entry.code} 操作 ${entry.item.order + 1}`}
+                    disabled={blocked}
+                    onClick={() => {
+                      void viewOperation(entry.item);
+                    }}
+                  >
+                    <strong>{entry.code}</strong>
+                    <span>{entry.text}</span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
+
+        {(roster.length > 0 || unlinkedIssues > 0) && (
+          <section className="overview-roster" aria-labelledby="overview-roster-title">
+            <div className="overview-section-heading">
+              <h3 id="overview-roster-title">待核对清单</h3>
+              <span>尚未开始的计划不列入</span>
+            </div>
+            {roster.length > 0 && (
+              <ul className="follow-up-roster" aria-label="待核对清单">
+                {roster.map((entry) => {
+                  const item = snapshot.items.find((candidate) => candidate.id === entry.itemId);
+                  return (
+                    <li key={entry.itemId}>
+                      <button
+                        type="button"
+                        aria-label={`打开 ${entry.sampleCode}`}
+                        disabled={blocked || !item}
+                        onClick={() => {
+                          if (item) void viewOperation(item);
+                        }}
+                      >
+                        <strong>{entry.sampleCode}</strong>
+                        <span>{entry.gaps.join('、')}</span>
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+            {unlinkedIssues > 0 && <p>未关联到操作的问题：{unlinkedIssues} 条。</p>}
+          </section>
+        )}
+
         <section className="overview-issues" aria-labelledby="overview-issues-title">
           <div className="overview-section-heading">
             <h3 id="overview-issues-title">未处理问题 ({insights.unresolvedIssues})</h3>
@@ -221,10 +494,13 @@ export function ExperimentOverview({
                         {String(issue.data.category || '未分类')}
                       </span>
                       <time className="issue-time" dateTime={issue.createdAt}>
-                        {timeText(issue.createdAt, true)}
+                        {eventTimeLabel(snapshot, issue) || timeText(issue.createdAt, true)}
                       </time>
                     </div>
                     <p className="issue-text">{issue.text}</p>
+                    {issueEarlierText(issue) && (
+                      <small className="issue-earlier">{issueEarlierText(issue)}</small>
+                    )}
                     <small className="issue-sample">
                       {target?.sample
                         ? `样品：${target.sample.code} · ${target.group?.state || ''}`

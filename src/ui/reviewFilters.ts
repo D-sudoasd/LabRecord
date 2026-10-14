@@ -1,4 +1,5 @@
 import type { Run, Snapshot } from '../shared/model.js';
+import { followUpSets } from '../shared/followUps.js';
 
 export type ReviewFilterKey = 'missingTimes' | 'missingFiles' | 'unresolvedIssues';
 
@@ -15,32 +16,27 @@ export function actualFileReferences(run: Run | undefined) {
   ).flatMap(([label, value]) => (value ? [{ label, value: String(value) }] : []));
 }
 
+export function actualReferenceValue(run: Run | undefined, label: string) {
+  return actualFileReferences(run).find((reference) => reference.label === label)?.value || '';
+}
+
+export { actualFilenameLabel } from '../shared/copyText.js';
+
+export function followUpLabels(itemId: string, ids: ReviewFilterItemIds) {
+  const labels: string[] = [];
+  if (ids.missingTimes.has(itemId)) labels.push('时间不完整');
+  if (ids.missingFiles.has(itemId)) labels.push('文件未关联');
+  if (ids.unresolvedIssues.has(itemId)) labels.push('未处理问题');
+  return labels;
+}
+
 export function reviewFilterItemIds(snapshot: Snapshot, experimentId: string): ReviewFilterItemIds {
-  const experimentItems = snapshot.items.filter((item) => item.experimentId === experimentId);
-  const itemIds = new Set(experimentItems.map((item) => item.id));
-  const runs = snapshot.runs.filter((run) => run.experimentId === experimentId);
-  const runsById = new Map(runs.map((run) => [run.id, run]));
-
-  // Match reportInsights: time and file gaps are counted only on existing runs.
-  const missingTimes = new Set(
-    runs.filter((run) => !run.startedAt || !run.endedAt).map((run) => run.itemId),
-  );
-  const missingFiles = new Set(
-    runs
-      .filter((run) => !run.actual.filename && !run.actual.scanId && !run.actual.files)
-      .map((run) => run.itemId),
-  );
-  const unresolvedIssues = new Set<string>();
-
-  for (const event of snapshot.events) {
-    if (event.experimentId !== experimentId || event.type !== 'issue' || event.data.resolvedAt)
-      continue;
-    if (event.itemId && itemIds.has(event.itemId)) unresolvedIssues.add(event.itemId);
-    const run = event.runId ? runsById.get(event.runId) : undefined;
-    if (run && itemIds.has(run.itemId)) unresolvedIssues.add(run.itemId);
-  }
-
-  return { missingTimes, missingFiles, unresolvedIssues };
+  const sets = followUpSets(snapshot, experimentId);
+  return {
+    missingTimes: sets.missingTimes,
+    missingFiles: sets.missingFiles,
+    unresolvedIssues: sets.unresolvedIssues,
+  };
 }
 
 export function matchesReviewFilters(

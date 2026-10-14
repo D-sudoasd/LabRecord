@@ -12,10 +12,21 @@ import type {
   Field,
   RecordEvent,
 } from '../shared/model.js';
-import { STATUS_LABEL, effectiveProtocol } from '../shared/model.js';
+import { STATUS_LABEL, effectiveProtocol, sampleOverrideLabel } from '../shared/model.js';
+import { followUpRoster } from '../shared/followUps.js';
+import { formatRecordedDuration, recordedDuration, runDurationLabel } from '../shared/duration.js';
+import { eventEarlierText, eventTimeLabel, issueEarlierText, operationStatusReason } from '../shared/history.js';
+import { repeatSourceLabel } from '../shared/repeats.js';
+import { operationPlanDrift, recordedPlanChangeText } from '../shared/planChanges.js';
+import { latestEndedMark, runningOperationSummary } from '../shared/library.js';
+import { recordedEndLabel, recordedStartLabel } from '../shared/recordedTime.js';
 import { fieldSchema, validatePatch } from './validation.js';
 import { measurementFor, plannedGroup, regimeLabel } from '../shared/measurement.js';
 import { MATERIAL_FIELDS } from '../shared/materials.js';
+
+/** A full CSV unions group, operation, event, and attachment columns.
+ *  Each custom field adds three of those columns, and an experiment may have 50. */
+export const IMPORT_COLUMN_LIMIT = 300;
 
 export const IMPORT_FIELDS: { key: ImportKey; label: string; aliases: string[] }[] = [
   { key: 'state', label: '样品状态', aliases: ['样品状态', '状态'] },
@@ -108,7 +119,8 @@ export function previewRows(rows: string[][], name = '粘贴的表格'): TablePr
     usedHeaders.add(name);
     return name;
   });
-  if (headers.length > 100) throw new Error('一次最多读取 100 列。');
+  if (headers.length > IMPORT_COLUMN_LIMIT)
+    throw new Error(`一次最多读取 ${IMPORT_COLUMN_LIMIT} 列。`);
   const normalize = (v: string) => v.toLowerCase().replace(/\s/g, '');
   const mapping: Partial<Record<ImportKey, number>> = {};
   for (const field of IMPORT_FIELDS) {
@@ -121,6 +133,36 @@ export function previewRows(rows: string[][], name = '粘贴的表格'): TablePr
     '“数量”只表示准备数量；导入后请另行安排待测样品。',
     '原表完成标记和实验时间作为历史信息保留，不会生成操作或自动计时。',
   ];
+  if (headers.includes('待核对'))
+    warnings.push('“待核对”是导出时生成的核对结果，导入时不写入样品。');
+  if (headers.includes('用时'))
+    warnings.push('“用时”由已记录的起止时间计算，导入时不写入样品，也不补齐未知时间。');
+  if (headers.includes('已记录用时') || headers.includes('未计入次数'))
+    warnings.push('“已记录用时”和“未计入次数”由已有记录的起止时间汇总，导入时不写入样品，也不生成实际记录或补齐未知时间。');
+  if (headers.includes('样品差异'))
+    warnings.push('“样品差异”列出当前与样品组不同的样品参数，导入时不写入样品，也不改已有记录。');
+  if (headers.includes('当前计划差异'))
+    warnings.push('“当前计划差异”比较开始后的当前计划与开始时快照，导入时不写入样品，也不改已有记录。');
+  if (headers.includes('实际与开始时不同'))
+    warnings.push('“实际与开始时不同”列出实际记录与开始时快照的差异，导入时不写入样品，也不改已有记录。');
+  if (headers.includes('最近结束'))
+    warnings.push('“最近结束”标出最近一条已结束的操作，导入时不写入样品，也不改已有记录。');
+  if (headers.includes('开始钟点') || headers.includes('结束钟点'))
+    warnings.push('“开始钟点”和“结束钟点”是记录时区里已经写下的钟点，导入时不写入样品，也不改已有记录或补齐未知时间。');
+  if (headers.includes('进行中说明'))
+    warnings.push('“进行中说明”标出仍在进行的操作，导入时不写入样品，也不改已有记录或补齐未知时间。');
+  if (headers.includes('状态原因'))
+    warnings.push('“状态原因”是跳过或中断时写下的原因，导入时不写入样品，也不生成实际记录。');
+  if (headers.includes('记录时区时间'))
+    warnings.push('“记录时区时间”由事件关联的实际记录偏移生成，导入时不写入样品，也不补造没有实际记录的事件时区。');
+  if (headers.includes('改前文字'))
+    warnings.push('“改前文字”是问题或时间线备注改正前的文字，导入时不写入样品，也不改已有记录。');
+  if (headers.includes('问题记录'))
+    warnings.push('“问题记录”是导出的问题清单，导入时不写入样品，也不生成实际记录。');
+  if (headers.includes('重测来源'))
+    warnings.push('“重测来源”由原操作的样品编号、扫描编号和文件夹名生成，导入时不写入样品。');
+  if (headers.includes('记录类型'))
+    warnings.push('只导入记录类型为样品组的行；操作、事件和附件行不生成样品或实际记录。');
   return { name, headers, rows: clean.slice(1), mapping, warnings };
 }
 export async function previewFile(path: string): Promise<TablePreview> {
@@ -132,8 +174,8 @@ export async function previewFile(path: string): Promise<TablePreview> {
   await workbook.xlsx.load(buffer as unknown as ExcelJS.Buffer);
   const worksheet = workbook.worksheets[0];
   if (!worksheet) throw new Error('工作簿没有可读取的工作表。');
-  if (worksheet.rowCount > 10001 || worksheet.columnCount > 100)
-    throw new Error('工作表超过 10,000 行或 100 列，请拆分后导入。');
+  if (worksheet.rowCount > 10001 || worksheet.columnCount > IMPORT_COLUMN_LIMIT)
+    throw new Error(`工作表超过 10,000 行或 ${IMPORT_COLUMN_LIMIT} 列，请拆分后导入。`);
   const rows: string[][] = [];
   worksheet.eachRow({ includeEmpty: true }, (row) => {
     const values: string[] = [];
@@ -184,7 +226,7 @@ export function importTable(store: Store, request: ImportRequest): Snapshot {
   const { table, mapping, experimentId } = request;
   if (
     table.rows.length > 10000 ||
-    table.headers.length > 100 ||
+    table.headers.length > IMPORT_COLUMN_LIMIT ||
     table.headers.some((h) => typeof h !== 'string' || h.length > 100) ||
     table.rows.some(
       (r) => !Array.isArray(r) || r.some((v) => typeof v !== 'string' || v.length > 50000),
@@ -204,14 +246,42 @@ export function importTable(store: Store, request: ImportRequest): Snapshot {
     throw new Error('请选择“样品名称”或“样品状态”对应的列。');
   const mapped = Object.values(mapping);
   if (new Set(mapped).size !== mapped.length) throw new Error('一列不能同时映射到两个字段。');
+  const typeColumn = table.headers.indexOf('记录类型');
+  const sampleRows =
+    typeColumn < 0
+      ? table.rows
+      : table.rows.filter((row) => (row[typeColumn] || '').trim() === '样品组');
+  const usedOnSamples = new Set<number>();
+  for (const row of sampleRows)
+    row.forEach((value, column) => {
+      if ((value || '').trim()) usedOnSamples.add(column);
+    });
   store.transaction(() => {
     const experiment = store.get('experiments', experimentId);
-    const reserved = table.customFields
-      ? new Set(['实验编号', '计划测试样品数', '备样数量', 'group_id'])
-      : new Set<string>();
+    const reserved = new Set(
+      table.customFields ? ['实验编号', '计划测试样品数', '备样数量', 'group_id'] : [],
+    );
+    reserved.add('待核对');
+    reserved.add('记录类型');
+    reserved.add('用时');
+    reserved.add('已记录用时');
+    reserved.add('未计入次数');
+    reserved.add('样品差异');
+    reserved.add('当前计划差异');
+    reserved.add('实际与开始时不同');
+    reserved.add('最近结束');
+    reserved.add('开始钟点');
+    reserved.add('结束钟点');
+    reserved.add('进行中说明');
+    reserved.add('状态原因');
+    reserved.add('记录时区时间');
+    reserved.add('改前文字');
+    reserved.add('问题记录');
+    reserved.add('重测来源');
     const extras = request.keepOtherColumns
       ? table.headers.flatMap((label, column) => {
           if (mapped.includes(column) || reserved.has(label)) return [];
+          if (typeColumn >= 0 && !usedOnSamples.has(column)) return [];
           const definition = table.customFields?.find((f) => f.column === column)?.definition;
           const field = definition
             ? (fieldSchema.parse(definition) as Field)
@@ -232,6 +302,7 @@ export function importTable(store: Store, request: ImportRequest): Snapshot {
     store.put('experiments', { ...experiment, fields });
     let imported = 0;
     for (const [index, row] of table.rows.entries()) {
+      if (typeColumn >= 0 && (row[typeColumn] || '').trim() !== '样品组') continue;
       const raw = (key: ImportKey) =>
         mapping[key] === undefined ? '' : (row[mapping[key]!] || '').trim();
       if (!raw('state') && !raw('name')) {
@@ -367,6 +438,9 @@ export function operationRows(
   for (const run of snapshot.runs.filter((r) => r.experimentId === experimentId))
     for (const field of run.snapshot.fields)
       if (!fields.some((f) => sameField(f, field))) fields.push(field);
+  const gaps = new Map(
+    followUpRoster(snapshot, experimentId).map((entry) => [entry.itemId, entry.gaps.join('、')]),
+  );
   const header = [
     '实验编号',
     '样品状态',
@@ -400,17 +474,27 @@ export function operationRows(
     '结束时间UTC',
     '原始开始时间UTC',
     '原始结束时间UTC',
+    '用时',
     '时区',
+    '开始钟点',
+    '结束钟点',
+    '进行中说明',
     '预期文件名',
     '实际文件名',
     '扫描编号',
     '文件引用',
+    '待核对',
     '问题记录',
     '附件',
     'sample_id',
     'plan_item_id',
     'run_id',
     '原操作ID',
+    '重测来源',
+    '当前计划差异',
+    '实际与开始时不同',
+    '状态原因',
+    '最近结束',
     '材料短名',
     '测量技术',
     '制度类型',
@@ -435,7 +519,7 @@ export function operationRows(
         .filter((e) => e.itemId === item.id && e.type === 'issue')
         .map(
           (e) =>
-            `${e.createdAt} [${e.data.category}] ${e.text}${e.data.resolvedAt ? '（已处理）' : '（待处理）'}`,
+            `${eventTimeLabel(snapshot, e) ? `${eventTimeLabel(snapshot, e)} · UTC ${e.createdAt}` : e.createdAt} [${e.data.category}] ${e.text}${issueEarlierText(e) ? ` · ${issueEarlierText(e)}` : ''}${e.data.resolvedAt ? '（已处理）' : '（待处理）'}`,
         )
         .join('\n');
       const definition = run?.snapshot.fields || experiment.fields;
@@ -472,11 +556,18 @@ export function operationRows(
         run?.endedAt || '',
         run?.originalStartedAt || '',
         run?.originalEndedAt || '',
+        runDurationLabel(run),
         run?.timezone || '',
+        recordedStartLabel(run),
+        recordedEndLabel(run),
+        item.status === 'running' && run && !run.endedAt
+          ? runningOperationSummary(snapshot, item.experimentId)
+          : '',
         run?.filename || item.plannedName || '',
         run?.actual.filename || '',
         run?.actual.scanId || '',
         run?.actual.files || '',
+        gaps.get(item.id) || '',
         problems,
         snapshot.attachments
           .filter((a) => a.runId === run?.id)
@@ -486,6 +577,11 @@ export function operationRows(
         item.id,
         run?.id || '',
         item.repeatOf || '',
+        repeatSourceLabel(snapshot, item),
+        operationPlanDrift(snapshot, item),
+        recordedPlanChangeText(run),
+        operationStatusReason(snapshot, item),
+        latestEndedMark(snapshot, item.id),
         group.material ?? null,
         measurement.technique || '',
         measurement.regime ? regimeLabel(measurement.regime) : '',
@@ -515,7 +611,7 @@ function addSheet(workbook: ExcelJS.Workbook, name: string, rows: (string | numb
     cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF176B62' } };
   });
   sheet.columns.forEach((column, index) => {
-    column.width = /备注|问题|文件引用|制度/.test(String(rows[0][index]))
+    column.width = /备注|问题|文件引用|制度|差异|不同|改前|钟点|说明/.test(String(rows[0][index]))
       ? 36
       : /时间|编号|样品状态/.test(String(rows[0][index]))
         ? 24
@@ -532,6 +628,28 @@ function addSheet(workbook: ExcelJS.Workbook, name: string, rows: (string | numb
   if (rows.length > 1)
     sheet.autoFilter = { from: 'A1', to: { row: rows.length, column: rows[0].length } };
 }
+export function groupOverrideExport(snapshot: Snapshot, group: Group) {
+  return snapshot.samples
+    .filter((sample) => sample.groupId === group.id)
+    .flatMap((sample) => {
+      const label = sampleOverrideLabel(group, sample.parameters);
+      return label ? [`${sample.code}：${label}`] : [];
+    })
+    .join('\n');
+}
+export function groupDurationExport(snapshot: Snapshot, groupId: string): [string, number | ''] {
+  const sampleIds = new Set(
+    snapshot.samples.filter((sample) => sample.groupId === groupId).map((sample) => sample.id),
+  );
+  const itemIds = new Set(
+    snapshot.items.filter((item) => sampleIds.has(item.sampleId)).map((item) => item.id),
+  );
+  const duration = recordedDuration(snapshot.runs.filter((run) => itemIds.has(run.itemId)));
+  return [
+    duration.completeCount ? formatRecordedDuration(duration.milliseconds) : '',
+    duration.incompleteCount || '',
+  ];
+}
 function planningRows(snapshot: Snapshot, experimentId: string): (string | number | null)[][] {
   const experiment = snapshot.experiments.find((e) => e.id === experimentId)!;
   return [
@@ -545,6 +663,9 @@ function planningRows(snapshot: Snapshot, experimentId: string): (string | numbe
       '准备数量',
       '计划测试样品数',
       '备样数量',
+      '已记录用时',
+      '未计入次数',
+      '样品差异',
       'In situ/Ex situ',
       '实验制度',
       '优先级',
@@ -573,6 +694,8 @@ function planningRows(snapshot: Snapshot, experimentId: string): (string | numbe
           g.preparedCount,
           planned,
           g.preparedCount === null ? null : Math.max(0, g.preparedCount - planned),
+          ...groupDurationExport(snapshot, g.id),
+          groupOverrideExport(snapshot, g),
           g.mode,
           g.protocol ?? '',
           g.priority,
@@ -592,10 +715,19 @@ function planningRows(snapshot: Snapshot, experimentId: string): (string | numbe
 }
 function historyRows(snapshot: Snapshot, experimentId: string): (string | number | null)[][] {
   return [
-    ['时间UTC', '类型', '内容', 'plan_item_id', 'run_id', '详细信息'],
+    ['时间UTC', '类型', '内容', '改前文字', 'plan_item_id', 'run_id', '详细信息', '记录时区时间'],
     ...snapshot.events
       .filter((e) => e.experimentId === experimentId)
-      .map((e) => [e.createdAt, e.type, e.text, e.itemId, e.runId, JSON.stringify(e.data)]),
+      .map((e) => [
+        e.createdAt,
+        e.type,
+        e.text,
+        eventEarlierText(e),
+        e.itemId,
+        e.runId,
+        JSON.stringify(e.data),
+        eventTimeLabel(snapshot, e),
+      ]),
   ];
 }
 function attachmentRows(snapshot: Snapshot, experimentId: string): (string | number | null)[][] {

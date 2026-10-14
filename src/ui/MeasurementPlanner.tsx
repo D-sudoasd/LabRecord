@@ -1,14 +1,30 @@
 import { useId, useRef, useState } from 'react';
 import { ArrowDown, ArrowUp, Copy, Plus, SlidersHorizontal, Trash2 } from 'lucide-react';
 import { placeId } from '../shared/order';
-import type { MeasurementPlan, PlanItem } from '../shared/model';
-import { MODE_OPTIONS } from '../shared/model';
+import type { MeasurementPlan, PlanItem, Status } from '../shared/model';
+import { MODE_OPTIONS, STATUS_LABEL, sampleOverrideLabel } from '../shared/model';
 import {
   measurementFor,
   measurementSummary,
+  operationProtocolLabel,
+  plannedGroup,
   REGIMES,
   reserveMeasurementNames,
 } from '../shared/measurement';
+import {
+  actualProtocolLabel,
+  operationPlanDrift,
+  operationSizeLine,
+  recordedPlanDiffers,
+  recordedPlanSearchText,
+} from '../shared/planChanges';
+import { operationStatusReason } from '../shared/history';
+import { runDurationLabel } from '../shared/duration';
+import { recordedEndLabel, recordedStartLabel } from '../shared/recordedTime';
+import { matchesOperationIdentity, textIncludes } from '../shared/operationQuery';
+import { queueSearchText } from './queueSearch';
+import { actualFilenameLabel } from './reviewFilters';
+import { repeatSource, repeatSourceIssueLabel } from '../shared/repeats';
 import { useWorkspace, unwrap, DesktopReplyError } from './context';
 import { Modal, SearchField, StatusPill, useCommandClose } from './components';
 import {
@@ -364,6 +380,9 @@ export function MeasurementPlanner() {
     .filter((item) => item.experimentId === experimentId)
     .sort((a, b) => a.order - b.order);
   const [search, setSearch] = useState(''),
+    [statusFilter, setStatusFilter] = useState<'' | Status>(''),
+    [driftOnly, setDriftOnly] = useState(false),
+    [actualOnly, setActualOnly] = useState(false),
     [selected, setSelected] = useState(new Set<string>());
   const [dialog, setDialog] = useState<{ ids: string[]; append: boolean } | null>(null);
   const [pendingDelete, setPendingDelete] = useState<PendingDelete | null>(null);
@@ -394,16 +413,19 @@ export function MeasurementPlanner() {
         notify(error instanceof Error ? error.message : '无法复制，请选中名称后复制。', true),
       );
   }
-  const visible = items.filter((item) => {
-    const sample = snapshot.samples.find((entry) => entry.id === item.sampleId)!;
-    const run = snapshot.runs.find((entry) => entry.itemId === item.id);
-    const group =
-      run?.snapshot.group || snapshot.groups.find((entry) => entry.id === sample.groupId)!;
-    return `${run?.snapshot.sample.code || sample.code} ${group.material || ''} ${group.state} ${measurementSummary(measurementFor(snapshot, item))} ${run?.filename || item.plannedName || ''}`
-      .toLowerCase()
-      .includes(search.toLowerCase());
-  });
-  const chosen = items.filter((item) => selected.has(item.id));
+  const driftCount = items.filter((item) => operationPlanDrift(snapshot, item)).length;
+  const actualChangedCount = items.filter((item) =>
+    recordedPlanDiffers(snapshot.runs.find((run) => run.itemId === item.id)),
+  ).length;
+  const visible = items.filter(
+    (item) =>
+      (!statusFilter || item.status === statusFilter) &&
+      (!driftOnly || operationPlanDrift(snapshot, item)) &&
+      (!actualOnly || recordedPlanDiffers(snapshot.runs.find((run) => run.itemId === item.id))) &&
+      (textIncludes(queueSearchText(snapshot, item), search) ||
+        matchesOperationIdentity(snapshot, item, search)),
+  );
+  const chosen = visible.filter((item) => selected.has(item.id));
   const canConfigure =
     chosen.length > 0 &&
     chosen.every(
@@ -451,17 +473,68 @@ export function MeasurementPlanner() {
       <div className="card-toolbar">
         <div className="toolbar-title">
           <h2>测量计划</h2>
-          <span>{items.length} 项操作 · 可复用同一样品</span>
+          <span>
+            {statusFilter || search.trim() || driftOnly || actualOnly
+              ? `${visible.length} / ${items.length} 项操作`
+              : `${items.length} 项操作`}
+            {' · 可复用同一样品'}
+          </span>
         </div>
         <SearchField
           label="搜索测量计划"
-          placeholder="编号、制度或文件夹"
+          placeholder="编号、样品 ID、制度或文件夹"
           value={search}
           onChange={(value) => {
             setSearch(value);
             setSelected(new Set());
           }}
         />
+        <select
+          className="measurement-status-filter"
+          aria-label="按状态筛选测量"
+          value={statusFilter}
+          onChange={(event) => {
+            setStatusFilter(event.target.value as '' | Status);
+            setSelected(new Set());
+          }}
+        >
+          <option value="">全部状态</option>
+          {(['pending', 'running', 'completed', 'skipped', 'interrupted'] as const).map(
+            (status) => (
+              <option key={status} value={status}>
+                {STATUS_LABEL[status]}（{items.filter((item) => item.status === status).length}）
+              </option>
+            ),
+          )}
+        </select>
+        {(driftCount > 0 || driftOnly) && (
+          <button
+            type="button"
+            className={`button small${driftOnly ? ' active' : ''}`}
+            aria-pressed={driftOnly}
+            aria-label="计划已变"
+            onClick={() => {
+              setDriftOnly((value) => !value);
+              setSelected(new Set());
+            }}
+          >
+            计划已变 <span aria-hidden="true">{driftCount}</span>
+          </button>
+        )}
+        {(actualChangedCount > 0 || actualOnly) && (
+          <button
+            type="button"
+            className={`button small${actualOnly ? ' active' : ''}`}
+            aria-pressed={actualOnly}
+            aria-label="实际已改"
+            onClick={() => {
+              setActualOnly((value) => !value);
+              setSelected(new Set());
+            }}
+          >
+            实际已改 <span aria-hidden="true">{actualChangedCount}</span>
+          </button>
+        )}
       </div>
       <div className="measurement-toolbar">
         {chosen.length > 0 && (
@@ -528,6 +601,8 @@ export function MeasurementPlanner() {
       </div>
       {!items.length ? (
         <p className="hint measurement-empty">先添加或安排待测样品，再配置制度。</p>
+      ) : visible.length === 0 ? (
+        <p className="hint measurement-empty">没有符合筛选的测量。筛选不改变队列顺序。</p>
       ) : (
         <div className="table-wrap measurement-table-wrap">
           <table className="measurement-table">
@@ -561,8 +636,29 @@ export function MeasurementPlanner() {
                   run?.snapshot.sample ||
                   snapshot.samples.find((entry) => entry.id === item.sampleId)!;
                 const name = run?.filename || item.plannedName;
+                const source = repeatSource(snapshot, item);
+                const liveSample = snapshot.samples.find((entry) => entry.id === item.sampleId);
+                const liveGroup = snapshot.groups.find((entry) => entry.id === liveSample?.groupId);
+                const override =
+                  liveSample && liveGroup
+                    ? sampleOverrideLabel(liveGroup, liveSample.parameters)
+                    : '';
+                const sizeGroup =
+                  run?.snapshot.group ||
+                  (liveSample && liveGroup ? plannedGroup(liveGroup, liveSample, item) : undefined);
+                const size = sizeGroup ? operationSizeLine(sizeGroup, run) : '';
+                const drift = operationPlanDrift(snapshot, item);
+                const protocolLabel = operationProtocolLabel(snapshot, item);
+                const actualProtocol = actualProtocolLabel(run);
+                const recordedPlan = recordedPlanSearchText(run);
+                const reason = operationStatusReason(snapshot, item);
+                const ended = recordedEndLabel(run);
+                const started = recordedStartLabel(run);
+                const visibleIds = new Set(visible.map((entry) => entry.id));
                 const targetIds =
-                  selected.has(item.id) && selected.size > 1 ? [...selected] : [item.id];
+                  selected.has(item.id) && selected.size > 1
+                    ? [...selected].filter((id) => visibleIds.has(id))
+                    : [item.id];
                 const deleteReason = itemsDeleteReason(snapshot, targetIds);
                 const configurable = ['pending', 'skipped'].includes(item.status) && !run;
                 return (
@@ -647,10 +743,31 @@ export function MeasurementPlanner() {
                     </td>
                     <td>
                       <strong>{sample.code}</strong>
+                      {override && <small className="sample-override">本样品 {override}</small>}
                       <small>
                         {measurementSummary(measurementFor(snapshot, item))}
-                        {item.repeatOf ? ' · 重测' : ''}
+                        {source
+                          ? ` · 重测自 ${source.sampleCode}${source.scanId ? ` · 扫描 ${source.scanId}` : ''}${repeatSourceIssueLabel(snapshot, item) ? ` · ${repeatSourceIssueLabel(snapshot, item)}` : ''}`
+                          : item.repeatOf
+                            ? ' · 重测'
+                            : ''}
                       </small>
+                      {protocolLabel && (
+                        <small className="measurement-protocol" title={protocolLabel}>
+                          {protocolLabel}
+                        </small>
+                      )}
+                      {size && <small className="measurement-size">{size}</small>}
+                      {drift && <small className="measurement-drift">当前计划已不同：{drift}</small>}
+                      {actualProtocol && (
+                        <small className="measurement-actual-protocol">{actualProtocol}</small>
+                      )}
+                      {recordedPlan && (
+                        <small className="measurement-recorded-plan">{recordedPlan}</small>
+                      )}
+                      {actualFilenameLabel(run) && (
+                        <small className="measurement-file">{actualFilenameLabel(run)}</small>
+                      )}
                     </td>
                     <td>
                       <code>{name || '配置后生成'}</code>
@@ -667,6 +784,10 @@ export function MeasurementPlanner() {
                     </td>
                     <td>
                       <StatusPill status={item.status} />
+                      {run && <small className="measurement-duration">用时 {runDurationLabel(run)}</small>}
+                      {started && <small className="measurement-started">{started}</small>}
+                      {ended && <small className="measurement-ended">{ended}</small>}
+                      {reason && <small>原因：{reason}</small>}
                     </td>
                     <td className="measurement-row-actions">
                       <button
@@ -679,6 +800,20 @@ export function MeasurementPlanner() {
                       <button className="button small" onClick={() => open([item.id], true)}>
                         追加制度
                       </button>
+                      {item.status === 'skipped' && (
+                        <button
+                          type="button"
+                          className="text-button"
+                          aria-label={`恢复测量 ${sample.code} 操作 ${item.order + 1}`}
+                          onClick={() => {
+                            void flush()
+                              .then(() => execute({ type: 'unskip', itemId: item.id }, false))
+                              .catch((error) => notify(error.message, true));
+                          }}
+                        >
+                          恢复待测
+                        </button>
+                      )}
                       <button
                         className="text-button"
                         onClick={() => {

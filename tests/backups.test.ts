@@ -9,6 +9,7 @@ import {
   unpackBackup,
   inspectDatabase,
   dailyBackup,
+  removeAttachment,
 } from '../src/desktop/backups.js';
 import { Store } from '../src/desktop/store.js';
 import { fixture, PNG } from './helpers.js';
@@ -88,4 +89,45 @@ test('automatic backup retains 10 daily copies and never removes manual backups'
   assert.equal(names.filter((n) => n.startsWith('auto-')).length, 10);
   assert.ok(names.includes('manual.labrecord'));
   assert.ok(!names.includes('auto-2025-01-01.labrecord'));
+});
+
+test('removing one picture deletes only that file and leaves the run snapshot', async (t) => {
+  const { store, directory } = fixture(t);
+  const { itemId } = store.command({ type: 'demo' });
+  store.command({ type: 'start', itemId });
+  const run = store.snapshot().runs[0];
+  const first = join(directory, '第一张.png');
+  const second = join(directory, '第二张.png');
+  await writeFile(first, PNG);
+  await writeFile(second, PNG);
+  const kept = await addAttachment(store, run.id, first);
+  const dropped = await addAttachment(store, run.id, second);
+  const before = store.get('runs', run.id);
+  store.put('attachments', {
+    ...kept,
+    id: 'bad-picture',
+    name: '越界.png',
+    relativePath: 'attachments/../records.sqlite',
+  });
+  await assert.rejects(removeAttachment(store, 'bad-picture'), /图片路径无效/);
+  assert.equal(store.snapshot().attachments.some((entry) => entry.id === 'bad-picture'), true);
+  await removeAttachment(store, dropped.id);
+  const after = store.snapshot();
+  assert.equal(after.attachments.filter((entry) => entry.id !== 'bad-picture').length, 1);
+  assert.equal(after.attachments.some((entry) => entry.id === kept.id), true);
+  assert.equal(after.attachments.some((entry) => entry.id === dropped.id), false);
+  assert.deepEqual(after.runs[0].snapshot, before.snapshot);
+  assert.equal(after.runs[0].originalStartedAt, before.originalStartedAt);
+  assert.equal(after.runs[0].originalEndedAt, before.originalEndedAt);
+  assert.equal(after.runs[0].startedAt, before.startedAt);
+  assert.equal(after.runs[0].notes, before.notes);
+  assert.equal(after.runs.length, 1);
+  await readFile(join(store.root, kept.relativePath));
+  await assert.rejects(readFile(join(store.root, dropped.relativePath)));
+  assert.equal(
+    after.events.some((event) => event.text === '移除图片：第二张.png' && event.runId === run.id),
+    true,
+  );
+  await assert.rejects(removeAttachment(store, dropped.id), /不存在/);
+  assert.equal(after.groups.find((group) => group.id === before.snapshot.group.id)?.preparedCount, 6);
 });

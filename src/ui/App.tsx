@@ -29,6 +29,10 @@ import { Live } from './Live';
 import { Review } from './Review';
 import { Modal, useCommandClose } from './components';
 import { CloudPanel } from './CloudPanel';
+import { experimentOptionLabel, followUpRoster } from '../shared/followUps';
+import { recordedPlanChangeCount } from '../shared/planChanges';
+import { recordedClock } from '../shared/recordedTime';
+import { actualFilenameLabel, actualScanLabel, canCopyName } from '../shared/copyText';
 import { ExperimentOverview } from './ExperimentOverview';
 import { WorkspaceSearchDialog } from './FindDialog';
 import { ShortcutsDialog } from './Shortcuts';
@@ -599,6 +603,11 @@ export function App() {
   const experiment = snapshot.experiments.find((e) => e.id === experimentId);
   const runningItem = snapshot.items.find((item) => item.status === 'running');
   const runningRun = runningItem && snapshot.runs.find((run) => run.itemId === runningItem.id);
+  const runningClock = runningRun
+    ? recordedClock(runningRun.startedAt, runningRun.offsetMinutes, runningRun.timezone)
+    : null;
+  const runningFile = actualFilenameLabel(runningRun || undefined);
+  const runningScan = actualScanLabel(runningRun || undefined);
   const runningExperiment = snapshot.experiments.find(
     (entry) => entry.id === runningItem?.experimentId,
   );
@@ -748,7 +757,7 @@ export function App() {
           <small className="rail-shortcut">
             Ctrl + 1 / 2 / 3 切换页面
             <br />
-            Ctrl + K 搜索
+            Ctrl + K 实验库
           </small>
         </div>
       </aside>
@@ -811,7 +820,12 @@ export function App() {
                 {snapshot.experiments.length ? (
                   snapshot.experiments.map((e) => (
                     <option key={e.id} value={e.id}>
-                      {e.name} · {e.code}
+                      {experimentOptionLabel(
+                        e.name,
+                        e.code,
+                        followUpRoster(snapshot, e.id).length,
+                        recordedPlanChangeCount(snapshot, e.id),
+                      )}
                     </option>
                   ))
                 ) : (
@@ -891,7 +905,79 @@ export function App() {
                 {runningRun?.snapshot.sample.code ||
                   snapshot.samples.find((sample) => sample.id === runningItem.sampleId)?.code}
               </strong>
-              <span>{runningExperiment?.name} · 切换页面后仍在进行</span>
+              <span>
+                {runningExperiment?.name}
+                {runningClock ? ` · ${runningClock.clock} ${runningClock.zone}` : ''}
+                {runningRun?.filename ? ` · ${runningRun.filename}` : ''}
+                {runningFile ? ` · ${runningFile}` : ''}
+                {runningScan ? ` · ${runningScan}` : ''} · 切换页面后仍在进行
+              </span>
+              {runningRun?.filename && canCopyName(runningRun.filename) && (
+                <button
+                  type="button"
+                  className="text-button"
+                  aria-label="复制进行中的数据文件夹"
+                  onClick={() => {
+                    void flush()
+                      .then(async () => {
+                        const data = workspace.getSnapshot();
+                        const current = data.items.find((item) => item.status === 'running');
+                        const record = current && data.runs.find((run) => run.itemId === current.id);
+                        const name = record?.filename || '';
+                        if (!canCopyName(name)) throw new Error('还没有可复制的数据文件夹名。');
+                        await unwrap(window.labrecord.copyName(name));
+                        notify('进行中的数据文件夹名已复制。');
+                      })
+                      .catch((error) => notify(error.message, true));
+                  }}
+                >
+                  复制文件夹
+                </button>
+              )}
+              {canCopyName(String(runningRun?.actual.filename || '').trim()) && (
+                <button
+                  type="button"
+                  className="text-button"
+                  aria-label="复制进行中的实际文件名"
+                  onClick={() => {
+                    void flush()
+                      .then(async () => {
+                        const data = workspace.getSnapshot();
+                        const current = data.items.find((item) => item.status === 'running');
+                        const record = current && data.runs.find((run) => run.itemId === current.id);
+                        const name = String(record?.actual.filename || '').trim();
+                        if (!canCopyName(name)) throw new Error('还没有可复制的实际文件名。');
+                        await unwrap(window.labrecord.copyName(name));
+                        notify('进行中的实际文件名已复制。');
+                      })
+                      .catch((error) => notify(error.message, true));
+                  }}
+                >
+                  复制文件名
+                </button>
+              )}
+              {canCopyName(String(runningRun?.actual.scanId || '').trim()) && (
+                <button
+                  type="button"
+                  className="text-button"
+                  aria-label="复制进行中的扫描编号"
+                  onClick={() => {
+                    void flush()
+                      .then(async () => {
+                        const data = workspace.getSnapshot();
+                        const current = data.items.find((item) => item.status === 'running');
+                        const record = current && data.runs.find((run) => run.itemId === current.id);
+                        const name = String(record?.actual.scanId || '').trim();
+                        if (!canCopyName(name)) throw new Error('还没有可复制的扫描编号。');
+                        await unwrap(window.labrecord.copyName(name));
+                        notify('进行中的扫描编号已复制。');
+                      })
+                      .catch((error) => notify(error.message, true));
+                  }}
+                >
+                  复制扫描编号
+                </button>
+              )}
             </div>
             <button
               className="button small"
@@ -923,6 +1009,20 @@ export function App() {
             </div>
             <h1>开始记录这次实验</h1>
             <p>先建立实验，再安排样品。记录保存在本机。</p>
+            <ol className="welcome-steps">
+              <li>
+                <strong>建立实验</strong>
+                <span>名称和编号分开保存</span>
+              </li>
+              <li>
+                <strong>安排样品</strong>
+                <span>准备、测试和备样分别计数</span>
+              </li>
+              <li>
+                <strong>现场记录</strong>
+                <span>开始和完成各自写入时间</span>
+              </li>
+            </ol>
             <div className="welcome-actions">
               <button className="button primary" onClick={() => setNewExperiment(true)}>
                 <Plus size={18} />
@@ -958,7 +1058,15 @@ export function App() {
           </button>
         </div>
       )}
-      {searchOpen && <WorkspaceSearchDialog onClose={() => setSearchOpen(false)} />}
+      {searchOpen && (
+        <WorkspaceSearchDialog
+          onClose={() => setSearchOpen(false)}
+          onCreate={() => {
+            setSearchOpen(false);
+            setNewExperiment(true);
+          }}
+        />
+      )}
       {shortcutsOpen && <ShortcutsDialog onClose={() => setShortcutsOpen(false)} />}
       {newExperiment && <NewExperiment onClose={() => setNewExperiment(false)} />}{' '}
       {settings && (

@@ -12,6 +12,7 @@ import { mkdtemp, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, sep, resolve } from 'node:path';
 import type { Snapshot, Command } from '../src/shared/model.js';
+import { recordedClock } from '../src/shared/recordedTime.js';
 
 const require = createRequire(import.meta.url);
 let directory: string, application: ElectronApplication, page: Page;
@@ -245,6 +246,8 @@ test('overview: prepared 6 / physical samples 4 / operations 4 / spares 2; real 
   await expectCounts(modal, '6个', 4, 4, '2个');
   await expectStatuses(modal, [4, 0, 0, 0, 0]);
   await expect(modal.getByLabel('完成进度', { exact: true })).toHaveText('0 / 4 项已完成 · 0%');
+  await expect(modal.getByRole('region', { name: '已记录用时' })).toContainText('尚无完整起止');
+  await expect(modal.getByRole('list', { name: '待核对清单' })).toHaveCount(0);
   await capture(info, 'overview-initial.png');
   await closeOverview(modal);
 
@@ -297,6 +300,7 @@ test('overview: prepared 6 / physical samples 4 / operations 4 / spares 2; real 
   await expectCounts(modal, '6个', 4, 5, '2个');
   await expectStatuses(modal, [1, 0, 2, 1, 1]);
   await expect(modal.getByLabel('完成进度', { exact: true })).toHaveText('2 / 5 项已完成 · 40%');
+  await expect(modal.getByRole('region', { name: '已记录用时' })).toContainText('已记录');
   await expect(modal.getByRole('progressbar', { name: '已完成操作占比' })).toHaveAttribute(
     'value',
     '2',
@@ -310,6 +314,8 @@ test('overview: prepared 6 / physical samples 4 / operations 4 / spares 2; real 
     exact: true,
   });
   const physicalSample = recorded.samples.find((s) => s.id === ordered[0].sampleId)!;
+  await expect(modal.getByRole('list', { name: '待核对清单' })).toContainText(physicalSample.code);
+  await expect(modal.getByRole('list', { name: '待核对清单' })).toContainText('文件未关联');
   await expect(issue.locator('.issue-sample')).toHaveText(
     `样品：${physicalSample.code} · 标准状态 A`,
   );
@@ -340,7 +346,10 @@ test('overview: prepared 6 / physical samples 4 / operations 4 / spares 2; real 
 
   // Enable a spare through the existing UI; it adds one physical sample and one operation.
   await page.getByRole('button', { name: '启用备样', exact: true }).click();
-  await page.getByRole('button', { name: /后续计划名称.*备样 2/ }).click();
+  await page
+    .getByRole('dialog', { name: '选择样品组启用备样', exact: true })
+    .getByRole('button', { name: '启用备样 后续计划名称 当前样品组', exact: true })
+    .click();
   await page
     .getByRole('dialog', { name: '启用备样', exact: true })
     .getByLabel('启用数量 *', { exact: true })
@@ -739,14 +748,36 @@ test('viewing B while A runs: actual draft flush failure blocks return; delayed 
       ),
     )
     .toBe(1.5);
+  expect(runA.filename).not.toBe('');
+  await page.getByRole('button', { name: '全库搜索', exact: true }).click();
+  const runningOption = page
+    .getByRole('dialog', { name: '全库搜索' })
+    .getByRole('option', { name: `返回进行中 ${sampleA.code}`, exact: true });
+  await expect(runningOption).toContainText(runA.filename);
+  await page.keyboard.press('Escape');
+  await page.getByRole('button', { name: '复制进行中的数据文件夹', exact: true }).click();
+  expect(await application.evaluate(({ clipboard }) => clipboard.readText())).toBe(runA.filename);
+  await expect(page.locator('.plan-page')).toBeVisible();
+  await expect(page.getByLabel('选择实验', { exact: true })).toHaveValue(experimentB.id);
+  expect((await snapshot()).runs.find((run) => run.id === runA.id)?.originalStartedAt).toBe(
+    runA.originalStartedAt,
+  );
   const modal = await openOverview();
   await noHorizontalOverflow(modal);
   await expect(modal.locator('.overview-heading h3')).toHaveText('实验 B');
   await expectCounts(modal, '1个', 1, 1, '0个');
   await expectStatuses(modal, [1, 0, 0, 0, 0]);
+  const runningClock = recordedClock(runA.startedAt, runA.offsetMinutes, runA.timezone)!;
+  const banner = page.getByRole('region', { name: '进行中的操作', exact: true });
+  await expect(banner).toContainText(runningClock.clock);
+  await expect(banner).toContainText(runningClock.zone);
+  await expect(banner).toContainText(runA.filename);
   const running = modal.getByRole('region', { name: '全库进行中的操作', exact: true });
   await expect(running).toContainText('实验“实验 A”中有进行中的操作。');
+  await expect(running).toContainText(runningClock.clock);
+  await expect(running).toContainText(runningClock.zone);
   await expect(running).toContainText(sampleA.code);
+  await expect(running).toContainText(runA.filename);
   await expect(running).toContainText(sampleA.id);
   await expect(running.getByRole('button', { name: '切换并返回', exact: true })).toBeInViewport({
     ratio: 1,

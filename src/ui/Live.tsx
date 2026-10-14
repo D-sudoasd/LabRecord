@@ -31,6 +31,16 @@ import {
   PROTOCOL_PLACEHOLDER,
 } from '../shared/model';
 import {
+  actualProtocolLabel,
+  laterPlanDrift,
+  operationPlanDrift,
+  operationSizeLine,
+  recordedPlanSearchText,
+  startedPlanChanges,
+} from '../shared/planChanges';
+import { runDurationLabel } from '../shared/duration';
+import { recordedEndLabel, recordedStartLabel } from '../shared/recordedTime';
+import {
   useWorkspace,
   unwrap,
   DesktopReplyError,
@@ -56,6 +66,27 @@ import { ArrangeDialog } from './Plan';
 import { QuickAdd } from './QuickAdd';
 import { MaterialPreparationSummary } from './MaterialPreparation';
 import { materialSummary } from '../shared/materials';
+import { followUpLabels, reviewFilterItemIds, actualFilenameLabel } from './reviewFilters';
+import { followUpRoster } from '../shared/followUps';
+import { latestEndedMark, latestRecorded, nextOperationBrief } from '../shared/library';
+import {
+  enableGroupSpareLabel,
+  groupSpareLabel,
+  reportInsights,
+  spareProgressLabel,
+} from '../shared/summary';
+import { repeatSource, repeatSourceIssueLabel } from '../shared/repeats';
+import { matchesOperationIdentity, textIncludes } from '../shared/operationQuery';
+import { EventTextDialog } from './IssueEditDialog';
+import { pictureLabel, queueSearchText } from './queueSearch';
+import {
+  canCopyName,
+  actualScanLabel,
+  canCopyProtocol,
+  protocolCopyText,
+} from '../shared/copyText';
+import { recordedClock } from '../shared/recordedTime';
+import { eventTimeLabel, eventEarlierText, operationStatusReason } from '../shared/history';
 import { QuickRecordBar, IssueTemplateDialog } from './QuickRecord';
 import { MeasurementDialog } from './MeasurementPlanner';
 import {
@@ -68,6 +99,7 @@ import {
 import {
   measurementFor,
   measurementSummary,
+  operationProtocolLabel,
   plannedGroup,
   reserveMeasurementNames,
 } from '../shared/measurement';
@@ -100,6 +132,12 @@ export function TimesDialog({
     item?.experimentId === experimentId &&
     (!runId || (run && run.itemId === itemId && run.experimentId === experimentId));
   const code = snapshot.samples.find((s) => s.id === item?.sampleId)?.code || itemId;
+  const originalStart = run
+    ? recordedClock(run.originalStartedAt, run.offsetMinutes, run.timezone)
+    : null;
+  const originalEnd = run
+    ? recordedClock(run.originalEndedAt, run.offsetMinutes, run.timezone)
+    : null;
 
   async function submit(event: React.FormEvent) {
     event.preventDefault();
@@ -174,9 +212,9 @@ export function TimesDialog({
         </label>
         {run && (
           <p className="hint">
-            原始开始：{timeText(run.originalStartedAt, true)}
+            原始开始：{originalStart ? `${originalStart.clock} ${originalStart.zone}` : '尚未记录'}
             <br />
-            原始结束：{timeText(run.originalEndedAt, true)}
+            原始结束：{originalEnd ? `${originalEnd.clock} ${originalEnd.zone}` : '尚未记录'}
           </p>
         )}
         {error && (
@@ -383,6 +421,7 @@ function EventDialog({
 export function Timeline({ itemId, experimentId }: { itemId: string; experimentId: string }) {
   const { snapshot, execute } = useWorkspace();
   const [all, setAll] = useState(false);
+  const [editEvent, setEditEvent] = useState<{ id: string; kind: 'issue' | 'note' } | null>(null);
   const events = snapshot.events
     .filter((e) => e.experimentId === experimentId && (all || e.itemId === itemId))
     .slice()
@@ -404,13 +443,36 @@ export function Timeline({ itemId, experimentId }: { itemId: string; experimentI
             <div className={`timeline-event ${event.type}`} key={event.id}>
               <span className="timeline-dot" />
               <div className="event-meta">
-                <time>{timeText(event.createdAt)}</time>
+                <time>{eventTimeLabel(snapshot, event) || timeText(event.createdAt)}</time>
                 <span>{eventLabel(event.type)}</span>
               </div>
               <p>{event.text}</p>
+              {eventEarlierText(event) && (
+                <small className="issue-earlier">{eventEarlierText(event)}</small>
+              )}
+              {event.type === 'note' && (
+                <div className="issue-meta">
+                  <button
+                    type="button"
+                    className="text-button"
+                    aria-label={`在时间线修改记录：${event.text}`}
+                    onClick={() => setEditEvent({ id: event.id, kind: 'note' })}
+                  >
+                    修改
+                  </button>
+                </div>
+              )}
               {event.type === 'issue' && (
                 <div className="issue-meta">
                   <span>{String(event.data.category || '其他')}</span>
+                  <button
+                    type="button"
+                    className="text-button"
+                    aria-label={`在时间线修改问题：${event.text}`}
+                    onClick={() => setEditEvent({ id: event.id, kind: 'issue' })}
+                  >
+                    修改
+                  </button>
                   {event.data.resolvedAt ? (
                     <span>已处理</span>
                   ) : (
@@ -447,6 +509,13 @@ export function Timeline({ itemId, experimentId }: { itemId: string; experimentI
         )}
       </div>
       <div className="timeline-foot">现场记录时间 · 仪器时间戳另行保留</div>
+      {editEvent && (
+        <EventTextDialog
+          eventId={editEvent.id}
+          kind={editEvent.kind}
+          onClose={() => setEditEvent(null)}
+        />
+      )}
     </div>
   );
 }
@@ -504,6 +573,8 @@ export function Live() {
   const items = snapshot.items
     .filter((i) => i.experimentId === experimentId)
     .sort((a, b) => a.order - b.order);
+  const followUps = reviewFilterItemIds(snapshot, experimentId);
+  const rosterIds = new Set(followUpRoster(snapshot, experimentId).map((entry) => entry.itemId));
   const selected =
     items.find((i) => i.id === itemId) ||
     items.find((i) => i.status === 'running') ||
@@ -516,12 +587,31 @@ export function Live() {
     [queueOpen, setQueueOpen] = useState(false),
     [moreTarget, setMoreTarget] = useState<EventTarget | null>(null),
     [timelineTarget, setTimelineTarget] = useState<EventTarget | null>(null);
+  const [actualOpen, setActualOpen] = useState(false);
+  const openActualFor = useRef<string | null>(null);
+  useEffect(() => {
+    if (openActualFor.current && openActualFor.current === selected?.id) {
+      openActualFor.current = null;
+      setActualOpen(true);
+      return;
+    }
+    setActualOpen(false);
+  }, [selected?.id]);
+  useEffect(() => {
+    if (!actualOpen) return;
+    document.getElementById('live-actual-files')?.scrollIntoView({ block: 'nearest' });
+  }, [actualOpen]);
   const [timesTarget, setTimesTarget] = useState<EventTarget | null>(null),
     [eventDialog, setEventDialog] = useState<{ target: EventTarget; issue: boolean } | null>(null),
     [spareExperiment, setSpareExperiment] = useState<string | null>(null),
     [arrangeGroup, setArrangeGroup] = useState<string | null>(null),
     [temporary, setTemporary] = useState(false);
   const [issuesExperiment, setIssuesExperiment] = useState<string | null>(null);
+  const [reasonPrompt, setReasonPrompt] = useState<{
+    type: 'skip' | 'interrupt';
+    itemId: string;
+  } | null>(null);
+  const [reasonText, setReasonText] = useState('');
   const actionGate = useRef(0),
     actionTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const [actionGuard, setActionGuard] = useState(false);
@@ -531,6 +621,7 @@ export function Live() {
   const filesWorking = useRef(false);
   const composing = useRef(false);
   const [fileBusy, setFileBusy] = useState(false);
+  const [pendingImage, setPendingImage] = useState<string | null>(null);
   const dragRef = useRef<{ id: string; x: number; y: number; active: boolean } | null>(null);
   const hintRef = useRef<{ id: string; where: 'before' | 'after' } | null>(null);
   const [dropHint, setDropHint] = useState<{
@@ -599,25 +690,55 @@ export function Live() {
   }, [selected, busy, actionGuard]);
   const sample = selected && snapshot.samples.find((s) => s.id === selected.sampleId)!;
   const run = selected && snapshot.runs.find((r) => r.itemId === selected.id);
+  const startedClockLabel = run ? recordedStartLabel(run) : '';
+  const fileLabel = actualFilenameLabel(run || undefined);
   const group = sample && snapshot.groups.find((g) => g.id === sample.groupId)!;
   const displayedGroup =
     run?.snapshot.group || (group && sample && selected && plannedGroup(group, sample, selected));
+  const liveSize = displayedGroup ? operationSizeLine(displayedGroup, run || undefined) : '';
+  const liveMaterials = displayedGroup ? materialSummary(displayedGroup) : '';
+  const liveDrift =
+    run && group && sample && selected
+      ? laterPlanDrift(run.snapshot.group, plannedGroup(group, sample, selected))
+      : '';
+  const liveProtocol = actualProtocolLabel(run);
+  const liveRecorded = recordedPlanSearchText(run);
   const completed = items.filter((i) => i.status === 'completed').length;
   const pending = items.filter((i) => i.status === 'pending').length;
   const skipped = items.filter((i) => i.status === 'skipped').length;
   const interrupted = items.filter((i) => i.status === 'interrupted').length;
-  // 下一待测项：按完整排序的第一个 pending，与搜索/筛选无关
-  const nextPending = items.find((i) => i.status === 'pending');
+  const insights = reportInsights(snapshot, experimentId);
+  const spareLabel = spareProgressLabel(
+    insights.spareKnown,
+    insights.unknownPreparation,
+    snapshot.groups.filter((entry) => entry.experimentId === experimentId).length,
+  );
+  const currentSpare = group ? groupSpareLabel(groupCounts(snapshot, group).spare) : '';
+  const upcoming = nextOperationBrief(snapshot, experimentId);
+  const firstGap = followUpRoster(snapshot, experimentId)[0];
+  const recent = latestRecorded(snapshot, experimentId);
+  const recentRun = recent
+    ? snapshot.runs.find((entry) => entry.itemId === recent.itemId)
+    : undefined;
+  const recentNeedsFile =
+    !!recentRun &&
+    !recentRun.actual.filename &&
+    !recentRun.actual.scanId &&
+    !recentRun.actual.files;
+  const source = selected ? repeatSource(snapshot, selected) : null;
+  const driftIds = new Set(
+    items.filter((item) => operationPlanDrift(snapshot, item)).map((item) => item.id),
+  );
   const visible = items.filter((item) => {
-    const history = snapshot.runs.find((run) => run.itemId === item.id);
-    const sample = history?.snapshot.sample || snapshot.samples.find((s) => s.id === item.sampleId);
-    const group = history?.snapshot.group || snapshot.groups.find((g) => g.id === sample?.groupId);
-    const name = sample?.parameters.name || group?.name || '';
+    const text = queueSearchText(snapshot, item);
     return (
-      (filter === 'all' || item.status === filter) &&
-      `${sample?.code} ${name} ${group?.state} ${materialSummary(group || {})} ${measurementSummary(measurementFor(snapshot, item))} ${history?.filename || item.plannedName || ''}`
-        .toLowerCase()
-        .includes(search.toLowerCase())
+      (filter === 'all' ||
+        (filter === 'followup'
+          ? rosterIds.has(item.id)
+          : filter === 'drift'
+            ? driftIds.has(item.id)
+            : item.status === filter)) &&
+      (textIncludes(text, search) || matchesOperationIdentity(snapshot, item, search))
     );
   });
   async function exportReport() {
@@ -654,7 +775,11 @@ export function Live() {
     setActionGuard(true);
     try {
       await flush();
-      if (allowed(workspace.getSnapshot())) await execute({ type, itemId: targetId });
+      if (allowed(workspace.getSnapshot()))
+        await execute(
+          { type, itemId: targetId },
+          type === 'start' || type === 'finish' || type === 'repeat',
+        );
     } catch {
     } finally {
       actionTimer.current = setTimeout(
@@ -671,6 +796,38 @@ export function Live() {
       })
       .catch((error) => notify(error.message, true));
   }
+  useEffect(() => {
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
+      if (
+        !event.altKey ||
+        event.ctrlKey ||
+        event.metaKey ||
+        event.shiftKey ||
+        event.repeat ||
+        event.isComposing ||
+        composing.current ||
+        event.keyCode === 229 ||
+        busy > 0 ||
+        actionGuard
+      )
+        return;
+      const target = event.target;
+      if (
+        target instanceof HTMLElement &&
+        (target.matches('input, textarea, select') || target.isContentEditable)
+      )
+        return;
+      if (document.querySelector('dialog[open], [role="menu"]')) return;
+      const index = items.findIndex((item) => item.id === selected?.id);
+      const next = items[index + (event.key === 'ArrowRight' ? 1 : -1)];
+      if (index < 0 || !next) return;
+      event.preventDefault();
+      choose(next.id);
+    }
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [items, selected, busy, actionGuard]);
   async function commitOrder(ids: string[] | null) {
     if (!ids) return false;
     try {
@@ -814,6 +971,161 @@ export function Live() {
       notify(error instanceof Error ? error.message : '无法复制，请选中文件名后手动复制。', true);
     }
   }
+  async function copySampleId() {
+    const targetId = selected?.id;
+    if (!targetId) return;
+    try {
+      await flush();
+      const data = workspace.getSnapshot();
+      const item = data.items.find((entry) => entry.id === targetId);
+      const record = data.runs.find((entry) => entry.itemId === targetId);
+      const id =
+        record?.snapshot.sample.id || data.samples.find((entry) => entry.id === item?.sampleId)?.id;
+      if (!id) throw new Error('还没有样品 ID。');
+      await unwrap(window.labrecord.copyName(id));
+      notify('样品 ID 已复制。');
+    } catch (error) {
+      notify(error instanceof Error ? error.message : '无法复制样品 ID。', true);
+    }
+  }
+  async function copyUpcomingFolder() {
+    try {
+      await flush();
+      const fresh = nextOperationBrief(workspace.getSnapshot(), experimentId);
+      const name = fresh?.folder || '';
+      if (!canCopyName(name)) throw new Error('还没有可复制的数据文件夹名。');
+      await unwrap(window.labrecord.copyName(name));
+      notify('下一项数据文件夹名已复制。');
+    } catch (error) {
+      notify(error instanceof Error ? error.message : '无法复制下一项数据文件夹名。', true);
+    }
+  }
+  async function copyUpcomingProtocol() {
+    try {
+      await flush();
+      const fresh = nextOperationBrief(workspace.getSnapshot(), experimentId);
+      const text = protocolCopyText(fresh?.protocol);
+      if (!canCopyProtocol(text)) throw new Error('还没有可复制的实验制度。');
+      await unwrap(window.labrecord.copyText(text));
+      notify('下一项实验制度已复制。');
+    } catch (error) {
+      notify(error instanceof Error ? error.message : '无法复制下一项实验制度。', true);
+    }
+  }
+  async function copyDisplayedProtocol() {
+    try {
+      await flush();
+      const data = workspace.getSnapshot();
+      const item = selected && data.items.find((entry) => entry.id === selected.id);
+      if (!item) throw new Error('还没有可复制的实验制度。');
+      const record = data.runs.find((entry) => entry.itemId === item.id);
+      const current = data.samples.find((entry) => entry.id === item.sampleId);
+      const stored = data.groups.find((entry) => entry.id === current?.groupId);
+      const sample = record?.snapshot.sample || current;
+      const protocolGroup =
+        record?.snapshot.group ||
+        (stored && sample ? plannedGroup(stored, sample, item) : undefined);
+      const text = protocolCopyText(protocolGroup?.protocol);
+      if (!canCopyProtocol(text)) throw new Error('还没有可复制的实验制度。');
+      await unwrap(window.labrecord.copyText(text));
+      notify(record ? '开始时的实验制度已复制。' : '实验制度已复制。');
+    } catch (error) {
+      notify(error instanceof Error ? error.message : '无法复制实验制度。', true);
+    }
+  }
+  async function copyRecentScan() {
+    try {
+      await flush();
+      const fresh = latestRecorded(workspace.getSnapshot(), experimentId);
+      const name = fresh?.scanId || '';
+      if (!canCopyName(name)) throw new Error('还没有可复制的扫描编号。');
+      await unwrap(window.labrecord.copyName(name));
+      notify('最近记录的扫描编号已复制。');
+    } catch (error) {
+      notify(error instanceof Error ? error.message : '无法复制最近记录的扫描编号。', true);
+    }
+  }
+  async function copyRecentFile() {
+    try {
+      await flush();
+      const fresh = latestRecorded(workspace.getSnapshot(), experimentId);
+      const name = fresh?.filename || '';
+      if (!canCopyName(name)) throw new Error('还没有可复制的实际文件名。');
+      await unwrap(window.labrecord.copyName(name));
+      notify('最近记录的实际文件名已复制。');
+    } catch (error) {
+      notify(error instanceof Error ? error.message : '无法复制最近记录的实际文件名。', true);
+    }
+  }
+  async function copyRecentFolder() {
+    try {
+      await flush();
+      const fresh = latestRecorded(workspace.getSnapshot(), experimentId);
+      const name = fresh?.folder || '';
+      if (!canCopyName(name)) throw new Error('还没有可复制的数据文件夹名。');
+      await unwrap(window.labrecord.copyName(name));
+      notify('最近记录的数据文件夹名已复制。');
+    } catch (error) {
+      notify(error instanceof Error ? error.message : '无法复制最近记录的数据文件夹名。', true);
+    }
+  }
+  async function copyRunningFile() {
+    try {
+      await flush();
+      const data = workspace.getSnapshot();
+      const current = data.items.find((item) => item.status === 'running');
+      const record = current && data.runs.find((run) => run.itemId === current.id);
+      const name = String(record?.actual.filename || '').trim();
+      if (!canCopyName(name)) throw new Error('还没有可复制的实际文件名。');
+      await unwrap(window.labrecord.copyName(name));
+      notify('进行中的实际文件名已复制。');
+    } catch (error) {
+      notify(error instanceof Error ? error.message : '无法复制进行中的实际文件名。', true);
+    }
+  }
+  async function copyRunningScan() {
+    try {
+      await flush();
+      const data = workspace.getSnapshot();
+      const current = data.items.find((item) => item.status === 'running');
+      const record = current && data.runs.find((run) => run.itemId === current.id);
+      const name = String(record?.actual.scanId || '').trim();
+      if (!canCopyName(name)) throw new Error('还没有可复制的扫描编号。');
+      await unwrap(window.labrecord.copyName(name));
+      notify('进行中的扫描编号已复制。');
+    } catch (error) {
+      notify(error instanceof Error ? error.message : '无法复制进行中的扫描编号。', true);
+    }
+  }
+  async function copyRunningFolder() {
+    try {
+      await flush();
+      const data = workspace.getSnapshot();
+      const current = data.items.find((item) => item.status === 'running');
+      const record = current && data.runs.find((run) => run.itemId === current.id);
+      const name = record?.filename || '';
+      if (!canCopyName(name)) throw new Error('还没有可复制的数据文件夹名。');
+      await unwrap(window.labrecord.copyName(name));
+      notify('进行中的数据文件夹名已复制。');
+    } catch (error) {
+      notify(error instanceof Error ? error.message : '无法复制进行中的数据文件夹名。', true);
+    }
+  }
+  async function copyActual(key: 'filename' | 'scanId') {
+    const targetId = selected?.id;
+    if (!targetId) return;
+    const label = key === 'scanId' ? '扫描编号' : '实际文件名';
+    try {
+      await flush();
+      const record = workspace.getSnapshot().runs.find((entry) => entry.itemId === targetId);
+      const text = String(record?.actual[key] || '');
+      if (!canCopyName(text)) throw new Error(`还没有可复制的${label}。`);
+      await unwrap(window.labrecord.copyName(text));
+      notify(`${label}已复制。`);
+    } catch (error) {
+      notify(error instanceof Error ? error.message : `无法复制${label}。`, true);
+    }
+  }
   function target(): EventTarget {
     return { itemId: selected!.id, experimentId: selected!.experimentId, runId: run?.id };
   }
@@ -829,6 +1141,22 @@ export function Live() {
       const result = await unwrap(window.labrecord.addAttachment(targetRunId));
       await flush();
       if (result) workspace.replace(await unwrap(window.labrecord.snapshot()));
+    } catch (error) {
+      notify((error as Error).message, true);
+    } finally {
+      filesWorking.current = false;
+      setFileBusy(false);
+    }
+  }
+  async function removeImage(attachmentId: string) {
+    if (filesWorking.current) return;
+    filesWorking.current = true;
+    setFileBusy(true);
+    try {
+      await flush();
+      await unwrap(window.labrecord.removeAttachment(attachmentId));
+      workspace.replace(await unwrap(window.labrecord.snapshot()));
+      setPendingImage(null);
     } catch (error) {
       notify((error as Error).message, true);
     } finally {
@@ -880,7 +1208,7 @@ export function Live() {
       <SearchField
         className="queue-search"
         label="搜索待测样品"
-        placeholder="查找样品"
+        placeholder="编号、样品 ID 或文件夹"
         value={search}
         onChange={setSearch}
       />
@@ -909,6 +1237,16 @@ export function Live() {
         >
           已完成 <span aria-hidden="true">{completed}</span>
         </button>
+        {rosterIds.size > 0 && (
+          <button
+            aria-label="待核对"
+            aria-pressed={filter === 'followup'}
+            className={filter === 'followup' ? 'active' : ''}
+            onClick={() => setFilter('followup')}
+          >
+            待核对 <span aria-hidden="true">{rosterIds.size}</span>
+          </button>
+        )}
         {skipped > 0 && (
           <button
             aria-label="已跳过"
@@ -917,6 +1255,16 @@ export function Live() {
             onClick={() => setFilter('skipped')}
           >
             已跳过 <span aria-hidden="true">{skipped}</span>
+          </button>
+        )}
+        {driftIds.size > 0 && (
+          <button
+            aria-label="计划已变"
+            aria-pressed={filter === 'drift'}
+            className={filter === 'drift' ? 'active' : ''}
+            onClick={() => setFilter('drift')}
+          >
+            计划已变 <span aria-hidden="true">{driftIds.size}</span>
           </button>
         )}
         {interrupted > 0 && (
@@ -935,9 +1283,22 @@ export function Live() {
           const history = snapshot.runs.find((run) => run.itemId === item.id);
           const sample =
             history?.snapshot.sample || snapshot.samples.find((s) => s.id === item.sampleId)!;
+          const storedGroup = snapshot.groups.find((entry) => entry.id === sample.groupId);
           const group =
-            history?.snapshot.group || snapshot.groups.find((g) => g.id === sample.groupId)!;
+            history?.snapshot.group ||
+            (storedGroup ? plannedGroup(storedGroup, sample, item) : storedGroup!);
           const repeated = !!item.repeatOf;
+          const source = repeatSource(snapshot, item);
+          const statusReason = operationStatusReason(snapshot, item);
+          const size = operationSizeLine(group, history);
+          const protocolLabel = operationProtocolLabel(snapshot, item);
+          const materials = materialSummary(group);
+          const liveSample = snapshot.samples.find((entry) => entry.id === item.sampleId);
+          const liveGroup = snapshot.groups.find((entry) => entry.id === liveSample?.groupId);
+          const drift =
+            history && liveSample && liveGroup
+              ? laterPlanDrift(history.snapshot.group, plannedGroup(liveGroup, liveSample, item))
+              : '';
           const queueIndex = items.findIndex((entry) => entry.id === item.id);
           const deleteReason = itemsDeleteReason(snapshot, [item.id]);
           const rowMenu = [
@@ -1007,7 +1368,46 @@ export function Live() {
                     {(item.measurement || history?.snapshot.measurement) && (
                       <small>{measurementSummary(measurementFor(snapshot, item))}</small>
                     )}
+                    {protocolLabel && (
+                      <small className="queue-protocol" title={protocolLabel}>
+                        {protocolLabel}
+                      </small>
+                    )}
+                    {size && <small>{size}</small>}
+                    {drift && <small>当前计划已不同：{drift}</small>}
+                    {actualProtocolLabel(history) && <small>{actualProtocolLabel(history)}</small>}
+                    {recordedPlanSearchText(history) && (
+                      <small>{recordedPlanSearchText(history)}</small>
+                    )}
+                    {materials && <small>{materials}</small>}
+                    {history && <small>用时 {runDurationLabel(history)}</small>}
+                    {recordedStartLabel(history) && <small>{recordedStartLabel(history)}</small>}
+                    {recordedEndLabel(history) && <small>{recordedEndLabel(history)}</small>}
+                    {(history ? history.filename : item.plannedName) && (
+                      <small>{history ? history.filename : item.plannedName}</small>
+                    )}
+                    {history?.actual.scanId && <small>扫描 {history.actual.scanId}</small>}
+                    {actualFilenameLabel(history) && <small>{actualFilenameLabel(history)}</small>}
+                    {pictureLabel(snapshot, history?.id) && (
+                      <small>{pictureLabel(snapshot, history?.id)}</small>
+                    )}
+                    {source && (
+                      <small>
+                        重测自 {source.sampleCode}
+                        {source.scanId ? ` · 扫描 ${source.scanId}` : ''}
+                        {source.folder ? ` · ${source.folder}` : ''}
+                        {repeatSourceIssueLabel(snapshot, item)
+                          ? ` · ${repeatSourceIssueLabel(snapshot, item)}`
+                          : ''}
+                      </small>
+                    )}
                     <StatusPill status={item.status} />
+                    {statusReason && <small>原因：{statusReason}</small>}
+                    {followUpLabels(item.id, followUps).map((label) => (
+                      <small key={label} className="queue-gap">
+                        {label}
+                      </small>
+                    ))}
                   </div>
                   <PriorityPill value={group.priority} />
                 </button>
@@ -1077,10 +1477,36 @@ export function Live() {
       </div>
       <footer>
         <span className="pulse-dot neutral" />
-        {dropHint?.label || '按住序号拖动可调整完整队列。备样不在队列中。'}
+        {dropHint?.label ||
+          '按住序号拖动可调整完整队列。Alt + 左右方向键只切换相邻操作，不开始。备样不在队列中。'}
+        {group && (
+          <button
+            type="button"
+            className="text-button"
+            aria-label={enableGroupSpareLabel(groupCounts(snapshot, group).spare)}
+            disabled={groupCounts(snapshot, group).spare === 0 || busy > 0}
+            onClick={() => setArrangeGroup(group.id)}
+          >
+            {enableGroupSpareLabel(groupCounts(snapshot, group).spare)}
+          </button>
+        )}
       </footer>
     </aside>
   );
+  const awayRun =
+    globalRunning && globalRunning.id !== selected?.id
+      ? snapshot.runs.find((entry) => entry.itemId === globalRunning.id)
+      : undefined;
+  const awayClock = awayRun
+    ? recordedClock(awayRun.startedAt, awayRun.offsetMinutes, awayRun.timezone)
+    : null;
+  const awayCode =
+    awayRun?.snapshot.sample.code ||
+    snapshot.samples.find((entry) => entry.id === globalRunning?.sampleId)?.code ||
+    '';
+  const awayFolder = awayRun?.filename || '';
+  const awayFile = actualFilenameLabel(awayRun);
+  const awayScan = actualScanLabel(awayRun);
   const liveCode = (run ? run.snapshot.sample.code : sample?.code) || '';
   const liveGiven = (run ? run.snapshot.sample.parameters.name : sample?.parameters.name)?.trim();
   const liveName = liveGiven || (displayedGroup ? sampleName(displayedGroup) : '');
@@ -1098,10 +1524,11 @@ export function Live() {
           <p className="live-progress">
             <progress aria-label="完成进度" value={completed} max={Math.max(1, items.length)} />
             <span>
-              完成 {completed}/{items.length} · 待测 {pending}
+              完成 {completed}/{items.length} · 待测 {pending} · {spareLabel}
               {skipped ? ` · 跳过 ${skipped}` : ''}
               {interrupted ? ` · 中断 ${interrupted}` : ''}
             </span>
+            {currentSpare && <span>{currentSpare}</span>}
           </p>
         </div>
         <div className="heading-actions">
@@ -1183,12 +1610,52 @@ export function Live() {
         </div>
       </div>
       {globalRunning && globalRunning.id !== selected?.id && (
-        <div className="running-banner">
+        <div className="running-banner" role="region" aria-label="现场进行中的操作">
           <span>
             <span className="pulse-dot" />
-            当前还有进行中的操作：
-            {snapshot.runs.find((entry) => entry.itemId === globalRunning.id)?.snapshot.sample
-              .code || snapshot.samples.find((s) => s.id === globalRunning.sampleId)?.code}
+            <span className="running-banner-text">
+              当前还有进行中的操作：{awayCode}
+              {awayClock ? ` · ${awayClock.clock} ${awayClock.zone}` : ''}
+              {awayFolder ? ` · ${awayFolder}` : ''}
+              {awayFile ? ` · ${awayFile}` : ''}
+              {awayScan ? ` · ${awayScan}` : ''}
+            </span>
+            {canCopyName(awayFolder) && (
+              <button
+                type="button"
+                className="text-button"
+                aria-label="复制进行中的数据文件夹"
+                onClick={() => {
+                  void copyRunningFolder();
+                }}
+              >
+                复制文件夹
+              </button>
+            )}
+            {canCopyName(String(awayRun?.actual.filename || '').trim()) && (
+              <button
+                type="button"
+                className="text-button"
+                aria-label="复制进行中的实际文件名"
+                onClick={() => {
+                  void copyRunningFile();
+                }}
+              >
+                复制文件名
+              </button>
+            )}
+            {canCopyName(String(awayRun?.actual.scanId || '').trim()) && (
+              <button
+                type="button"
+                className="text-button"
+                aria-label="复制进行中的扫描编号"
+                onClick={() => {
+                  void copyRunningScan();
+                }}
+              >
+                复制扫描编号
+              </button>
+            )}
           </span>
           <button
             className="text-button"
@@ -1236,21 +1703,27 @@ export function Live() {
                       run?.snapshot.sample.code ||
                       sample.code}
                   </h2>
-                  <p>
+                  <p title={liveSize || undefined}>
                     {(run
                       ? run.snapshot.sample.parameters.name
                       : sample.parameters.name
                     )?.trim() ? (
                       <strong>
                         {run?.snapshot.sample.code || sample.code} · {displayedGroup.state}
+                        {liveSize ? ` · ${liveSize}` : ''}
                       </strong>
                     ) : (
                       <>
                         <strong>{run?.actualSample?.name || sampleName(displayedGroup)}</strong>
                         {displayedGroup.name ? ` · ${displayedGroup.state}` : ''}
+                        {liveSize ? ` · ${liveSize}` : ''}
                       </>
                     )}
                   </p>
+                  {liveMaterials && <p className="current-material">{liveMaterials}</p>}
+                  {liveDrift && <p className="plan-drift">当前计划已不同：{liveDrift}</p>}
+                  {liveProtocol && <p className="actual-protocol">{liveProtocol}</p>}
+                  {liveRecorded && <p className="recorded-plan">{liveRecorded}</p>}
                   <p className="next-step">
                     {selected.status === 'pending' &&
                     globalRunning &&
@@ -1265,7 +1738,45 @@ export function Live() {
                             : selected.status === 'skipped'
                               ? '已跳过。'
                               : '已中断。'}
+                    {operationStatusReason(snapshot, selected)
+                      ? `原因：${operationStatusReason(snapshot, selected)}`
+                      : ''}
+                    {startedClockLabel ? ` ${startedClockLabel}` : ''}
+                    {fileLabel ? ` ${fileLabel}` : ''}
                   </p>
+                  {latestEndedMark(snapshot, selected.id) && (
+                    <p className="latest-ended">{latestEndedMark(snapshot, selected.id)}</p>
+                  )}
+                  {recordedEndLabel(run) && <p className="recorded-end">{recordedEndLabel(run)}</p>}
+                  {followUpLabels(selected.id, followUps).length > 0 && (
+                    <ul className="current-gaps" aria-label="待核对">
+                      {followUpLabels(selected.id, followUps).map((label) => (
+                        <li key={label}>
+                          <button
+                            type="button"
+                            className="current-gap"
+                            onClick={() => {
+                              if (label === '时间不完整') {
+                                setTimesTarget({
+                                  itemId: selected.id,
+                                  experimentId,
+                                  runId: run?.id,
+                                });
+                                return;
+                              }
+                              if (label === '文件未关联') {
+                                setActualOpen(true);
+                                return;
+                              }
+                              if (label === '未处理问题') setIssuesExperiment(experimentId);
+                            }}
+                          >
+                            {label}
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
                 </div>
                 <div className="current-state">
                   <StatusPill status={selected.status} />
@@ -1308,6 +1819,16 @@ export function Live() {
                       <SkipForward size={17} />
                       跳过
                     </button>
+                    <button
+                      className="text-button"
+                      disabled={busy > 0 || actionGuard}
+                      onClick={() => {
+                        setReasonText('');
+                        setReasonPrompt({ type: 'skip', itemId: selected.id });
+                      }}
+                    >
+                      写原因后跳过
+                    </button>
                   </>
                 )}
                 {selected.status === 'running' && (
@@ -1333,6 +1854,16 @@ export function Live() {
                     >
                       <Square size={16} />
                       中断
+                    </button>
+                    <button
+                      className="text-button"
+                      disabled={busy > 0 || actionGuard}
+                      onClick={() => {
+                        setReasonText('');
+                        setReasonPrompt({ type: 'interrupt', itemId: selected.id });
+                      }}
+                    >
+                      写原因后中断
                     </button>
                   </>
                 )}
@@ -1362,16 +1893,198 @@ export function Live() {
                 )}
               </div>
             </div>
-            {nextPending && nextPending.id !== selected.id && (
-              <div className="next-pending-indicator">
-                <ArrowRight size={16} />
-                <span>
-                  下一项：
+            {source && (
+              <div className="next-pending-indicator" role="region" aria-label="重测来源">
+                <div>
+                  <strong>重测自 {source.sampleCode}</strong>
+                  {source.scanId && <span>扫描 {source.scanId}</span>}
+                  {source.folder && <span>{source.folder}</span>}
+                  {selected && repeatSourceIssueLabel(snapshot, selected) && (
+                    <span>{repeatSourceIssueLabel(snapshot, selected)}</span>
+                  )}
+                </div>
+                <button
+                  type="button"
+                  className="text-button"
+                  aria-label={`查看原操作 ${source.sampleCode}`}
+                  onClick={() => {
+                    void flush()
+                      .then(() => setItemId(source.itemId))
+                      .catch((error) => notify(error.message, true));
+                  }}
+                >
+                  查看原操作
+                </button>
+              </div>
+            )}
+            {recent && recent.itemId !== selected.id && (
+              <div className="next-pending-indicator" role="region" aria-label="最近记录">
+                <div>
                   <strong>
-                    {String(nextPending.order + 1).padStart(2, '0')} ·{' '}
-                    {snapshot.samples.find((s) => s.id === nextPending.sampleId)?.code}
+                    {recent.status === 'interrupted' ? '最近中断' : '最近完成'} {recent.sampleCode}
                   </strong>
-                </span>
+                  {recent.duration && <span>{recent.duration}</span>}
+                  {recent.endedClock && <span>{recent.endedClock}</span>}
+                  {recent.scanId && <span>扫描 {recent.scanId}</span>}
+                  {recent.fileLabel && <span>{recent.fileLabel}</span>}
+                  {recent.folder && <span>{recent.folder}</span>}
+                  {recent.openIssue && <span>{recent.openIssue}</span>}
+                </div>
+                <button
+                  type="button"
+                  className="text-button"
+                  aria-label={`查看最近记录 ${recent.sampleCode}`}
+                  onClick={() => {
+                    void flush()
+                      .then(() => setItemId(recent.itemId))
+                      .catch((error) => notify(error.message, true));
+                  }}
+                >
+                  查看
+                </button>
+                {canCopyName(recent.folder) && (
+                  <button
+                    type="button"
+                    className="text-button"
+                    aria-label={`复制最近记录文件夹 ${recent.sampleCode}`}
+                    onClick={() => {
+                      void copyRecentFolder();
+                    }}
+                  >
+                    复制文件夹
+                  </button>
+                )}
+                {canCopyName(recent.scanId) && (
+                  <button
+                    type="button"
+                    className="text-button"
+                    aria-label={`复制最近记录扫描编号 ${recent.sampleCode}`}
+                    onClick={() => {
+                      void copyRecentScan();
+                    }}
+                  >
+                    复制扫描编号
+                  </button>
+                )}
+                {canCopyName(recent.filename) && (
+                  <button
+                    type="button"
+                    className="text-button"
+                    aria-label={`复制最近记录文件名 ${recent.sampleCode}`}
+                    onClick={() => {
+                      void copyRecentFile();
+                    }}
+                  >
+                    复制文件名
+                  </button>
+                )}
+                {recentNeedsFile && (
+                  <button
+                    type="button"
+                    className="text-button"
+                    aria-label={`填写最近记录的文件 ${recent.sampleCode}`}
+                    onClick={() => {
+                      void flush()
+                        .then(() => {
+                          openActualFor.current = recent.itemId;
+                          setItemId(recent.itemId);
+                        })
+                        .catch((error) => notify(error.message, true));
+                    }}
+                  >
+                    填写文件
+                  </button>
+                )}
+              </div>
+            )}
+            {firstGap && firstGap.itemId !== selected.id && (
+              <div className="next-pending-indicator" role="region" aria-label="现场先核对">
+                <div>
+                  <strong>先核对 {firstGap.sampleCode}</strong>
+                  <span>{firstGap.gaps.join('、')}</span>
+                </div>
+                <button
+                  type="button"
+                  className="text-button"
+                  aria-label={`查看待核对 ${firstGap.sampleCode}`}
+                  onClick={() => {
+                    void flush()
+                      .then(() => setItemId(firstGap.itemId))
+                      .catch((error) => notify(error.message, true));
+                  }}
+                >
+                  去核对
+                </button>
+              </div>
+            )}
+            {upcoming && upcoming.itemId !== selected.id && (
+              <div className="next-pending-indicator" role="region" aria-label="现场下一项">
+                <ArrowRight size={16} />
+                <div>
+                  <strong>下一项 {upcoming.sampleCode}</strong>
+                  {upcoming.measurement && <span>{upcoming.measurement}</span>}
+                  {upcoming.preparation && <span>{upcoming.preparation}</span>}
+                  {upcoming.protocol && <span title={upcoming.protocol}>{upcoming.protocol}</span>}
+                  {upcoming.repeat && <span>{upcoming.repeat}</span>}
+                  {upcoming.sourceIssue && <span>{upcoming.sourceIssue}</span>}
+                  {upcoming.folder && <span>{upcoming.folder}</span>}
+                </div>
+                {upcoming.sourceIssue && (
+                  <button
+                    type="button"
+                    className="text-button"
+                    aria-label={`查看下一项的原操作 ${upcoming.sampleCode}`}
+                    onClick={() => {
+                      void flush()
+                        .then(() => {
+                          const fresh = workspace.getSnapshot();
+                          const item = fresh.items.find((entry) => entry.id === upcoming.itemId);
+                          const source = item && repeatSource(fresh, item);
+                          if (!source) throw new Error('原操作已不存在。');
+                          setItemId(source.itemId);
+                        })
+                        .catch((error) => notify(error.message, true));
+                    }}
+                  >
+                    查看原操作
+                  </button>
+                )}
+                {canCopyName(upcoming.folder) && (
+                  <button
+                    type="button"
+                    className="text-button"
+                    aria-label={`复制下一项文件夹 ${upcoming.sampleCode}`}
+                    onClick={() => {
+                      void copyUpcomingFolder();
+                    }}
+                  >
+                    复制文件夹
+                  </button>
+                )}
+                {canCopyProtocol(upcoming.protocol) && (
+                  <button
+                    type="button"
+                    className="text-button"
+                    aria-label={`复制下一项实验制度 ${upcoming.sampleCode}`}
+                    onClick={() => {
+                      void copyUpcomingProtocol();
+                    }}
+                  >
+                    复制制度
+                  </button>
+                )}
+                <button
+                  type="button"
+                  className="text-button"
+                  aria-label={`查看下一项 ${upcoming.sampleCode}`}
+                  onClick={() => {
+                    void flush()
+                      .then(() => setItemId(upcoming.itemId))
+                      .catch((error) => notify(error.message, true));
+                  }}
+                >
+                  查看
+                </button>
               </div>
             )}
             <div className="record-section">
@@ -1481,6 +2194,18 @@ export function Live() {
                     <p>{displayedGroup.protocol}</p>
                   </details>
                 )}
+                {canCopyProtocol(displayedGroup.protocol) && (
+                  <button
+                    type="button"
+                    className="text-button"
+                    aria-label={run ? '复制开始时的实验制度' : '复制当前实验制度'}
+                    onClick={() => {
+                      void copyDisplayedProtocol();
+                    }}
+                  >
+                    复制制度
+                  </button>
+                )}
               </section>
             )}
             <div className="parameter-summary">
@@ -1503,19 +2228,49 @@ export function Live() {
                   <Clock size={14} />
                   开始时间
                 </span>
-                <strong>{timeText(run?.startedAt || null)}</strong>
+                <strong>
+                  {run
+                    ? recordedClock(run.startedAt, run.offsetMinutes, run.timezone)?.clock ||
+                      '尚未记录'
+                    : '尚未记录'}
+                </strong>
                 {run?.startedAt && (
-                  <small>{new Date(run.startedAt).toLocaleDateString('zh-CN')}</small>
+                  <small>
+                    {recordedClock(run.startedAt, run.offsetMinutes, run.timezone)?.zone}
+                  </small>
                 )}
               </div>
               <ArrowRight className="time-arrow" size={18} />
               <div>
                 <span>结束时间</span>
-                <strong>{timeText(run?.endedAt || null)}</strong>
-                {run?.endedAt && <small>{new Date(run.endedAt).toLocaleDateString('zh-CN')}</small>}
+                <strong>
+                  {run
+                    ? recordedClock(run.endedAt, run.offsetMinutes, run.timezone)?.clock ||
+                      '尚未记录'
+                    : '尚未记录'}
+                </strong>
+                {run?.endedAt && (
+                  <small>{recordedClock(run.endedAt, run.offsetMinutes, run.timezone)?.zone}</small>
+                )}
               </div>
               <button className="text-button time-edit" onClick={() => setTimesTarget(target())}>
                 {run ? '修正时间' : '补录时间'}
+              </button>
+            </div>
+            <div className="filename-card">
+              <div>
+                <span>样品 ID</span>
+                <code>{run?.snapshot.sample.id || sample?.id}</code>
+              </div>
+              <button
+                className="icon-button"
+                aria-label="复制样品 ID"
+                title="复制稳定样品 ID"
+                onClick={() => {
+                  void copySampleId();
+                }}
+              >
+                <Copy size={17} />
               </button>
             </div>
             <div className="filename-card">
@@ -1556,14 +2311,43 @@ export function Live() {
                 同样品追加制度
               </button>
             </div>
+            {run && startedPlanChanges(run).length > 0 && (
+              <ul className="plan-changes" aria-label="与开始时计划不同">
+                {startedPlanChanges(run).map((change) => (
+                  <li key={change.label}>
+                    <span>{change.label}</span>
+                    <span>{change.planned}</span>
+                    <span>{change.actual}</span>
+                  </li>
+                ))}
+              </ul>
+            )}
             {run && (
-              <Details title="实际参数与数据文件">
+              <Details
+                id="live-actual-files"
+                title="实际参数与数据文件"
+                open={actualOpen}
+                onToggle={setActualOpen}
+              >
                 <p className="hint">
                   参数默认沿用计划；现场有变化时在这里调整。文件名和扫描编号可用于对应仪器数据。
                 </p>
                 <div className="form-grid">
                   <label className="field">
-                    <span>实际文件名 / 前缀</span>
+                    <span>
+                      实际文件名 / 前缀
+                      <button
+                        type="button"
+                        className="text-button field-copy"
+                        aria-label="复制实际文件名"
+                        disabled={!canCopyName(String(run.actual.filename || ''))}
+                        onClick={() => {
+                          void copyActual('filename');
+                        }}
+                      >
+                        复制
+                      </button>
+                    </span>
                     <AutoInput
                       label="实际文件名"
                       value={String(run.actual.filename || '')}
@@ -1574,7 +2358,20 @@ export function Live() {
                     />
                   </label>
                   <label className="field">
-                    <span>扫描编号</span>
+                    <span>
+                      扫描编号
+                      <button
+                        type="button"
+                        className="text-button field-copy"
+                        aria-label="复制扫描编号"
+                        disabled={!canCopyName(String(run.actual.scanId || ''))}
+                        onClick={() => {
+                          void copyActual('scanId');
+                        }}
+                      >
+                        复制
+                      </button>
+                    </span>
                     <AutoInput
                       label="扫描编号"
                       value={String(run.actual.scanId || '')}
@@ -1717,6 +2514,15 @@ export function Live() {
                     <figure key={attachment.id}>
                       <img src={`labrecord://attachment/${attachment.id}`} alt={attachment.name} />
                       <figcaption>{attachment.name}</figcaption>
+                      <button
+                        type="button"
+                        className="text-button"
+                        aria-label={`移除图片 ${attachment.name}`}
+                        disabled={fileBusy}
+                        onClick={() => setPendingImage(attachment.id)}
+                      >
+                        移除
+                      </button>
                     </figure>
                   ))}
               </div>
@@ -1734,6 +2540,68 @@ export function Live() {
       )}
       {rowMenu}
       <DeleteConfirm pending={pendingDelete} onClose={() => setPendingDelete(null)} />
+      {reasonPrompt && (
+        <Modal
+          title={reasonPrompt.type === 'skip' ? '写原因后跳过' : '写原因后中断'}
+          onClose={() => setReasonPrompt(null)}
+        >
+          <form
+            className="form-stack"
+            onSubmit={(event) => {
+              event.preventDefault();
+              const reason = reasonText.trim();
+              const prompt = reasonPrompt;
+              if (!reason || !prompt || busy > 0) return;
+              void (async () => {
+                try {
+                  await flush();
+                } catch (error) {
+                  notify(error instanceof Error ? error.message : '请先保存当前输入。', true);
+                  return;
+                }
+                const current = workspace
+                  .getSnapshot()
+                  .items.find((item) => item.id === prompt.itemId);
+                const allowed =
+                  prompt.type === 'skip'
+                    ? current?.status === 'pending'
+                    : current?.status === 'running';
+                if (!allowed) return;
+                setItemId(prompt.itemId);
+                try {
+                  await execute({ type: prompt.type, itemId: prompt.itemId, reason }, false);
+                  setReasonPrompt(null);
+                } catch {
+                  // execute already reports the failure and leaves this operation selected.
+                }
+              })();
+            }}
+          >
+            <p className="hint">
+              {reasonPrompt.type === 'skip'
+                ? '原因记在这条操作上。不开始，也不生成实际记录。'
+                : '原因记在这条已开始的记录上。不改开始时间，也不另开一条记录。'}
+            </p>
+            <label className="field">
+              <span>原因</span>
+              <input
+                aria-label="原因"
+                value={reasonText}
+                maxLength={80}
+                onChange={(event) => setReasonText(event.target.value)}
+              />
+            </label>
+            <footer className="modal-actions">
+              <button type="button" className="button" onClick={() => setReasonPrompt(null)}>
+                取消
+              </button>
+              <button type="submit" className="button primary" disabled={!reasonText.trim()}>
+                {reasonPrompt.type === 'skip' ? '确认跳过' : '确认中断'}
+              </button>
+            </footer>
+          </form>
+        </Modal>
+      )}
       {moreTarget && (
         <Modal title="更多现场操作" onClose={() => setMoreTarget(null)}>
           <div className="field-more-actions">
@@ -1797,6 +2665,32 @@ export function Live() {
               <LayersIcon />
               启用备样
             </button>
+            {snapshot.items.find((item) => item.id === moreTarget.itemId)?.status === 'pending' && (
+              <button
+                className="button"
+                onClick={() => {
+                  setReasonText('');
+                  setReasonPrompt({ type: 'skip', itemId: moreTarget.itemId });
+                  setMoreTarget(null);
+                }}
+              >
+                <SkipForward size={17} />
+                写原因后跳过
+              </button>
+            )}
+            {snapshot.items.find((item) => item.id === moreTarget.itemId)?.status === 'running' && (
+              <button
+                className="button"
+                onClick={() => {
+                  setReasonText('');
+                  setReasonPrompt({ type: 'interrupt', itemId: moreTarget.itemId });
+                  setMoreTarget(null);
+                }}
+              >
+                <Square size={17} />
+                写原因后中断
+              </button>
+            )}
             {items.length > 0 &&
               !items.some((item) => item.status === 'pending' || item.status === 'running') && (
                 <button
@@ -1846,7 +2740,7 @@ export function Live() {
                       {event.itemId
                         ? `样品 ${snapshot.samples.find((s) => s.id === snapshot.items.find((i) => i.id === event.itemId)?.sampleId)?.code || '未知'}`
                         : '实验级问题'}{' '}
-                      · {timeText(event.createdAt, true)}
+                      · {eventTimeLabel(snapshot, event) || timeText(event.createdAt, true)}
                     </small>
                   </div>
                   {event.itemId && (
@@ -1901,23 +2795,28 @@ export function Live() {
         <Modal title="选择样品组启用备样" onClose={() => setSpareExperiment(null)}>
           <div className="spare-groups">
             {snapshot.groups
-              .filter((g) => g.experimentId === spareExperiment)
-              .map((group) => {
-                const counts = groupCounts(snapshot, group);
+              .filter((entry) => entry.experimentId === spareExperiment)
+              .sort((a, b) => Number(b.id === group?.id) - Number(a.id === group?.id))
+              .map((entry) => {
+                const counts = groupCounts(snapshot, entry);
+                const current = entry.id === group?.id;
                 return (
                   <button
-                    className="spare-group"
+                    type="button"
+                    className={`spare-group${current ? ' is-current' : ''}`}
                     disabled={counts.spare === 0}
-                    key={group.id}
+                    key={entry.id}
+                    aria-label={`启用备样 ${sampleName(entry)}${current ? ' 当前样品组' : ''}`}
                     onClick={() => {
-                      setArrangeGroup(group.id);
+                      setArrangeGroup(entry.id);
                       setSpareExperiment(null);
                     }}
                   >
                     <div>
                       <strong>
-                        {sampleName(group)}
-                        {group.name ? ` · ${group.state}` : ''}
+                        {sampleName(entry)}
+                        {entry.name ? ` · ${entry.state}` : ''}
+                        {current ? ' · 当前样品组' : ''}
                       </strong>
                       <span>
                         已安排 {counts.planned} 个 · 备样 {counts.spare ?? '数量未定'} 个
@@ -1937,6 +2836,37 @@ export function Live() {
           spare
           onClose={() => setArrangeGroup(null)}
         />
+      )}
+      {pendingImage && (
+        <Modal title="移除现场图片" onClose={() => setPendingImage(null)} closeDisabled={fileBusy}>
+          <p className="dialog-target">
+            图片：
+            <strong>
+              {snapshot.attachments.find((entry) => entry.id === pendingImage)?.name || '这张图片'}
+            </strong>
+          </p>
+          <p className="hint">只从这条记录移除这张图片。不改起止时间，也不改开始时的计划。</p>
+          <footer className="modal-actions">
+            <button
+              type="button"
+              className="button"
+              disabled={fileBusy}
+              onClick={() => setPendingImage(null)}
+            >
+              取消
+            </button>
+            <button
+              type="button"
+              className="button danger"
+              disabled={fileBusy}
+              onClick={() => {
+                void removeImage(pendingImage);
+              }}
+            >
+              确认移除
+            </button>
+          </footer>
+        </Modal>
       )}
     </div>
   );

@@ -15,12 +15,13 @@ import { readFile, rename, mkdir, rm } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import { Store, CommandRejectedError } from './store.js';
 import { previewFile, previewRows, parseDelimited, importTable, exportFile } from './tables.js';
-import { addAttachment, createBackup, dailyBackup, unpackBackup } from './backups.js';
+import { addAttachment, createBackup, dailyBackup, removeAttachment, unpackBackup } from './backups.js';
 import { writeReportBundle } from './reports.js';
 import { CloudSync } from './github-sync.js';
 import { CloudCredentials } from './cloud-credentials.js';
 import { ReportArchive, ReportQueue } from './report-archive.js';
 import type { Reply } from '../shared/model.js';
+import { canCopyName, canCopyProtocol } from '../shared/copyText.js';
 
 app.setName('LabRecord');
 if (process.env.LABRECORD_TEST_DATA && process.env.LABRECORD_TEST_MODE === '1')
@@ -146,7 +147,7 @@ function register(channel: string, action: (...args: any[]) => unknown, serializ
       try {
         if (restoring && channel !== 'info') throw new Error('正在恢复数据，请稍后重试。');
         const data = await action(...args);
-        if (['command', 'import-table', 'attachment'].includes(channel)) scheduleAutomaticBackup();
+        if (['command', 'import-table', 'attachment', 'remove-attachment'].includes(channel)) scheduleAutomaticBackup();
         return { ok: true as const, data };
       } catch (error) {
         return {
@@ -228,14 +229,13 @@ else {
       );
       register('snapshot', () => store.snapshot());
       register('copy-name', (name) => {
-        if (
-          typeof name !== 'string' ||
-          !name ||
-          name.length > 200 ||
-          /[<>:"/\\|?*\x00-\x1f{}]/.test(name)
-        )
-          throw new Error('待复制名称无效。');
+        if (!canCopyName(name)) throw new Error('待复制名称无效。');
         clipboard.writeText(name);
+        return null;
+      });
+      register('copy-text', (text) => {
+        if (!canCopyProtocol(text)) throw new Error('待复制文字无效。');
+        clipboard.writeText(String(text).trim());
         return null;
       });
       register('command', (command, requestId) => store.command(command, requestId));
@@ -282,6 +282,10 @@ else {
         });
         if (result.canceled) return null;
         for (const path of result.filePaths) await addAttachment(store, runId, path);
+        return store.snapshot();
+      });
+      register('remove-attachment', async (attachmentId) => {
+        await removeAttachment(store, attachmentId);
         return store.snapshot();
       });
       register('backup', async () => {

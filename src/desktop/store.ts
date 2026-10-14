@@ -48,6 +48,13 @@ export class CommandRejectedError extends Error {
     this.name = 'CommandRejectedError';
   }
 }
+function plainReason(reason: string | undefined) {
+  const text = reason?.trim() || '';
+  if (!text) return '';
+  if (text.length > 80 || /[\r\n\u0000]/.test(text))
+    throw new Error('原因请写成一行，不超过 80 个字。');
+  return text;
+}
 const columns: Record<Table, Record<string, string>> = {
   experiments: {},
   groups: { experiment_id: 'experimentId' },
@@ -124,6 +131,9 @@ export class Store {
       )
       .run(value.id, JSON.stringify(value), ...names.map((n) => data[columns[table][n]] ?? null));
   }
+  remove<T extends Table>(table: T, id: string) {
+    this.deleteIds(table, [id]);
+  }
   private deleteIds(table: Table, ids: readonly string[]) {
     for (let index = 0; index < ids.length; index += 400) {
       const chunk = ids.slice(index, index + 400);
@@ -186,6 +196,21 @@ export class Store {
     };
     this.put('events', event);
     return event;
+  }
+  private reviseText(eventId: string, text: string, type: 'issue' | 'note') {
+    const event = this.get('events', eventId);
+    if (event.type !== type)
+      throw new Error(type === 'issue' ? '该记录不是问题记录。' : '该记录不是时间线备注。');
+    if (text === event.text) return;
+    const previous = Array.isArray(event.data.previousText)
+      ? event.data.previousText.filter((entry) => typeof entry === 'string')
+      : [];
+    this.put('events', {
+      ...event,
+      text,
+      createdAt: event.createdAt,
+      data: { ...event.data, previousText: [...previous, event.text] },
+    });
   }
   checkValues(fields: Field[], values: Values) {
     for (const field of fields) {
@@ -825,17 +850,21 @@ export class Store {
           throw new Error('系统时间早于开始时间，请先修正时间。');
         this.put('runs', { ...run, endedAt, originalEndedAt: run.originalEndedAt ?? endedAt });
         this.put('items', { ...item, status: target });
+        const reason = command.type === 'interrupt' ? plainReason(command.reason) : '';
         this.event(
           item.experimentId,
           command.type,
-          target === 'completed' ? '完成操作' : '中断操作',
+          command.type === 'finish' ? '完成操作' : reason ? `中断操作：${reason}` : '中断操作',
           item.id,
           run.id,
         );
         const next = this.list('items')
           .filter((i) => i.experimentId === item.experimentId && i.status === 'pending')
           .sort((a, b) => a.order - b.order)[0];
-        return { experimentId: item.experimentId, itemId: next?.id || item.id };
+        return {
+          experimentId: item.experimentId,
+          itemId: command.type === 'interrupt' ? item.id : next?.id || item.id,
+        };
       }
       case 'skip':
       case 'unskip': {
@@ -843,10 +872,11 @@ export class Store {
         if (item.status !== (command.type === 'skip' ? 'pending' : 'skipped'))
           throw new Error('该操作状态不允许此操作。');
         this.put('items', { ...item, status: command.type === 'skip' ? 'skipped' : 'pending' });
+        const reason = command.type === 'skip' ? plainReason(command.reason) : '';
         this.event(
           item.experimentId,
           'plan',
-          command.type === 'skip' ? '跳过操作' : '恢复到待测队列',
+          command.type === 'skip' ? (reason ? `跳过操作：${reason}` : '跳过操作') : '恢复到待测队列',
           item.id,
         );
         return {};
@@ -889,10 +919,10 @@ export class Store {
         this.checkValues(run.snapshot.fields, actual);
         const actualSample = command.actualSample
           ? {
-              name: '',
-              width: '',
-              height: '',
-              dimensionUnit: '',
+              name: run.snapshot.group.name || '',
+              width: run.snapshot.group.width || '',
+              height: run.snapshot.group.height || '',
+              dimensionUnit: run.snapshot.group.dimensionUnit || '',
               ...run.actualSample,
               ...command.actualSample,
             }
@@ -948,6 +978,14 @@ export class Store {
         const event = this.get('events', command.eventId);
         if (event.type !== 'issue') throw new Error('该记录不是问题记录。');
         this.put('events', { ...event, data: { ...event.data, resolvedAt: this.now() } });
+        return {};
+      }
+      case 'editIssue': {
+        this.reviseText(command.eventId, command.text, 'issue');
+        return {};
+      }
+      case 'editNote': {
+        this.reviseText(command.eventId, command.text, 'note');
         return {};
       }
       case 'times': {
