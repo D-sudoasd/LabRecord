@@ -489,7 +489,10 @@ test('live UI: double click, spare activation, remeasurement, skip, interruption
   await page.getByRole('button', { name: '开始操作', exact: true }).click();
   await page.getByRole('button', { name: '中断', exact: true }).click();
   await page.getByRole('button', { name: '启用备样', exact: true }).click();
-  await page.getByRole('button', { name: /Ti-A-热处理.*备样 2/ }).click();
+  await page
+    .getByRole('dialog', { name: '选择样品组启用备样', exact: true })
+    .getByRole('button', { name: '启用备样 Ti-A 拉伸试样 当前样品组', exact: true })
+    .click();
   await page.getByLabel('样品编号前缀').fill('TA-');
   await page.getByRole('button', { name: '加入待测队列' }).click();
   await page.getByRole('button', { name: '选择样品 TA-01 操作 1', exact: true }).click();
@@ -840,7 +843,9 @@ test('offline beamtime: preview and copy folder names, schedule multiple regimes
   const reserved = data.items[2].plannedName!;
   await capture(application, info.outputPath('multi-regime-planning.png'));
   await rows.nth(2).getByRole('button', { name: '现场查看', exact: true }).click();
-  await expect(page.locator('.filename-card code')).toHaveText(reserved);
+  await expect(
+    page.locator('.filename-card').filter({ hasText: '数据文件夹' }).locator('code'),
+  ).toHaveText(reserved);
   await expect(page.locator('.measurement-current-summary')).toContainText('旋转扫描');
   await expect(page.getByLabel('实验制度', { exact: true })).toHaveValue(
     '-90° 至 90°，每 5° 一步，0.2 s 曝光',
@@ -1219,8 +1224,10 @@ test('metal preparation: concise names, composition and processing, explicit non
   expect(data.runs[0]).toEqual(historical);
   await page.getByRole('button', { name: '回看导出', exact: true }).click();
   const historicalRow = page.locator('.review-table tbody tr').filter({ hasText: 'S01' });
-  await expect(historicalRow).toContainText('400 °C × 2 h 时效');
-  await expect(historicalRow).not.toContainText('激光冲击');
+  const recordedMaterial = historicalRow.locator('.material-preparation-summary');
+  await expect(recordedMaterial).toContainText('400 °C × 2 h 时效');
+  await expect(recordedMaterial).not.toContainText('激光冲击');
+  await expect(historicalRow.locator('.review-plan-drift')).toContainText('其他工艺：激光冲击');
   expect(errors).toEqual([]);
 });
 
@@ -1532,9 +1539,10 @@ test('only the group name is required and the folder name is the experiment code
   await page.keyboard.press('Escape');
 
   await page.getByRole('button', { name: '进入现场记录', exact: true }).click();
-  await expect(page.locator('.filename-card')).toContainText('数据文件夹');
-  await expect(page.locator('.filename-card')).not.toContainText('预期');
-  await expect(page.locator('.filename-card code')).toHaveText('FOLDER-01_S01');
+  const folderCard = page.locator('.filename-card').filter({ hasText: '数据文件夹' });
+  await expect(folderCard).toContainText('数据文件夹');
+  await expect(folderCard).not.toContainText('预期');
+  await expect(folderCard.locator('code')).toHaveText('FOLDER-01_S01');
 
   await page.getByRole('button', { name: '打开设置', exact: true }).click();
   dialog = page.getByRole('dialog');

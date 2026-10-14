@@ -174,8 +174,10 @@ html.has-experiment-overview body {
 }
 
 .overview-current .current-operation > span {
+  min-width: 0;
   color: var(--muted);
   font-size: 12px;
+  overflow-wrap: anywhere;
 }
 
 .issues-list {
@@ -263,6 +265,15 @@ html.has-experiment-overview body {
   margin-left: auto;
 }
 
+.overview-record p,
+.overview-roster p {
+  margin: 8px 0 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+.overview-modal .follow-up-roster {
+  padding: 8px 0 0;
+}
 .overview-empty {
   display: flex;
   align-items: center;

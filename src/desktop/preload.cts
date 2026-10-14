@@ -3,6 +3,7 @@ const { contextBridge, ipcRenderer } = require('electron');
 const call = (channel: string, ...args: unknown[]) => ipcRenderer.invoke(channel, ...args);
 const api: DesktopApi = {
   copyName: (name) => call('copy-name', name),
+  copyText: (text) => call('copy-text', text),
   snapshot: () => call('snapshot'),
   command: (command, requestId) => call('command', command, requestId),
   previewFile: () => call('preview-file'),
@@ -10,6 +11,7 @@ const api: DesktopApi = {
   importTable: (request) => call('import-table', request),
   exportFile: (experimentId, format) => call('export-file', experimentId, format),
   addAttachment: (runId) => call('attachment', runId),
+  removeAttachment: (attachmentId) => call('remove-attachment', attachmentId),
   chooseReference: () => call('reference'),
   backup: () => call('backup'),
   restore: () => call('restore'),

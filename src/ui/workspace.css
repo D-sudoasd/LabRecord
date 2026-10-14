@@ -144,7 +144,7 @@
   border: 1px solid var(--line);
   border-radius: var(--radius-card);
   overflow: hidden;
-  margin-bottom: 20px;
+  margin-bottom: 12px;
 }
 
 .plan-stats .stat {
@@ -206,6 +206,36 @@
 
 .queue-empty {
   text-align: center;
+}
+
+.queue-gap,
+.current-gaps li {
+  color: var(--warning);
+  font-size: 11px;
+  font-weight: 650;
+}
+.queue-gap {
+  display: inline-block;
+  margin: 2px 6px 0 0;
+}
+.current-gaps {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  list-style: none;
+  margin: 6px 0 0;
+  padding: 0;
+}
+.current-gap {
+  border: 0;
+  padding: 0 2px;
+  min-height: 32px;
+  background: transparent;
+  color: var(--warning);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 650;
+  text-decoration: underline;
 }
 
 .queue-empty .text-button {
@@ -286,4 +316,218 @@
     padding: 10px;
     flex-wrap: wrap;
   }
+
+  .welcome-steps {
+    grid-template-columns: 1fr;
+  }
+}
+
+.plan-progress {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin: 0 0 20px;
+  padding: 14px 16px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-card);
+  min-width: 0;
+}
+
+.plan-progress .next-step {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  min-width: 0;
+}
+
+.plan-progress .next-step > div {
+  flex: 1;
+  min-width: min(100%, 12rem);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  align-items: baseline;
+}
+
+.plan-progress .next-step span,
+.plan-progress .next-step strong {
+  overflow-wrap: anywhere;
+}
+
+.plan-progress .next-step[aria-label='先核对'] {
+  padding-top: 4px;
+}
+.plan-progress .next-step[aria-label='先核对'] strong {
+  color: var(--warning);
+}
+
+.plan-progress .next-step span {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.operation-mix {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.mix {
+  display: flex;
+  width: 100%;
+  height: 8px;
+  border-radius: 99px;
+  overflow: hidden;
+  background: var(--surface-secondary);
+}
+
+.mix span {
+  display: block;
+  height: 100%;
+  min-width: 0;
+}
+
+.mix-completed {
+  background: #1f7a4d;
+}
+
+.mix-running {
+  background: var(--primary);
+}
+
+.mix-pending {
+  background: #c5d0cb;
+}
+
+.mix-skipped {
+  background: #c4a15a;
+}
+
+.mix-interrupted {
+  background: var(--danger);
+}
+
+.mix-legend,
+.library-counts,
+.library-description {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.mix-legend {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.library-board,
+.workspace-hits {
+  min-width: 0;
+}
+
+.library-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 10px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-card);
+  background: var(--surface);
+  min-width: 0;
+}
+
+.library-card.has-running {
+  border-color: #bfd6ca;
+  box-shadow: inset 3px 0 var(--primary);
+}
+
+.library-card .card-open {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+  width: 100%;
+  min-width: 0;
+  padding: 4px;
+  border: 0;
+  border-radius: var(--radius-control);
+  background: transparent;
+  text-align: left;
+  color: inherit;
+}
+
+.library-card .card-open.is-active,
+.library-actions .button.is-active,
+.workspace-hits button.is-active {
+  background: var(--tint);
+  box-shadow: inset 0 0 0 2px var(--primary);
+}
+
+.library-title {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 10px;
+  min-width: 0;
+}
+
+.library-title small,
+.library-description {
+  overflow-wrap: anywhere;
+}
+
+.library-description {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.library-counts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+}
+
+.library-count b {
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+
+.library-actions,
+.library-create {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.library-actions .library-next {
+  flex-direction: column;
+  align-items: flex-start;
+  height: auto;
+  white-space: normal;
+  text-align: left;
+}
+.library-actions .button small {
+  display: block;
+  max-width: 100%;
+  margin-top: 2px;
+  font-weight: 400;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+
+.library-create {
+  margin-top: 12px;
+}
+
+.library-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 12px;
+  margin-top: 12px;
 }

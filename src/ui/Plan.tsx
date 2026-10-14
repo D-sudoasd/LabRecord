@@ -28,13 +28,29 @@ import type {
 import {
   groupCounts,
   sampleName,
+  sampleOverrideLabel,
+  STATUS_LABEL,
   dimensions,
   MODE_OPTIONS,
   PROTOCOL_PLACEHOLDER,
   planSpecimens,
+  sharedSamplePrefix,
   suggestedSpecimenName,
 } from '../shared/model';
 import { reportInsights } from '../shared/summary';
+import { operationStatusReason } from '../shared/history';
+import { operationPlanDrift } from '../shared/planChanges';
+import { operationProtocolLabel } from '../shared/measurement';
+import { formatRecordedDuration, recordedDuration, runDurationLabel } from '../shared/duration';
+import { recordedEndLabel, recordedStartLabel } from '../shared/recordedTime';
+import { actualFilenameLabel } from './reviewFilters';
+import { latestRecorded, nextOperationBrief, nextPending } from '../shared/library';
+import { repeatSource } from '../shared/repeats';
+import { followUpRoster } from '../shared/followUps';
+import { matchesGroupIdentity, textIncludes } from '../shared/operationQuery';
+import { groupOperationText } from './queueSearch';
+import { canCopyName, canCopyProtocol, protocolCopyText } from '../shared/copyText';
+import { OperationMix } from './LibraryBoard';
 import { useWorkspace, unwrap, DesktopReplyError } from './context';
 import { consumePendingGroup } from './workspaceSearch';
 import {
@@ -446,6 +462,10 @@ export function ArrangeDialog({
     .filter((sample) => sample.experimentId === group.experimentId)
     .map((sample) => sample.code)
     .join('\n');
+  const groupPrefix = sharedSamplePrefix(
+    snapshot.samples.filter((sample) => sample.groupId === group.id).map((sample) => sample.code),
+  );
+  const offerPrefix = groupPrefix && groupPrefix !== prefix ? groupPrefix : '';
   const numeric = count.trim() === '' ? Number.NaN : Number(count);
   const overCap = Number.isInteger(numeric) && numeric > cap;
   const planned = Number.isInteger(numeric) && numeric >= 1 && numeric <= cap ? numeric : 0;
@@ -494,8 +514,7 @@ export function ArrangeDialog({
     );
     setPasteNote(skipped > 0 ? `${skipped} 行超出还能安排的数量，没有写入。` : '');
   }
-  async function submit(event: React.FormEvent) {
-    event.preventDefault();
+  async function submit() {
     if (submitting.current || closing || planned < 1 || rows.length !== planned) return;
     submitting.current = true;
     setBusy(true);
@@ -527,7 +546,12 @@ export function ArrangeDialog({
       onClose={close}
       closeDisabled={busy || closing}
     >
-      <form onSubmit={submit} className="form-stack">
+      <form
+        className="form-stack"
+        onSubmit={(event) => {
+          event.preventDefault();
+        }}
+      >
         <fieldset className="measurement-editor" disabled={busy || closing || !!intent.current}>
           <details className="form-section">
             <summary>本批测量技术与制度（可选）</summary>
@@ -557,8 +581,17 @@ export function ArrangeDialog({
           </label>
           <label className="field">
             <span>样品编号前缀</span>
-            <input value={prefix} onChange={(event) => setPrefix(event.target.value)} />
+            <input
+              aria-label="样品编号前缀"
+              value={prefix}
+              onChange={(event) => setPrefix(event.target.value)}
+            />
           </label>
+          {offerPrefix && (
+            <button type="button" className="text-button" onClick={() => setPrefix(offerPrefix)}>
+              沿用已有前缀 {offerPrefix}
+            </button>
+          )}
           <p className="hint">
             编号按安排顺序接着编，下一组也顺着来。每一件的名字可以改，清空后显示编号。重测仍用这件的编号。
           </p>
@@ -668,7 +701,14 @@ export function ArrangeDialog({
           <button type="button" className="button" disabled={busy || closing} onClick={close}>
             {intent.current ? '返回查看记录' : '取消'}
           </button>
-          <button className="button primary" disabled={busy || closing || planned < 1}>
+          <button
+            type="button"
+            className="button primary"
+            disabled={busy || closing || planned < 1}
+            onClick={() => {
+              void submit();
+            }}
+          >
             {busy ? '安排中…' : intent.current ? '重试安排' : '加入待测队列'}
           </button>
         </footer>
@@ -835,6 +875,7 @@ export function Plan() {
     .sort((a, b) => a.order - b.order);
   const [quickAdd, setQuickAdd] = useState(false);
   const quickAddTrigger = useRef<HTMLButtonElement>(null);
+  const repeatingRecent = useRef(false);
   useEffect(() => {
     const listener = (event: KeyboardEvent) => {
       if (
@@ -881,12 +922,19 @@ export function Plan() {
         }),
     });
   }
-  const visible = groups.filter((g) =>
-    `${g.name || ''} ${g.material || ''} ${g.state} ${materialSummary(g)} ${g.preparation} ${g.notes}`
-      .toLowerCase()
-      .includes(search.toLowerCase()),
-  );
+  const visible = groups.filter((group) => {
+    const text = `${group.name || ''} ${group.material || ''} ${group.state} ${materialSummary(group)} ${group.preparation} ${group.notes}`;
+    return (
+      textIncludes(text, search) ||
+      textIncludes(groupOperationText(snapshot, group.id), search) ||
+      matchesGroupIdentity(snapshot, group.id, search)
+    );
+  });
   const insights = reportInsights(snapshot, experimentId);
+  const next = nextPending(snapshot, experimentId);
+  const brief = next ? nextOperationBrief(snapshot, experimentId) : null;
+  const recent = latestRecorded(snapshot, experimentId);
+  const firstGap = followUpRoster(snapshot, experimentId)[0];
   const preparationUnknown = groups.length > 0 && insights.unknownPreparation === groups.length;
   async function importFile() {
     try {
@@ -978,6 +1026,264 @@ export function Plan() {
           </div>
         </div>
       </div>
+      <section className="plan-progress" aria-label="计划进度">
+        <OperationMix
+          completed={insights.completed}
+          running={insights.running}
+          pending={insights.pending}
+          skipped={insights.skipped}
+          interrupted={insights.interrupted}
+        />
+        {next ? (
+          <div className="next-step" role="region" aria-label="下一项待测">
+            <div>
+              <strong>下一项 {next.sampleCode}</strong>
+              <span>
+                {[
+                  brief?.measurement || next.operation,
+                  brief?.preparation,
+                  brief?.protocol,
+                  brief?.repeat,
+                  brief?.sourceIssue,
+                  brief?.folder || next.plannedName,
+                ]
+                  .filter(Boolean)
+                  .join(' · ')}
+              </span>
+            </div>
+            {canCopyName(brief?.folder || next.plannedName) && (
+              <button
+                type="button"
+                className="button small"
+                aria-label={`复制下一项文件夹 ${next.sampleCode}`}
+                onClick={() => {
+                  void workspace
+                    .flush()
+                    .then(async () => {
+                      const fresh = nextOperationBrief(workspace.getSnapshot(), experimentId);
+                      const name = fresh?.folder || '';
+                      if (!canCopyName(name)) throw new Error('还没有可复制的数据文件夹名。');
+                      await unwrap(window.labrecord.copyName(name));
+                      notify('下一项数据文件夹名已复制。');
+                    })
+                    .catch((error) => notify(error.message, true));
+                }}
+              >
+                复制文件夹
+              </button>
+            )}
+            {canCopyProtocol(brief?.protocol) && (
+              <button
+                type="button"
+                className="button small"
+                aria-label={`复制下一项实验制度 ${next.sampleCode}`}
+                onClick={() => {
+                  void workspace
+                    .flush()
+                    .then(async () => {
+                      const fresh = nextOperationBrief(workspace.getSnapshot(), experimentId);
+                      const text = protocolCopyText(fresh?.protocol);
+                      if (!canCopyProtocol(text)) throw new Error('还没有可复制的实验制度。');
+                      await unwrap(window.labrecord.copyText(text));
+                      notify('下一项实验制度已复制。');
+                    })
+                    .catch((error) => notify(error.message, true));
+                }}
+              >
+                复制制度
+              </button>
+            )}
+            {brief?.sourceIssue &&
+              repeatSource(
+                snapshot,
+                snapshot.items.find((item) => item.id === next.itemId)!,
+              ) && (
+                <button
+                  type="button"
+                  className="button small"
+                  aria-label={`查看下一项的原操作 ${next.sampleCode}`}
+                  onClick={() => {
+                    void workspace
+                      .flush()
+                      .then(() => {
+                        const fresh = workspace.getSnapshot();
+                        const item = fresh.items.find((entry) => entry.id === next.itemId);
+                        const source = item && repeatSource(fresh, item);
+                        if (!source) throw new Error('原操作已不存在。');
+                        setItemId(source.itemId);
+                        setPage('live');
+                      })
+                      .catch((error) => notify(error.message, true));
+                  }}
+                >
+                  查看原操作
+                </button>
+              )}
+            <button
+              type="button"
+              className="button small"
+              aria-label={`去现场查看下一项 ${next.sampleCode}`}
+              onClick={() => {
+                void workspace
+                  .flush()
+                  .then(() => {
+                    setItemId(next.itemId);
+                    setPage('live');
+                  })
+                  .catch((error) => notify(error.message, true));
+              }}
+            >
+              去现场查看
+            </button>
+          </div>
+        ) : (
+          insights.plannedOperations > 0 &&
+          insights.pending === 0 &&
+          insights.running === 0 && <p className="hint">没有待测操作。</p>
+        )}
+        {firstGap && (
+          <div className="next-step" role="region" aria-label="先核对">
+            <div>
+              <strong>先核对 {firstGap.sampleCode}</strong>
+              <span>{firstGap.gaps.join('、')}</span>
+            </div>
+            <button
+              type="button"
+              className="button small"
+              aria-label={`去核对 ${firstGap.sampleCode}`}
+              onClick={() => {
+                void workspace
+                  .flush()
+                  .then(() => {
+                    setItemId(firstGap.itemId);
+                    setPage('live');
+                  })
+                  .catch((error) => notify(error.message, true));
+              }}
+            >
+              去核对
+            </button>
+          </div>
+        )}
+        {recent && (
+          <div className="next-step" role="region" aria-label="最近记录">
+            <div>
+              <strong>
+                {recent.status === 'interrupted' ? '最近中断' : '最近完成'} {recent.sampleCode}
+              </strong>
+              <span>
+                {[
+                  recent.duration ? `用时 ${recent.duration}` : '',
+                  recent.endedClock,
+                  recent.scanId ? `扫描 ${recent.scanId}` : '',
+                  recent.fileLabel,
+                  recent.folder,
+                  recent.openIssue,
+                ]
+                  .filter(Boolean)
+                  .join(' · ')}
+              </span>
+            </div>
+            {canCopyName(recent.folder) && (
+              <button
+                type="button"
+                className="button small"
+                aria-label={`复制最近记录文件夹 ${recent.sampleCode}`}
+                onClick={() => {
+                  void workspace
+                    .flush()
+                    .then(async () => {
+                      const fresh = latestRecorded(workspace.getSnapshot(), experimentId);
+                      const name = fresh?.folder || '';
+                      if (!canCopyName(name)) throw new Error('还没有可复制的数据文件夹名。');
+                      await unwrap(window.labrecord.copyName(name));
+                      notify('最近记录的数据文件夹名已复制。');
+                    })
+                    .catch((error) => notify(error.message, true));
+                }}
+              >
+                复制文件夹
+              </button>
+            )}
+            {canCopyName(recent.scanId) && (
+              <button
+                type="button"
+                className="button small"
+                aria-label={`复制最近记录扫描编号 ${recent.sampleCode}`}
+                onClick={() => {
+                  void workspace
+                    .flush()
+                    .then(async () => {
+                      const fresh = latestRecorded(workspace.getSnapshot(), experimentId);
+                      const name = fresh?.scanId || '';
+                      if (!canCopyName(name)) throw new Error('还没有可复制的扫描编号。');
+                      await unwrap(window.labrecord.copyName(name));
+                      notify('最近记录的扫描编号已复制。');
+                    })
+                    .catch((error) => notify(error.message, true));
+                }}
+              >
+                复制扫描编号
+              </button>
+            )}
+            {canCopyName(recent.filename) && (
+              <button
+                type="button"
+                className="button small"
+                aria-label={`复制最近记录文件名 ${recent.sampleCode}`}
+                onClick={() => {
+                  void workspace
+                    .flush()
+                    .then(async () => {
+                      const fresh = latestRecorded(workspace.getSnapshot(), experimentId);
+                      const name = fresh?.filename || '';
+                      if (!canCopyName(name)) throw new Error('还没有可复制的实际文件名。');
+                      await unwrap(window.labrecord.copyName(name));
+                      notify('最近记录的实际文件名已复制。');
+                    })
+                    .catch((error) => notify(error.message, true));
+                }}
+              >
+                复制文件名
+              </button>
+            )}
+            <button
+              type="button"
+              className="button small"
+              aria-label={`安排最近记录的重测 ${recent.sampleCode}`}
+              onClick={() => {
+                if (repeatingRecent.current) return;
+                repeatingRecent.current = true;
+                void workspace
+                  .flush()
+                  .then(() => execute({ type: 'repeat', itemId: recent.itemId }, false))
+                  .catch((error) => notify(error.message, true))
+                  .finally(() => {
+                    repeatingRecent.current = false;
+                  });
+              }}
+            >
+              安排重测
+            </button>
+            <button
+              type="button"
+              className="button small"
+              aria-label={`查看最近记录 ${recent.sampleCode}`}
+              onClick={() => {
+                void workspace
+                  .flush()
+                  .then(() => {
+                    setItemId(recent.itemId);
+                    setPage('live');
+                  })
+                  .catch((error) => notify(error.message, true));
+              }}
+            >
+              查看
+            </button>
+          </div>
+        )}
+      </section>
       <section className="card planning-card">
         <div className="card-toolbar">
           <div className="toolbar-title">
@@ -987,7 +1293,7 @@ export function Plan() {
           <div className="toolbar-actions">
             <SearchField
               label="搜索样品组"
-              placeholder="材料、成分、工艺或备注"
+              placeholder="材料、样品 ID、工艺或备注"
               value={search}
               onChange={setSearch}
             />
@@ -1116,11 +1422,19 @@ export function Plan() {
                       openMenu={openMenu}
                       askDelete={askDelete}
                       selectedIds={selected.has(group.id) ? [...selected] : [group.id]}
-                      onLive={(sampleId) => {
+                      onLive={(sampleId, itemId) => {
                         void workspace
                           .flush()
                           .then(() => {
-                            const item = snapshot.items.find((i) => i.sampleId === sampleId);
+                            const sampleItems = workspace
+                              .getSnapshot()
+                              .items.filter((item) => item.sampleId === sampleId)
+                              .sort((a, b) => a.order - b.order);
+                            const item =
+                              sampleItems.find((entry) => entry.id === itemId) ||
+                              sampleItems.find((entry) => entry.status === 'running') ||
+                              sampleItems.find((entry) => entry.status === 'pending') ||
+                              sampleItems.at(-1);
                             if (item) setItemId(item.id);
                             setPage('live');
                           })
@@ -1237,10 +1551,42 @@ function GroupRows({
   openMenu: (event: MouseEvent, entries: MenuEntry[]) => void;
   askDelete: (request: DeleteRequest, ids?: string[]) => void;
   selectedIds: string[];
-  onLive: (sampleId: string) => void;
+  onLive: (sampleId: string, itemId?: string) => void;
 }) {
-  const { execute, snapshot } = useWorkspace();
+  const { execute, snapshot, flush, notify } = useWorkspace();
+  const repeating = useRef(new Set<string>());
   const title = sampleName(group);
+  const sampleIds = new Set(samples.map((sample) => sample.id));
+  const groupItems = snapshot.items.filter((item) => sampleIds.has(item.sampleId));
+  const interruptedCount = groupItems.filter((item) => item.status === 'interrupted').length;
+  const skippedCount = groupItems.filter((item) => item.status === 'skipped').length;
+  const runningCount = groupItems.filter((item) => item.status === 'running').length;
+  const pendingCount = groupItems.filter((item) => item.status === 'pending').length;
+  const operationStatus = [
+    runningCount ? `进行中 ${runningCount}` : '',
+    counts.completed ? `完成 ${counts.completed}` : '',
+    interruptedCount ? `中断 ${interruptedCount}` : '',
+    skippedCount ? `跳过 ${skippedCount}` : '',
+    pendingCount ? `待测 ${pendingCount}` : '',
+  ]
+    .filter(Boolean)
+    .join(' · ');
+  const recorded = recordedDuration(
+    snapshot.runs.filter((run) => groupItems.some((item) => item.id === run.itemId)),
+  );
+  const recordedLabel = [
+    recorded.completeCount ? `已记录 ${formatRecordedDuration(recorded.milliseconds)}` : '',
+    recorded.incompleteCount ? `${recorded.incompleteCount} 次未计入` : '',
+  ]
+    .filter(Boolean)
+    .join(' · ');
+  const overrideCount = samples.filter((sample) =>
+    sampleOverrideLabel(group, sample.parameters),
+  ).length;
+  const driftCount = groupItems.filter((item) => operationPlanDrift(snapshot, item)).length;
+  const firstDrift = groupItems
+    .filter((item) => operationPlanDrift(snapshot, item))
+    .sort((a, b) => a.order - b.order)[0];
   const groupReason = groupsDeleteReason(snapshot, selectedIds);
   function saveSpecimen(id: string, parameters: GroupPatch) {
     return execute({ type: 'updateSamples', ids: [id], parameters }, false);
@@ -1303,6 +1649,19 @@ function GroupRows({
             <small className="sample-state-caption">
               {group.state === '未指定' ? '每件样品连续编号' : `原始状态：${group.state}`}
             </small>
+            {overrideCount > 0 && (
+              <small className="group-sample-overrides">{overrideCount} 件不同于本组</small>
+            )}
+            {firstDrift && (
+              <button
+                type="button"
+                className="text-button group-plan-drift"
+                aria-label="查看开始后计划已变的操作"
+                onClick={() => onLive(firstDrift.sampleId, firstDrift.id)}
+              >
+                {driftCount} 件开始后计划已变
+              </button>
+            )}
             {group.legacyCompleted !== null && (
               <span className="legacy-label">
                 原表：{group.legacyCompleted ? '已完成' : '未完成'}
@@ -1329,6 +1688,8 @@ function GroupRows({
           <small className={counts.shortage ? 'error-text' : ''}>
             {counts.shortage ? `准备不足 ${counts.shortage}` : `${counts.spare ?? '未定'} 备样`}
           </small>
+          {operationStatus && <small className="group-operation-status">{operationStatus}</small>}
+          {recordedLabel && <small className="group-recorded-duration">{recordedLabel}</small>}
         </td>
         <td className="size-cell">
           <div>
@@ -1438,6 +1799,8 @@ function GroupRows({
                 <span>组内待测样品 · {samples.length} 个</span>
                 <span>
                   操作完成 {counts.completed} / {counts.total} 项
+                  {interruptedCount ? ` · 中断 ${interruptedCount}` : ''}
+                  {skippedCount ? ` · 跳过 ${skippedCount}` : ''}
                 </span>
               </div>
               <MaterialPreparationSummary value={group} />
@@ -1475,6 +1838,9 @@ function GroupRows({
                   const showProtocol =
                     group.mode !== '未定' ||
                     !!(sample.parameters.protocol?.trim() || group.protocol?.trim());
+                  const operations = groupItems
+                    .filter((item) => item.sampleId === sample.id)
+                    .sort((a, b) => a.order - b.order);
                   return (
                     <div
                       className="sample-strip"
@@ -1501,6 +1867,86 @@ function GroupRows({
                         <small className="sample-note">
                           {dimensions({ ...group, ...sample.parameters })}
                         </small>
+                        {sampleOverrideLabel(group, sample.parameters) && (
+                          <small className="sample-override">
+                            本样品 {sampleOverrideLabel(group, sample.parameters)}
+                          </small>
+                        )}
+                        {operations.length > 0 && (
+                          <div
+                            className="sample-operations"
+                            role="group"
+                            aria-label={`${sample.code} 的操作`}
+                          >
+                            {operations.map((item) => {
+                              const reason = operationStatusReason(snapshot, item);
+                              const run = snapshot.runs.find((entry) => entry.itemId === item.id);
+                              const ended = recordedEndLabel(run);
+                              const started = recordedStartLabel(run);
+                              const fileLabel = actualFilenameLabel(run);
+                              const protocolLabel = operationProtocolLabel(snapshot, item);
+                              return (
+                                <span key={item.id}>
+                                  <button
+                                    type="button"
+                                    className="text-button"
+                                    aria-label={`查看 ${sample.code} 操作 ${item.order + 1} ${STATUS_LABEL[item.status]}`}
+                                    onClick={() => onLive(sample.id, item.id)}
+                                  >
+                                    操作 {String(item.order + 1).padStart(2, '0')} ·{' '}
+                                    {STATUS_LABEL[item.status]}
+                                    {run ? ` · 用时 ${runDurationLabel(run)}` : ''}
+                                    {started ? ` · ${started}` : ''}
+                                    {ended ? ` · ${ended}` : ''}
+                                    {fileLabel ? ` · ${fileLabel}` : ''}
+                                    {reason ? ` · 原因：${reason}` : ''}
+                                  </button>
+                                  {protocolLabel && (
+                                    <small className="operation-protocol" title={protocolLabel}>
+                                      {protocolLabel}
+                                    </small>
+                                  )}
+                                  {item.status === 'skipped' && (
+                                    <button
+                                      type="button"
+                                      className="text-button"
+                                      aria-label={`恢复 ${sample.code} 操作 ${item.order + 1}`}
+                                      onClick={() => {
+                                        void flush()
+                                          .then(() =>
+                                            execute({ type: 'unskip', itemId: item.id }, false),
+                                          )
+                                          .catch((error) => notify(error.message, true));
+                                      }}
+                                    >
+                                      恢复待测
+                                    </button>
+                                  )}
+                                  {(item.status === 'completed' ||
+                                    item.status === 'interrupted') && (
+                                    <button
+                                      type="button"
+                                      className="text-button"
+                                      aria-label={`安排重测 ${sample.code} 操作 ${item.order + 1}`}
+                                      onClick={() => {
+                                        if (repeating.current.has(item.id)) return;
+                                        repeating.current.add(item.id);
+                                        void flush()
+                                          .then(() =>
+                                            execute({ type: 'repeat', itemId: item.id }, false),
+                                          )
+                                          .catch((error) => notify(error.message, true))
+                                          .finally(() => repeating.current.delete(item.id));
+                                      }}
+                                    >
+                                      安排重测
+                                    </button>
+                                  )}
+                                </span>
+                              );
+                            })}
+                          </div>
+                        )}
                       </div>
                       <div className="specimen-fields">
                         <AutoInput
@@ -1527,7 +1973,12 @@ function GroupRows({
                         <button className="text-button" onClick={() => onSample(sample)}>
                           编辑样品参数
                         </button>
-                        <button className="text-button" onClick={() => onLive(sample.id)}>
+                        <button
+                          type="button"
+                          className="text-button"
+                          aria-label={`打开 ${sample.code} 的当前操作`}
+                          onClick={() => onLive(sample.id)}
+                        >
                           现场记录 <ArrowRight size={13} />
                         </button>
                         <button

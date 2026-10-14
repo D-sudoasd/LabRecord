@@ -54,6 +54,12 @@ export function measurementSummary(value: MeasurementPlan) {
     .join(' · ');
 }
 
+/** Heating protocol for one operation. A started run keeps the snapshot text. */
+export function operationProtocolLabel(snapshot: Snapshot, item: PlanItem) {
+  const protocol = measurementFor(snapshot, item).protocol?.trim() || '';
+  return protocol ? `实验制度 ${protocol}` : '';
+}
+
 export function measurementName(
   experiment: Experiment,
   group: Group,

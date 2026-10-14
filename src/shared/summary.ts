@@ -1,5 +1,21 @@
 import type { Snapshot } from './model.js';
 import { groupCounts } from './model.js';
+export function enableGroupSpareLabel(spare: number | null) {
+  if (spare === null) return '启用本组备样（数量未定）';
+  if (spare === 0) return '本组没有剩余备样';
+  return `启用本组备样（${spare}）`;
+}
+
+export function groupSpareLabel(spare: number | null) {
+  return spare === null ? '本组备样数量未定' : `本组备样 ${spare}`;
+}
+
+export function spareProgressLabel(spareKnown: number, unknownGroups: number, groupCount: number) {
+  if (groupCount > 0 && unknownGroups === groupCount) return '备样数量未定';
+  if (unknownGroups > 0) return `备样 ${spareKnown} · ${unknownGroups} 组数量未定`;
+  return `备样 ${spareKnown}`;
+}
+
 export function reportInsights(snapshot: Snapshot, experimentId: string) {
   const groups = snapshot.groups.filter((g) => g.experimentId === experimentId);
   const items = snapshot.items.filter((i) => i.experimentId === experimentId);

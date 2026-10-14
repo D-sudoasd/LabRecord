@@ -40,6 +40,12 @@ export function planSpecimens(
   }
   return rows;
 }
+export function sharedSamplePrefix(codes: readonly string[]) {
+  const stems = codes.map((code) => code.replace(/\d+$/, ''));
+  if (!stems.length || stems.some((stem) => !stem || stem !== stems[0])) return '';
+  return stems[0];
+}
+
 export function suggestedSpecimenName(group: { name?: string; state: string }, ordinal: string) {
   return `${(group.name?.trim() || group.state).trim()}-${ordinal}`;
 }
@@ -267,7 +273,8 @@ export type Command =
       measurement?: MeasurementPlan;
       repetitions?: number;
     }
-  | { type: 'start' | 'finish' | 'interrupt' | 'skip' | 'unskip' | 'repeat'; itemId: string }
+  | { type: 'start' | 'finish' | 'unskip' | 'repeat'; itemId: string }
+  | { type: 'interrupt' | 'skip'; itemId: string; reason?: string }
   | {
       type: 'saveRun';
       runId: string;
@@ -285,6 +292,8 @@ export type Command =
       category?: string;
     }
   | { type: 'resolveIssue'; eventId: string }
+  | { type: 'editIssue'; eventId: string; text: string }
+  | { type: 'editNote'; eventId: string; text: string }
   | {
       type: 'times';
       itemId: string;
@@ -342,6 +351,7 @@ export interface DesktopInfo {
 export type Reply<T> = { ok: true; data: T } | { ok: false; error: string; rejected?: boolean };
 export interface DesktopApi {
   copyName(name: string): Promise<Reply<null>>;
+  copyText(text: string): Promise<Reply<null>>;
   snapshot(): Promise<Reply<Snapshot>>;
   command(command: Command, requestId: string): Promise<Reply<CommandResult>>;
   previewFile(): Promise<Reply<TablePreview | null>>;
@@ -349,6 +359,7 @@ export interface DesktopApi {
   importTable(request: ImportRequest): Promise<Reply<Snapshot>>;
   exportFile(experimentId: string, format: 'xlsx' | 'csv' | 'json'): Promise<Reply<string | null>>;
   addAttachment(runId: string): Promise<Reply<Snapshot | null>>;
+  removeAttachment(attachmentId: string): Promise<Reply<Snapshot>>;
   chooseReference(): Promise<Reply<string[]>>;
   backup(): Promise<Reply<string | null>>;
   restore(): Promise<Reply<Snapshot | null>>;
@@ -424,6 +435,78 @@ export function dimensions(
   const value = (number: string | undefined, unit: string | undefined) =>
     number ? `${number} ${unit || '（单位未定）'}` : '未填写';
   return `厚 ${value(group.thickness, group.thicknessUnit)} · 宽 ${value(group.width, group.dimensionUnit)}${group.height ? ` · 高 ${value(group.height, group.dimensionUnit)}` : ''}`;
+}
+/** Only dimensions the user filled in. Blank sides are omitted and no unit is invented. */
+export function filledSize(
+  group: Pick<Group, 'thickness' | 'thicknessUnit' | 'width' | 'height' | 'dimensionUnit'>,
+) {
+  const part = (label: string, number: string | undefined, unit: string | undefined) => {
+    const value = number?.trim();
+    if (!value) return '';
+    const shown = [value, unit?.trim()].filter(Boolean).join(' ');
+    return `${label} ${shown}`;
+  };
+  return [
+    part('厚', group.thickness, group.thicknessUnit),
+    part('宽', group.width, group.dimensionUnit),
+    part('高', group.height, group.dimensionUnit),
+  ]
+    .filter(Boolean)
+    .join(' · ');
+}
+
+/** Fields this sample set for itself that differ from the group. Inherited blanks are omitted. */
+export function sampleOverrideLabel(
+  group: Pick<
+    Group,
+    | 'thickness'
+    | 'thicknessUnit'
+    | 'width'
+    | 'height'
+    | 'dimensionUnit'
+    | 'composition'
+    | 'processing'
+    | 'heatTreatment'
+    | 'otherTreatment'
+  >,
+  parameters: GroupPatch,
+) {
+  const differs = (own: string | undefined, shared: string | undefined) => {
+    const value = own?.trim();
+    return !!value && value !== (shared || '').trim();
+  };
+  const side = (
+    label: string,
+    numberKey: 'thickness' | 'width' | 'height',
+    unitKey: 'thicknessUnit' | 'dimensionUnit',
+    sharedUnit: string | undefined,
+  ) => {
+    const number = parameters[numberKey];
+    const unit = parameters[unitKey];
+    if (!differs(number, group[numberKey]) && !differs(unit, sharedUnit)) return '';
+    const shown = [number?.trim() || group[numberKey]?.trim(), (unit || sharedUnit)?.trim()]
+      .filter(Boolean)
+      .join(' ');
+    return shown ? `${label} ${shown}` : '';
+  };
+  const materials = (
+    [
+      ['composition', '成分'],
+      ['processing', '加工工艺'],
+      ['heatTreatment', '热处理制度'],
+      ['otherTreatment', '其他工艺'],
+    ] as const
+  ).flatMap(([key, label]) =>
+    differs(parameters[key], group[key]) ? [`${label}：${parameters[key]!.trim()}`] : [],
+  );
+  return [
+    side('厚', 'thickness', 'thicknessUnit', group.thicknessUnit),
+    side('宽', 'width', 'dimensionUnit', group.dimensionUnit),
+    side('高', 'height', 'dimensionUnit', group.dimensionUnit),
+    ...materials,
+  ]
+    .filter(Boolean)
+    .join(' · ');
 }
 export function groupCounts(snapshot: Snapshot, group: Group) {
   const samples = snapshot.samples.filter((s) => s.groupId === group.id);

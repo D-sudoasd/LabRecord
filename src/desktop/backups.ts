@@ -2,7 +2,7 @@ import { DatabaseSync, backup } from 'node:sqlite';
 import JSZip from 'jszip';
 import { createHash, randomUUID } from 'node:crypto';
 import { readFile, writeFile, mkdir, rename, stat, readdir, unlink } from 'node:fs/promises';
-import { join, dirname } from 'node:path';
+import { join, dirname, resolve } from 'node:path';
 import type { Attachment, Snapshot } from '../shared/model.js';
 import { Store } from './store.js';
 import { archiveSchema } from './archive-validation.js';
@@ -255,6 +255,30 @@ export async function addAttachment(
     throw error;
   }
   return attachment;
+}
+export async function removeAttachment(store: Store, attachmentId: string) {
+  if (typeof attachmentId !== 'string' || !attachmentId.trim()) throw new Error('图片不存在，请刷新后重试。');
+  const attachment = store.get('attachments', attachmentId);
+  if (!attachmentPath.test(attachment.relativePath)) throw new Error('图片路径无效。');
+  const root = resolve(store.root);
+  const file = resolve(root, attachment.relativePath);
+  if (file !== join(root, attachment.relativePath)) throw new Error('图片路径无效。');
+  const run = store.get('runs', attachment.runId);
+  const startedAt = run.originalStartedAt;
+  const endedAt = run.originalEndedAt;
+  store.transaction(() => {
+    store.remove('attachments', attachment.id);
+    store.event(run.experimentId, 'attachment', `移除图片：${attachment.name}`, run.itemId, run.id);
+  });
+  try {
+    await unlink(file);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+  }
+  const after = store.get('runs', run.id);
+  if (after.originalStartedAt !== startedAt || after.originalEndedAt !== endedAt)
+    throw new Error('移除图片时不应改写原始时间。');
+  return store.snapshot();
 }
 export async function createBackup(store: Store, path: string) {
   await mkdir(dirname(path), { recursive: true });

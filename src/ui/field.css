@@ -219,7 +219,7 @@
 
 .next-pending-indicator {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 7px;
   padding: 8px 12px;
   margin-top: 8px;
@@ -230,8 +230,19 @@
   font-size: 13px;
   overflow-wrap: anywhere;
 }
+.next-pending-indicator > div {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
 .next-pending-indicator strong {
   color: var(--primary);
+}
+.next-pending-indicator span {
+  color: var(--muted);
+  font-size: 12px;
 }
 .dialog-target {
   padding: 9px 12px;
