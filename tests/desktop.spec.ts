@@ -332,6 +332,10 @@ test('workspace shortcuts, quantity guidance and clear search keep the workflow 
   await modal.getByLabel('计划测试数量', { exact: true }).fill('0');
   await expect(modal.getByRole('button', { name: '添加为备样', exact: true })).toBeEnabled();
   await page.keyboard.press('Escape');
+  await modal
+    .getByRole('alertdialog', { name: '放弃这次样品填写？' })
+    .getByRole('button', { name: '放弃填写', exact: true })
+    .click();
   await expect(page.getByRole('button', { name: '新增样品', exact: true })).toBeFocused();
 
   await page.getByLabel('搜索样品组', { exact: true }).fill('不存在的样品');

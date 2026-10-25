@@ -16,6 +16,15 @@ import { MaterialPreparationFields } from './MaterialPreparation';
 import { useWorkspace, DesktopReplyError } from './context';
 import { Modal, FieldInputs, useCommandClose } from './components';
 
+function draftSignature(
+  patch: GroupPatch,
+  count: string,
+  prefix: string,
+  measurement: MeasurementPlan,
+) {
+  return JSON.stringify([patch, count, prefix, measurement]);
+}
+
 export function QuickAdd({ onClose }: { onClose: () => void }) {
   const { experimentId, snapshot, execute, getSnapshot } = useWorkspace();
   const experiment = snapshot.experiments.find((e) => e.id === experimentId)!;
@@ -42,12 +51,14 @@ export function QuickAdd({ onClose }: { onClose: () => void }) {
     regime: '',
     batch: '',
   });
+  const cleanDraft = useRef(draftSignature(patch, count, prefix, measurement));
   const [namingOpen, setNamingOpen] = useState(false);
   const [busy, setBusy] = useState(false),
     [error, setError] = useState(''),
     [added, setAdded] = useState(0),
     [addedLine, setAddedLine] = useState(''),
-    [copied, setCopied] = useState(false);
+    [copied, setCopied] = useState(false),
+    [confirmDiscard, setConfirmDiscard] = useState(false);
   const planned = count.trim() ? Number(count) : null;
   const prepared = patch.preparedCount ?? null;
   const validCounts =
@@ -71,6 +82,30 @@ export function QuickAdd({ onClose }: { onClose: () => void }) {
     onClose,
     onError: setError,
   });
+  const discardButton = useRef<HTMLButtonElement>(null);
+  const returnFocus = useRef<HTMLElement | null>(null);
+  const hasChanges = draftSignature(patch, count, prefix, measurement) !== cleanDraft.current;
+  function requestClose() {
+    if (busy || closing) return;
+    if (confirmDiscard) {
+      setConfirmDiscard(false);
+      return;
+    }
+    if (intent.current || !hasChanges) {
+      close();
+      return;
+    }
+    returnFocus.current =
+      document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    setConfirmDiscard(true);
+  }
+  useEffect(() => {
+    if (confirmDiscard) discardButton.current?.focus();
+    else returnFocus.current?.focus();
+  }, [confirmDiscard]);
+  function keepEditing() {
+    setConfirmDiscard(false);
+  }
   useEffect(() => {
     if (added > 0 && !busy && !intent.current) nameInput.current?.focus();
   }, [added, busy]);
@@ -125,7 +160,9 @@ export function QuickAdd({ onClose }: { onClose: () => void }) {
         setAddedLine(`已加入 ${span(created)}。下一组 ${span(next)}。`);
       } else setAddedLine('已加入备样。');
       setAdded((n) => n + 1);
-      setPatch((old) => ({ ...old, name: '', state: '' }));
+      const nextPatch = { ...patch, name: '', state: '' };
+      setPatch(nextPatch);
+      cleanDraft.current = draftSignature(nextPatch, count, prefix, measurement);
     } catch (failure) {
       if (failure instanceof DesktopReplyError && failure.rejected) intent.current = null;
       setError((failure as Error).message);
@@ -137,21 +174,22 @@ export function QuickAdd({ onClose }: { onClose: () => void }) {
   return (
     <Modal
       title="添加样品"
-      onClose={close}
+      onClose={requestClose}
       className="quick-add-modal"
       closeDisabled={busy || closing}
     >
       <form
         className="form-grid quick-add-form"
+        hidden={confirmDiscard}
+        style={confirmDiscard ? { display: 'none' } : undefined}
         onSubmit={(event) => {
           event.preventDefault();
           void submit(false);
         }}
         onKeyDown={(event) => {
-          if (event.ctrlKey && event.key === 'Enter' && !event.nativeEvent.isComposing) {
-            event.preventDefault();
-            if (!busy) void submit(true);
-          }
+          if (!event.ctrlKey || event.key !== 'Enter') return;
+          event.preventDefault();
+          if (!event.repeat && !event.nativeEvent.isComposing && !busy) void submit(true);
         }}
       >
         <fieldset
@@ -522,6 +560,25 @@ export function QuickAdd({ onClose }: { onClose: () => void }) {
           </button>
         </footer>
       </form>
+      {confirmDiscard && (
+        <section
+          className="modal-body"
+          role="alertdialog"
+          aria-labelledby="quick-add-discard-title"
+          aria-describedby="quick-add-discard-description"
+        >
+          <h3 id="quick-add-discard-title">放弃这次样品填写？</h3>
+          <p id="quick-add-discard-description">这组样品还没有保存。继续填写会保留已输入的内容。</p>
+          <footer className="modal-actions">
+            <button ref={discardButton} type="button" className="button" onClick={keepEditing}>
+              继续填写
+            </button>
+            <button type="button" className="button danger" onClick={onClose}>
+              放弃填写
+            </button>
+          </footer>
+        </section>
+      )}
     </Modal>
   );
 }

@@ -51,17 +51,24 @@ import {
   type Field,
   type DesktopInfo,
 } from '../shared/model';
+import { isExperimentCodeTaken, suggestExperimentCode } from './experimentCode';
 import './workspace.css';
 
 function NewExperiment({ onClose }: { onClose: () => void }) {
   const { execute, snapshot } = useWorkspace();
   const [reuseId, setReuseId] = useState('');
   const [name, setName] = useState(''),
-    [code, setCode] = useState('EXP-' + new Date().toLocaleDateString('sv-SE').replaceAll('-', '')),
+    [code, setCode] = useState(() =>
+      suggestExperimentCode(
+        snapshot.experiments.map((entry) => entry.code),
+        new Date(),
+      ),
+    ),
     [description, setDescription] = useState(''),
     [busy, setBusy] = useState(false),
     [error, setError] = useState('');
   const submitting = useRef(false);
+  const codeInput = useRef<HTMLInputElement>(null);
   const intent = useRef<{
     command: Extract<import('../shared/model').Command, { type: 'createExperiment' }>;
     requestId: string;
@@ -72,9 +79,25 @@ function NewExperiment({ onClose }: { onClose: () => void }) {
     onClose,
     onError: setError,
   });
+  const codeTaken =
+    !intent.current &&
+    isExperimentCodeTaken(
+      snapshot.experiments.map((entry) => entry.code),
+      code,
+    );
+  const codeError = codeTaken ? '实验编号已经存在，请换一个编号。' : '';
   async function submit(event: React.FormEvent) {
     event.preventDefault();
     if (submitting.current || closing) return;
+    if (codeTaken) {
+      setError('');
+      codeInput.current?.focus();
+      return;
+    }
+    if (!intent.current && (!name.trim() || !code.trim())) {
+      setError('请填写实验名称和编号。');
+      return;
+    }
     submitting.current = true;
     setBusy(true);
     try {
@@ -110,13 +133,35 @@ function NewExperiment({ onClose }: { onClose: () => void }) {
               autoFocus
               placeholder="例如 10 月同步辐射原位拉伸"
               value={name}
-              onChange={(event) => setName(event.target.value)}
+              onChange={(event) => {
+                setName(event.target.value);
+                setError('');
+              }}
             />
           </label>
           <label className="field">
             <span>实验编号 *</span>
-            <input required value={code} onChange={(event) => setCode(event.target.value)} />
-            <small>写在数据文件夹名前面，同一台电脑上不能重复。</small>
+            <input
+              ref={codeInput}
+              required
+              maxLength={80}
+              aria-invalid={codeTaken || undefined}
+              aria-describedby="new-experiment-code-hint"
+              value={code}
+              onChange={(event) => {
+                setCode(event.target.value);
+                setError('');
+              }}
+            />
+            {codeTaken ? (
+              <small id="new-experiment-code-hint" className="field-error" role="alert">
+                {codeError}
+              </small>
+            ) : (
+              <small id="new-experiment-code-hint">
+                写在数据文件夹名前面，同一台电脑上不能重复。
+              </small>
+            )}
           </label>
           <label className="field">
             <span>说明（可选）</span>
@@ -922,7 +967,8 @@ export function App() {
                       .then(async () => {
                         const data = workspace.getSnapshot();
                         const current = data.items.find((item) => item.status === 'running');
-                        const record = current && data.runs.find((run) => run.itemId === current.id);
+                        const record =
+                          current && data.runs.find((run) => run.itemId === current.id);
                         const name = record?.filename || '';
                         if (!canCopyName(name)) throw new Error('还没有可复制的数据文件夹名。');
                         await unwrap(window.labrecord.copyName(name));
@@ -944,7 +990,8 @@ export function App() {
                       .then(async () => {
                         const data = workspace.getSnapshot();
                         const current = data.items.find((item) => item.status === 'running');
-                        const record = current && data.runs.find((run) => run.itemId === current.id);
+                        const record =
+                          current && data.runs.find((run) => run.itemId === current.id);
                         const name = String(record?.actual.filename || '').trim();
                         if (!canCopyName(name)) throw new Error('还没有可复制的实际文件名。');
                         await unwrap(window.labrecord.copyName(name));
@@ -966,7 +1013,8 @@ export function App() {
                       .then(async () => {
                         const data = workspace.getSnapshot();
                         const current = data.items.find((item) => item.status === 'running');
-                        const record = current && data.runs.find((run) => run.itemId === current.id);
+                        const record =
+                          current && data.runs.find((run) => run.itemId === current.id);
                         const name = String(record?.actual.scanId || '').trim();
                         if (!canCopyName(name)) throw new Error('还没有可复制的扫描编号。');
                         await unwrap(window.labrecord.copyName(name));
@@ -1039,6 +1087,7 @@ export function App() {
                 载入演示实验
               </button>
             </div>
+            <p className="hint">演示实验会保存在本机实验库中，之后可从实验库切换。</p>
           </div>
         ) : (
           <div key={experimentId}>

@@ -1,4 +1,5 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { X } from 'lucide-react';
 import { useWorkspace } from './context';
 import { Modal } from './components';
 import { LibraryBoard } from './LibraryBoard';
@@ -14,6 +15,7 @@ export function WorkspaceSearchDialog({
 }) {
   const { snapshot, flush, notify, setExperimentId, setItemId, setPage } = useWorkspace();
   const [query, setQuery] = useState('');
+  const input = useRef<HTMLInputElement>(null);
   const [active, setActive] = useState(0);
   const browsing = !query.trim();
   const hits = searchWorkspace(snapshot, query);
@@ -70,39 +72,58 @@ export function WorkspaceSearchDialog({
 
   return (
     <Modal title="全库搜索" onClose={onClose} wide className="workbench-modal">
-      <label className="field">
-        <span>样品、文件夹、制度、制备或实验</span>
-        <input
-          id="workspace-search"
-          autoFocus
-          role="combobox"
-          aria-label="全库搜索"
-          aria-autocomplete="list"
-          aria-controls="workspace-results"
-          aria-activedescendant={rows.length ? `workspace-hit-${index}` : undefined}
-          placeholder="例如 S01、循环加载或实验编号"
-          value={query}
-          onChange={(event) => {
-            setQuery(event.target.value);
-            setActive(0);
-          }}
-          onKeyDown={(event) => {
-            if (event.nativeEvent.isComposing) return;
-            if (event.key === 'ArrowDown' && rows.length) {
-              event.preventDefault();
-              setActive((current) => (Math.min(current, rows.length - 1) + 1) % rows.length);
-            } else if (event.key === 'ArrowUp' && rows.length) {
-              event.preventDefault();
-              setActive(
-                (current) => (Math.min(current, rows.length - 1) - 1 + rows.length) % rows.length,
-              );
-            } else if (event.key === 'Enter') {
-              event.preventDefault();
-              openRow(index);
-            }
-          }}
-        />
-      </label>
+      <div className="field workspace-search-field">
+        <label htmlFor="workspace-search">样品、文件夹、制度、制备或实验</label>
+        <div className="workspace-search-control">
+          <input
+            ref={input}
+            id="workspace-search"
+            autoFocus
+            role="combobox"
+            aria-label="全库搜索"
+            aria-autocomplete="list"
+            aria-expanded={rows.length > 0}
+            aria-controls={rows.length ? 'workspace-results' : undefined}
+            aria-activedescendant={rows.length ? `workspace-hit-${index}` : undefined}
+            placeholder="例如 S01、循环加载或实验编号"
+            value={query}
+            onChange={(event) => {
+              setQuery(event.target.value);
+              setActive(0);
+            }}
+            onKeyDown={(event) => {
+              if (event.nativeEvent.isComposing) return;
+              if (event.key === 'ArrowDown' && rows.length) {
+                event.preventDefault();
+                setActive((current) => (Math.min(current, rows.length - 1) + 1) % rows.length);
+              } else if (event.key === 'ArrowUp' && rows.length) {
+                event.preventDefault();
+                setActive(
+                  (current) => (Math.min(current, rows.length - 1) - 1 + rows.length) % rows.length,
+                );
+              } else if (event.key === 'Enter') {
+                event.preventDefault();
+                openRow(index);
+              }
+            }}
+          />
+          {!!query && (
+            <button
+              type="button"
+              className="search-clear"
+              aria-label="清除全库搜索"
+              title="清除搜索，查看全部实验"
+              onClick={() => {
+                setQuery('');
+                setActive(0);
+                input.current?.focus();
+              }}
+            >
+              <X size={16} aria-hidden="true" />
+            </button>
+          )}
+        </div>
+      </div>
       <p className="hint">
         未输入时列出全部实验。方向键选择，回车打开。可搜索扫描编号、文件引用和尺寸，不搜索备注和自定义值。
       </p>
@@ -124,7 +145,11 @@ export function WorkspaceSearchDialog({
           </div>
         </>
       )}
-      {!browsing && !hits.length && <p className="hint">没有匹配的样品或实验</p>}
+      {!browsing && !hits.length && (
+        <p className="hint" role="status">
+          没有匹配的样品或实验。清除搜索可查看全部实验。
+        </p>
+      )}
       {!browsing && !!hits.length && (
         <div className="workspace-hits" role="listbox" id="workspace-results" aria-label="搜索结果">
           {hits.map((hit, hitIndex) => (

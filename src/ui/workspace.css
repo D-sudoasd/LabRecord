@@ -83,6 +83,23 @@
   gap: 6px;
   margin-top: 12px;
 }
+.workspace-search-field > label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+}
+.workspace-search-control {
+  position: relative;
+}
+.workspace-search-control input {
+  padding-right: 42px;
+}
+.workspace-search-control .search-clear {
+  position: absolute;
+  top: 50%;
+  right: 6px;
+  transform: translateY(-50%);
+}
 .workspace-hits button {
   display: flex;
   flex-direction: column;

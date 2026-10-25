@@ -368,13 +368,14 @@ test('review gaps distinguish planned names from actual references and remain us
     win.webContents.setZoomFactor(1.5);
   });
   await expect(page.locator('.review-scroll-hint')).toBeVisible();
-  await page
-    .locator('.review-followup')
-    .evaluate((element) => element.scrollIntoView({ block: 'center' }));
+  await expect.poll(() => page.evaluate(() => innerWidth)).toBeLessThan(650);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(
     true,
   );
   const firstCell = rows.first().locator('td').first();
+  // The follow-up roster can span a screen; scroll the table cell we are testing.
+  await firstCell.scrollIntoViewIfNeeded();
+  await expect(firstCell).toBeInViewport();
   expect((await firstCell.boundingBox())!.y).toBeLessThan(await page.evaluate(() => innerHeight));
   const left = (await firstCell.boundingBox())!.x;
   await page.locator('.review-table-wrap').evaluate((element) => {
@@ -469,7 +470,7 @@ test('experiment library and next pending open the field without starting a run'
   expect((await snapshot()).runs).toHaveLength(1);
 
   await page.getByRole('button', { name: '全库搜索', exact: true }).click();
-  const search = page.getByRole('dialog', { name: '全库搜索' }).getByLabel('全库搜索');
+  const search = page.getByRole('dialog', { name: '全库搜索' }).getByRole('combobox', { name: '全库搜索', exact: true });
   await search.fill('核对装样方向');
   await expect(page.getByText('没有匹配的样品或实验')).toBeVisible();
   await search.fill('演示材料');
@@ -575,7 +576,7 @@ test('experiment library and next pending open the field without starting a run'
   expect(opened.runs).toHaveLength(1);
   expect(opened.runs[0].endedAt).toBeNull();
   await page.getByRole('button', { name: '全库搜索', exact: true }).click();
-  const referenceSearch = page.getByRole('dialog', { name: '全库搜索' }).getByLabel('全库搜索');
+  const referenceSearch = page.getByRole('dialog', { name: '全库搜索' }).getByRole('combobox', { name: '全库搜索', exact: true });
   await referenceSearch.fill('SCAN-88421');
   await expect(page.getByRole('option', { name: /TA-01/ })).toBeVisible();
   await referenceSearch.fill('核对装样方向');
