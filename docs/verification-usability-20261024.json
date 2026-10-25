@@ -1,0 +1,177 @@
+{
+  "date": "2026-10-24",
+  "timezone": "Asia/Shanghai",
+  "version": "0.7.0",
+  "published": false,
+  "baseCommit": "15d3d39d3092185cd6a7b68f8c4875a58036d7c6",
+  "collaborators": {
+    "count": 6,
+    "model": "gpt-6-astra",
+    "reasoningEffort": "xhigh"
+  },
+  "typecheck": "passed",
+  "build": "passed",
+  "unitTests": {
+    "passed": 116,
+    "failed": 0,
+    "evidence": "Executed before UI edits; unit-tested shared, desktop, search and calculation modules remain unchanged."
+  },
+  "desktop": {
+    "uniquePassed": 142,
+    "firstRun": {
+      "startTime": "2026-10-23T16:01:21.773Z",
+      "duration": 416042.767,
+      "expected": 135,
+      "skipped": 0,
+      "unexpected": 7,
+      "flaky": 0
+    },
+    "searchRecheck": {
+      "startTime": "2026-10-23T16:09:37.716Z",
+      "duration": 69963.237,
+      "expected": 6,
+      "skipped": 0,
+      "unexpected": 0,
+      "flaky": 0
+    },
+    "reviewRecheck": {
+      "startTime": "2026-10-23T16:12:43.507Z",
+      "duration": 18051.649,
+      "expected": 2,
+      "skipped": 0,
+      "unexpected": 0,
+      "flaky": 0
+    },
+    "unresolved": []
+  },
+  "packaged": {
+    "startTime": "2026-10-23T16:14:54.435Z",
+    "duration": 377723.622,
+    "expected": 142,
+    "skipped": 0,
+    "unexpected": 0,
+    "flaky": 0
+  },
+  "delivery": {
+    "archive": {
+      "filename": "LabRecord-0.7.0-Windows-x64.zip",
+      "bytes": 163095301,
+      "sha256": "a1c1ff80c67ec2ba746f368aa3a08bd521f54d87ebe21337c8c9ae1a272083e1"
+    },
+    "archiveCrcChecked": true,
+    "archiveFileCount": 149,
+    "matchedKeyFiles": 10,
+    "runtime": {
+      "version": "0.7.0",
+      "packaged": true,
+      "appPath": "resources/app.asar",
+      "electron": "44.5.1",
+      "node": "24.21.0",
+      "sqlite": "3.53.4",
+      "platform": "win32",
+      "arch": "x64",
+      "displayScale": 1
+    }
+  },
+  "queueLayout": {
+    "viewportWidth": 1424,
+    "contentWidth": 137,
+    "codeHeight": 21,
+    "codeLineHeight": 21,
+    "rowRight": 454,
+    "moreRight": 294
+  },
+  "helpPage": {
+    "browser": "Headless Microsoft Edge",
+    "viewports": [
+      [900, 700],
+      [390, 844]
+    ],
+    "pageOverflow": false,
+    "brokenAnchors": [],
+    "detailsKeyboardToggle": true,
+    "source": "guidance_usability executed check; exec_command output chunk 68c2ad"
+  },
+  "limitations": [
+    "No real private GitHub repository network validation in this task; existing isolated cloud regressions ran.",
+    "Native file dialogs use isolated paths in automated tests; no user experiment database was used."
+  ],
+  "previousDelivery": "local_artifacts/usability-20261023/previous-delivery",
+  "sourceFiles": [
+    {
+      "path": "src/ui/FindDialog.tsx",
+      "sha256": "bd70b60bf67088982c9088c90263ab696ed1006f8be884326e4fcec17364ba8c"
+    },
+    {
+      "path": "src/ui/LibraryBoard.tsx",
+      "sha256": "a40bf07a47d701550f29b6cc71463c86e84ef32d135f38827af9aac2751d2957"
+    },
+    {
+      "path": "src/ui/Live.tsx",
+      "sha256": "cae8cd23f13a9ddf003ef950b27f29561b2aba0fbe6aea513dc4d8082543098b"
+    },
+    {
+      "path": "src/ui/MaterialPreparation.tsx",
+      "sha256": "fc3ab89b508e54c818b7a060ddc0e424a830606413511b6b889eb0d29d5c4852"
+    },
+    {
+      "path": "src/ui/MeasurementPlanner.tsx",
+      "sha256": "7c07f1da76eef83609947f5e958fecd1f9404b6b85a5fe10594b5bbc43373c05"
+    },
+    {
+      "path": "src/ui/Plan.tsx",
+      "sha256": "111ba3f2874cfc630a96be8b580171e451605950a641624d2658c0fcc08604d6"
+    },
+    {
+      "path": "src/ui/QuickAdd.tsx",
+      "sha256": "2b06c0aca69a898735810b76615fb882e97f6dab5763f461f237c3284e9ab626"
+    },
+    {
+      "path": "src/ui/Review.tsx",
+      "sha256": "1737c7c4c7030164085df8cb3278d242486daea15111a019f9c1ed0c0544eb78"
+    },
+    {
+      "path": "src/ui/Shortcuts.tsx",
+      "sha256": "e743ea8affaf0e979be853e42d21beb8ca5b4c4a5556141815bbc150702f2ce5"
+    },
+    {
+      "path": "src/ui/field.css",
+      "sha256": "04cfa5352c390c5001b6a3980eb81a79e3828b27d0e5bf0d23cdd8eed99563ef"
+    },
+    {
+      "path": "src/ui/review.css",
+      "sha256": "d19f9146a5e53a4631589ef1c8d3074af264443a725e21c51f29b0078734dcc4"
+    },
+    {
+      "path": "src/ui/workspace.css",
+      "sha256": "12699f0ea269779b4ccb8f67e696e485e8f9119d2236a3d193549da7d13203b3"
+    },
+    {
+      "path": "tests/desktop.spec.ts",
+      "sha256": "50e9fa920cc396ab8f65371c7d54ab363566d894356abf9f6688594cd821b33e"
+    },
+    {
+      "path": "tests/field.spec.ts",
+      "sha256": "42cfe73f9d4e2eb787c10b0ac2108e3a19050c816b73d1aca75e37220c266067"
+    },
+    {
+      "path": "tests/usability-improvements.spec.ts",
+      "sha256": "5d43ad83fbbb3755ecf683f74f3726fd2cd76fc1572a5030029bc78378a93961"
+    },
+    {
+      "path": "tests/usability.spec.ts",
+      "sha256": "7c552380aa0011bf25d6aa66d2c1f13f7a04ef4d337bcadc4d07fc6508152469"
+    }
+  ],
+  "screenshot": {
+    "path": "docs/images/usability-live-20261024.png",
+    "softwareVersion": "0.7.0",
+    "packaged": true,
+    "capturedAtUtc": "2026-10-23T16:19:00.001Z",
+    "source": "test-results/usability-improvements-fie-d91a9-arrow-context-controls-wrap/field-priority-wide.png",
+    "method": "BrowserWindow.webContents.capturePage",
+    "selfCheckLog": "local_artifacts/usability-20261023/packaged.log",
+    "sha256": "2e84501bf0492efabeec8f905da69d10994b937346dda1e5575a45300fa68210",
+    "bytes": 138231
+  }
+}

@@ -587,6 +587,17 @@ export function Live() {
     [queueOpen, setQueueOpen] = useState(false),
     [moreTarget, setMoreTarget] = useState<EventTarget | null>(null),
     [timelineTarget, setTimelineTarget] = useState<EventTarget | null>(null);
+  const queueListRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const list = queueListRef.current;
+    const heading = list?.querySelector('.queue-row.current .queue-choice strong');
+    if (!list || !heading) return;
+    const bounds = list.getBoundingClientRect();
+    const title = heading.getBoundingClientRect();
+    if (title.top < bounds.top || title.bottom > bounds.bottom) {
+      list.scrollTop += title.top - bounds.top - 12;
+    }
+  }, [selected?.id, selected?.status, focused, queueOpen, filter, search]);
   const [actualOpen, setActualOpen] = useState(false);
   const openActualFor = useRef<string | null>(null);
   useEffect(() => {
@@ -1278,7 +1289,7 @@ export function Live() {
           </button>
         )}
       </div>
-      <div className="queue-list">
+      <div className="queue-list" ref={queueListRef}>
         {visible.map((item) => {
           const history = snapshot.runs.find((run) => run.itemId === item.id);
           const sample =
@@ -1401,7 +1412,10 @@ export function Live() {
                           : ''}
                       </small>
                     )}
-                    <StatusPill status={item.status} />
+                    <span className="queue-status">
+                      <StatusPill status={item.status} />
+                      <PriorityPill value={group.priority} />
+                    </span>
                     {statusReason && <small>原因：{statusReason}</small>}
                     {followUpLabels(item.id, followUps).map((label) => (
                       <small key={label} className="queue-gap">
@@ -1409,7 +1423,6 @@ export function Live() {
                       </small>
                     ))}
                   </div>
-                  <PriorityPill value={group.priority} />
                 </button>
                 <button
                   type="button"
@@ -1893,6 +1906,70 @@ export function Live() {
                 )}
               </div>
             </div>
+            {run && (
+              <QuickRecordBar itemId={selected.id} experimentId={experimentId} runId={run.id} />
+            )}
+            <div className="record-section">
+              <div className="section-title">
+                <h3>
+                  <FileText size={17} />
+                  现场备注
+                </h3>
+                <span>自动保存</span>
+              </div>
+              {run ? (
+                <AutoInput
+                  key={run.id}
+                  label="现场备注"
+                  multiline
+                  value={run.notes}
+                  onSave={(notes) => execute({ type: 'saveRun', runId: run.id, notes }, false)}
+                  placeholder="直接记录变化、观察现象或注意事项…"
+                  className="live-notes"
+                />
+              ) : (
+                <div className="note-before-start">
+                  <p>开始后可以直接编辑现场备注。</p>
+                  <button className="text-button" onClick={() => openEvent(false)}>
+                    开始前先记一条信息 <Plus size={14} />
+                  </button>
+                </div>
+              )}
+            </div>
+            <div className="quick-record-actions" role="group" aria-label="现场快速记录">
+              <button className="button issue-button" onClick={() => openEvent(true)}>
+                <AlertTriangle size={17} />
+                记录问题
+              </button>
+              <button className="button" onClick={() => openEvent(false)}>
+                <Plus size={16} />
+                添加时间线记录
+              </button>
+              <button
+                className="button"
+                disabled={!run || fileBusy}
+                onClick={() => {
+                  if (run) void addImage(run.id);
+                }}
+              >
+                <ImagePlus size={17} />
+                添加图片
+              </button>
+            </div>
+            <div className="filename-card current-folder-card">
+              <div>
+                <span>数据文件夹</span>
+                <code>{proposed}</code>
+              </div>
+              <button
+                className="icon-button"
+                aria-label="复制数据文件夹名"
+                title="复制数据文件夹名"
+                onClick={copy}
+              >
+                <Copy size={17} />
+              </button>
+            </div>
             {source && (
               <div className="next-pending-indicator" role="region" aria-label="重测来源">
                 <div>
@@ -2087,56 +2164,6 @@ export function Live() {
                 </button>
               </div>
             )}
-            <div className="record-section">
-              <div className="section-title">
-                <h3>
-                  <FileText size={17} />
-                  现场备注
-                </h3>
-                <span>自动保存</span>
-              </div>
-              {run ? (
-                <AutoInput
-                  key={run.id}
-                  label="现场备注"
-                  multiline
-                  value={run.notes}
-                  onSave={(notes) => execute({ type: 'saveRun', runId: run.id, notes }, false)}
-                  placeholder="直接记录变化、观察现象或注意事项…"
-                  className="live-notes"
-                />
-              ) : (
-                <div className="note-before-start">
-                  <p>开始后可以直接编辑现场备注。</p>
-                  <button className="text-button" onClick={() => openEvent(false)}>
-                    开始前先记一条信息 <Plus size={14} />
-                  </button>
-                </div>
-              )}
-            </div>
-            <div className="quick-record-actions" role="group" aria-label="现场快速记录">
-              <button className="button issue-button" onClick={() => openEvent(true)}>
-                <AlertTriangle size={17} />
-                记录问题
-              </button>
-              <button className="button" onClick={() => openEvent(false)}>
-                <Plus size={16} />
-                添加时间线记录
-              </button>
-              <button
-                className="button"
-                disabled={!run || fileBusy}
-                onClick={() => {
-                  if (run) void addImage(run.id);
-                }}
-              >
-                <ImagePlus size={17} />
-                添加图片
-              </button>
-            </div>
-            {run && (
-              <QuickRecordBar itemId={selected.id} experimentId={experimentId} runId={run.id} />
-            )}
             {(materialSummary(displayedGroup) ||
               displayedGroup.preparation ||
               displayedGroup.notes) && (
@@ -2269,20 +2296,6 @@ export function Live() {
                 onClick={() => {
                   void copySampleId();
                 }}
-              >
-                <Copy size={17} />
-              </button>
-            </div>
-            <div className="filename-card">
-              <div>
-                <span>数据文件夹</span>
-                <code>{proposed}</code>
-              </div>
-              <button
-                className="icon-button"
-                aria-label="复制数据文件夹名"
-                title="复制数据文件夹名"
-                onClick={copy}
               >
                 <Copy size={17} />
               </button>

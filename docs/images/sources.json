@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "description": "Real Electron screenshots with synthetic experiments and isolated temporary data. Planning, live, review, review-small and quick-add were refreshed from packaged 0.6.2. Other images retain their individually recorded versions. This is software verification, not scientific acceptance or a GitHub release.",
+  "description": "Real Electron screenshots with synthetic experiments and isolated temporary data. Planning, live, review, review-small and quick-add were refreshed from packaged 0.6.2. Other images retain their individually recorded versions. This is software verification, not scientific acceptance or a GitHub release. usability-live-20261024.png is from the packaged 0.7.0 usability update verified on 2026-10-24.",
   "source": "E:/Vibe_coding/LabRecord",
   "focusRuntime": {
     "requestedSize": [900, 700],
@@ -156,6 +156,17 @@
       "selfCheckReport": "test-results/desktop-report.json",
       "sha256": "5603c75f89f4c16148681088f32fdd6d21c7bbf434347fe6ac8ac8a543b62654",
       "bytes": 185888
+    },
+    {
+      "path": "docs/images/usability-live-20261024.png",
+      "softwareVersion": "0.7.0",
+      "packaged": true,
+      "capturedAtUtc": "2026-10-23T16:19:00.001Z",
+      "source": "test-results/usability-improvements-fie-d91a9-arrow-context-controls-wrap/field-priority-wide.png",
+      "method": "BrowserWindow.webContents.capturePage",
+      "selfCheckLog": "local_artifacts/usability-20261023/packaged.log",
+      "sha256": "2e84501bf0492efabeec8f905da69d10994b937346dda1e5575a45300fa68210",
+      "bytes": 138231
     }
   ],
   "historical": [

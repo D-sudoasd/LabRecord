@@ -1,10 +1,12 @@
-import { useEffect, useRef, useState } from 'react';
-import { X } from 'lucide-react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { Search, X } from 'lucide-react';
 import { useWorkspace } from './context';
 import { Modal } from './components';
 import { LibraryBoard } from './LibraryBoard';
 import { focusGroup, searchWorkspace } from './workspaceSearch';
 import { boardActions } from '../shared/library';
+
+const RESULT_BATCH_SIZE = 8;
 
 export function WorkspaceSearchDialog({
   onClose,
@@ -13,15 +15,25 @@ export function WorkspaceSearchDialog({
   onClose: () => void;
   onCreate: () => void;
 }) {
-  const { snapshot, flush, notify, setExperimentId, setItemId, setPage } = useWorkspace();
-  const [query, setQuery] = useState('');
+  const { snapshot, experimentId, flush, notify, setExperimentId, setItemId, setPage } =
+    useWorkspace();
   const input = useRef<HTMLInputElement>(null);
+  const [query, setQuery] = useState('');
   const [active, setActive] = useState(0);
+  const [visibleCount, setVisibleCount] = useState(RESULT_BATCH_SIZE);
   const browsing = !query.trim();
-  const hits = searchWorkspace(snapshot, query);
-  const actions = boardActions(snapshot);
+  const allHits = useMemo(
+    () => searchWorkspace(snapshot, query, Number.POSITIVE_INFINITY),
+    [snapshot, query],
+  );
+  const hits = allHits.slice(0, visibleCount);
+  const actions = useMemo(() => boardActions(snapshot), [snapshot]);
   const rows = browsing ? actions : hits;
   const index = rows.length ? Math.min(active, rows.length - 1) : 0;
+
+  useEffect(() => {
+    input.current?.focus();
+  }, []);
 
   useEffect(() => {
     document.getElementById(`workspace-hit-${index}`)?.scrollIntoView({ block: 'nearest' });
@@ -70,27 +82,33 @@ export function WorkspaceSearchDialog({
     void flush().then(onCreate).catch(fail);
   }
 
+  function changeQuery(value: string) {
+    setQuery(value);
+    setActive(0);
+    setVisibleCount(RESULT_BATCH_SIZE);
+  }
+
   return (
     <Modal title="全库搜索" onClose={onClose} wide className="workbench-modal">
-      <div className="field workspace-search-field">
-        <label htmlFor="workspace-search">样品、文件夹、制度、制备或实验</label>
-        <div className="workspace-search-control">
+      <div className="workspace-search-controls">
+        <label className="field" htmlFor="workspace-search">
+          <span>样品、文件夹、制度、制备或实验</span>
+        </label>
+        <div className="search-input workspace-search-input">
+          <Search size={16} aria-hidden="true" />
           <input
             ref={input}
             id="workspace-search"
-            autoFocus
             role="combobox"
             aria-label="全库搜索"
             aria-autocomplete="list"
             aria-expanded={rows.length > 0}
             aria-controls={rows.length ? 'workspace-results' : undefined}
+            aria-describedby="workspace-search-hint workspace-result-count"
             aria-activedescendant={rows.length ? `workspace-hit-${index}` : undefined}
             placeholder="例如 S01、循环加载或实验编号"
             value={query}
-            onChange={(event) => {
-              setQuery(event.target.value);
-              setActive(0);
-            }}
+            onChange={(event) => changeQuery(event.target.value)}
             onKeyDown={(event) => {
               if (event.nativeEvent.isComposing) return;
               if (event.key === 'ArrowDown' && rows.length) {
@@ -107,70 +125,105 @@ export function WorkspaceSearchDialog({
               }
             }}
           />
-          {!!query && (
+          {query && (
             <button
               type="button"
               className="search-clear"
               aria-label="清除全库搜索"
-              title="清除搜索，查看全部实验"
+              title="清除搜索，返回实验库"
               onClick={() => {
-                setQuery('');
-                setActive(0);
+                changeQuery('');
                 input.current?.focus();
               }}
             >
-              <X size={16} aria-hidden="true" />
+              <X size={14} aria-hidden="true" />
             </button>
           )}
         </div>
+        <p className="hint" id="workspace-search-hint">
+          方向键选择，回车打开。查看不会开始操作。可搜索扫描编号、文件引用和尺寸，不搜索备注和自定义值。
+        </p>
+        <p className="workspace-result-count" id="workspace-result-count" role="status">
+          {browsing
+            ? `实验库 · ${snapshot.experiments.length} 个实验`
+            : `显示 ${hits.length} / ${allHits.length} 项结果`}
+        </p>
       </div>
-      <p className="hint">
-        未输入时列出全部实验。方向键选择，回车打开。可搜索扫描编号、文件引用和尺寸，不搜索备注和自定义值。
-      </p>
-      {browsing && !actions.length && (
-        <div className="library-empty">
-          <p>还没有实验。先建立实验，再安排样品。</p>
-          <button type="button" className="button primary" onClick={createExperiment}>
-            新建实验
-          </button>
-        </div>
-      )}
-      {browsing && !!actions.length && (
-        <>
-          <LibraryBoard snapshot={snapshot} active={index} onOpen={openRow} onHover={setActive} />
-          <div className="library-create">
-            <button type="button" className="button" onClick={createExperiment}>
+      <div className="workspace-search-content">
+        {browsing && !actions.length && (
+          <div className="library-empty">
+            <p>还没有实验。先建立实验，再安排样品。</p>
+            <button type="button" className="button primary" onClick={createExperiment}>
               新建实验
             </button>
           </div>
-        </>
-      )}
-      {!browsing && !hits.length && (
-        <p className="hint" role="status">
-          没有匹配的样品或实验。清除搜索可查看全部实验。
-        </p>
-      )}
-      {!browsing && !!hits.length && (
-        <div className="workspace-hits" role="listbox" id="workspace-results" aria-label="搜索结果">
-          {hits.map((hit, hitIndex) => (
-            <button
-              key={hit.key}
-              id={`workspace-hit-${hitIndex}`}
-              type="button"
-              role="option"
-              aria-selected={index === hitIndex}
-              className={index === hitIndex ? 'is-active' : ''}
-              onMouseEnter={() => setActive(hitIndex)}
-              onClick={() => openHit(hitIndex)}
-            >
-              <strong>{hit.title}</strong>
-              <small>
-                {hit.kind === 'experiment' ? '实验' : '打开现场'} · {hit.detail}
-              </small>
-            </button>
-          ))}
-        </div>
-      )}
+        )}
+        {browsing && !!actions.length && (
+          <>
+            <LibraryBoard
+              snapshot={snapshot}
+              currentExperimentId={experimentId}
+              active={index}
+              onOpen={openRow}
+              onHover={setActive}
+            />
+            <div className="library-create">
+              <button type="button" className="button" onClick={createExperiment}>
+                新建实验
+              </button>
+            </div>
+          </>
+        )}
+        {!browsing && !hits.length && (
+          <p className="hint" role="status" aria-label="搜索提示">
+            没有匹配的样品或实验。清除搜索可查看全部实验。
+          </p>
+        )}
+        {!browsing && !!hits.length && (
+          <div
+            className="workspace-hits"
+            role="listbox"
+            id="workspace-results"
+            aria-label="搜索结果"
+          >
+            {hits.map((hit, hitIndex) => (
+              <button
+                key={hit.key}
+                id={`workspace-hit-${hitIndex}`}
+                type="button"
+                role="option"
+                aria-selected={index === hitIndex}
+                className={index === hitIndex ? 'is-active' : ''}
+                onMouseEnter={() => setActive(hitIndex)}
+                onClick={() => openHit(hitIndex)}
+              >
+                <strong>{hit.title}</strong>
+                <small>
+                  {hit.itemId
+                    ? '查看现场'
+                    : hit.kind === 'experiment'
+                      ? '打开规划'
+                      : '在规划中查看样品'}{' '}
+                  · {hit.detail}
+                </small>
+              </button>
+            ))}
+          </div>
+        )}
+        {!browsing && hits.length < allHits.length && (
+          <button
+            type="button"
+            className="button workspace-more-results"
+            onClick={() => {
+              setActive(hits.length);
+              setVisibleCount((count) => count + RESULT_BATCH_SIZE);
+              input.current?.focus();
+            }}
+          >
+            显示更多结果
+          </button>
+        )}
+      </div>
     </Modal>
   );
 }

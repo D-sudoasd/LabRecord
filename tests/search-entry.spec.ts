@@ -52,7 +52,7 @@ test('clearing a failed global search restores experiments, focus and keyboard n
   await expect(input).toHaveAttribute('aria-controls', 'workspace-results');
   await expect(dialog.getByRole('button', { name: '清除全库搜索' })).toHaveCount(0);
   await input.fill('没有这份实验-EMPTY-SEARCH');
-  await expect(dialog.getByRole('status')).toContainText('没有匹配');
+  await expect(dialog.getByRole('status', { name: '搜索提示' })).toContainText('没有匹配');
   await expect(input).toHaveAttribute('aria-expanded', 'false');
   await expect(input).not.toHaveAttribute('aria-controls');
   await expect(input).not.toHaveAttribute('aria-activedescendant');
