@@ -1,6 +1,8 @@
-# LabRecord 0.7.1 本地交付检查
+# LabRecord 0.7.1 发布验证
 
 日期：2026-10-25。范围：LabRecord 主应用的日常录入与查找。LabRecord-data 私人数据仓库未修改。
+
+发布前已整合远端主分支 `0fcec23` 的规划、现场、搜索与回看改进，并重新构建和打包。以下最终结果替代初版候选包的验证口径。
 
 ## 用户可见的改进
 
@@ -23,8 +25,8 @@
 | 新增交互与未知提交重试重点场景           | 8 / 8 通过                                                                        |
 | 放弃确认的 900 × 700 窗口、150% 应用缩放 | 两个选择按钮可见；已检查原生窗口截图                                              |
 | 窄窗口回看旧用例复核                     | 修正滚动目标后通过                                                                |
-| 开发版桌面回归                           | 143 项已验证：136 项首次通过，7 项更新测试预期后复跑通过                          |
-| Windows 打包程序回归                     | 143 / 143 通过，0 失败、0 跳过、0 flaky                                           |
+| 完整开发版桌面回归                       | 148 / 148 通过                                                                    |
+| Windows 打包程序回归                     | 148 / 148 通过，0 失败、0 跳过、0 flaky                                           |
 | ZIP 完整性与已测程序一致性               | 全部 149 个文件 CRC 通过；10 项关键文件与已测目录逐字节哈希一致；演示报告清单通过 |
 
 新增测试分别位于 `tests/experiment-code.test.ts`、`tests/experiment-entry.spec.ts`、`tests/sample-entry.spec.ts`、`tests/search-entry.spec.ts`。
@@ -41,10 +43,16 @@
 
 ## 使用与追溯
 
-源码工作分支：`codex/usability-20261025`。本轮为本地交付，尚未推送或发布 GitHub Release。
+发布标签：`v0.7.1`。更新说明见 [v0.7.1](releases/v0.7.1.md)，完整统计与包信息见 [机器可读验证结果](verification-0.7.1.json)。
 
 已生成的 Windows ZIP 位于 `release/LabRecord-0.7.1-Windows-x64.zip`。完整解压后运行 `LabRecord.exe`；本机也可使用项目根目录的 `启动LabRecord.cmd`。
 
 检查日志保存在 `local_artifacts/usability-*.log`。交付校验清单为 `release/delivery-manifest.json`，压缩包 SHA-256 为 `release/SHA256SUMS.txt`。旧版本 ZIP 保留。
 
-压缩包大小：163,093,987 字节。SHA-256：`d323ea401262b4cecd10fc2cb84338438d2a317a142fd7c2c202cd64b405330f`。
+压缩包大小：163,096,176 字节。SHA-256：`fd33d25fd7078790301f12fd2f995c9ae277174b2c995a99a3bbf6d0fd0f3979`。
+
+## 最终 README 与清理范围
+
+主视觉使用内置 imagegen，属于概念插图；[提示词与来源](../assets/readme/hero-0.7.1.md)单独保存。四张新版界面图由 `node scripts/capture-readme.mjs` 从最终打包程序的隔离合成实验中直接采集，无提示条遮挡和界面修绘；[逐图来源](images/sources.json)记录版本和 SHA-256。README 的 5 个本地图片引用检查通过，900 和 360 CSS 像素宽度无水平溢出，图文排版已检查。
+
+最终日志为 `local_artifacts/release-0.7.1-*.log`，排版预览证据在 `local_artifacts/release-0.7.1-readme/`。早期基线与复跑记录保留供追溯，最终完整开发版和打包程序各 148 项均通过。清理仅针对无引用诊断、废弃预览脚本和已合并任务分支，保留历史软件包及有效证据；远端审计时只有 main，无多余开发分支。

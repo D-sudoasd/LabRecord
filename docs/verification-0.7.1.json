@@ -1,0 +1,42 @@
+{
+  "version": "0.7.1",
+  "date": "2026-10-25",
+  "integratedRemoteBase": "0fcec23a03e361e512337485809416f5eb611ebb",
+  "unitTests": {
+    "passed": 118,
+    "failed": 0
+  },
+  "developmentDesktopTests": {
+    "passed": 148,
+    "failed": 0
+  },
+  "packagedDesktopTests": {
+    "startTime": "2026-10-25T08:14:16.705Z",
+    "duration": 407026.31999999995,
+    "expected": 148,
+    "skipped": 0,
+    "unexpected": 0,
+    "flaky": 0
+  },
+  "runtime": {
+    "version": "0.7.1",
+    "packaged": true,
+    "appPath": "resources/app.asar",
+    "electron": "44.5.1",
+    "node": "24.21.0",
+    "sqlite": "3.53.4",
+    "platform": "win32",
+    "arch": "x64",
+    "displayScale": 1.5
+  },
+  "archive": {
+    "filename": "LabRecord-0.7.1-Windows-x64.zip",
+    "bytes": 163096176,
+    "sha256": "fd33d25fd7078790301f12fd2f995c9ae277174b2c995a99a3bbf6d0fd0f3979"
+  },
+  "archiveCrcChecked": true,
+  "archiveFileCount": 149,
+  "matchedCriticalFiles": 10,
+  "readmePreviewWidths": [900, 360],
+  "dataScope": "Isolated synthetic experiments; no user database or private cloud data accessed."
+}

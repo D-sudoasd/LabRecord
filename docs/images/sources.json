@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "description": "Real Electron screenshots with synthetic experiments and isolated temporary data. Planning, live, review, review-small and quick-add were refreshed from packaged 0.6.2. Other images retain their individually recorded versions. This is software verification, not scientific acceptance or a GitHub release. usability-live-20261024.png is from the packaged 0.7.0 usability update verified on 2026-10-24.",
+  "description": "Real Electron screenshots with synthetic experiments and isolated temporary data. README uses versioned planning/live/review/quick-add images from the final packaged 0.7.1. All other images retain their recorded versions. Software verification does not constitute scientific acceptance.",
   "source": "E:/Vibe_coding/LabRecord",
   "focusRuntime": {
     "requestedSize": [900, 700],
@@ -167,6 +167,62 @@
       "selfCheckLog": "local_artifacts/usability-20261023/packaged.log",
       "sha256": "2e84501bf0492efabeec8f905da69d10994b937346dda1e5575a45300fa68210",
       "bytes": 138231
+    },
+    {
+      "path": "docs/images/planning-0.7.1.png",
+      "softwareVersion": "0.7.1",
+      "packaged": true,
+      "codeRevision": "b3539798843995069c143ce3dcc63074b7593ba8",
+      "capturedAtUtc": "2026-10-25T08:23:32.188Z",
+      "source": "local_artifacts/release-0.7.1-readme/captures/planning.png",
+      "captureScript": "scripts/capture-readme.mjs",
+      "method": "BrowserWindow.webContents.capturePage; no image retouching",
+      "selfCheckReport": "test-results/desktop-report.json",
+      "sha256": "76af875b5791935847ee6f2d8dba0af8835aeed31f8bf8d05bd81c345311204c",
+      "bytes": 210732,
+      "scope": "Supplementary real UI capture with isolated synthetic records; not research data."
+    },
+    {
+      "path": "docs/images/live-0.7.1.png",
+      "softwareVersion": "0.7.1",
+      "packaged": true,
+      "codeRevision": "b3539798843995069c143ce3dcc63074b7593ba8",
+      "capturedAtUtc": "2026-10-25T08:23:33.423Z",
+      "source": "local_artifacts/release-0.7.1-readme/captures/live.png",
+      "captureScript": "scripts/capture-readme.mjs",
+      "method": "BrowserWindow.webContents.capturePage; no image retouching",
+      "selfCheckReport": "test-results/desktop-report.json",
+      "sha256": "915f12306d831c4637505264963654b44a8c9b3fd6cb5bfc081922f825ce92e9",
+      "bytes": 269361,
+      "scope": "Supplementary real UI capture with isolated synthetic records; not research data."
+    },
+    {
+      "path": "docs/images/review-0.7.1.png",
+      "softwareVersion": "0.7.1",
+      "packaged": true,
+      "codeRevision": "b3539798843995069c143ce3dcc63074b7593ba8",
+      "capturedAtUtc": "2026-10-25T08:23:35.631Z",
+      "source": "local_artifacts/release-0.7.1-readme/captures/review.png",
+      "captureScript": "scripts/capture-readme.mjs",
+      "method": "BrowserWindow.webContents.capturePage; no image retouching",
+      "selfCheckReport": "test-results/desktop-report.json",
+      "sha256": "9b032eedba3955122cc1f180c5a0959e65111d953247cde71bfda9b829af822e",
+      "bytes": 280467,
+      "scope": "Supplementary real UI capture with isolated synthetic records; not research data."
+    },
+    {
+      "path": "docs/images/quick-add-0.7.1.png",
+      "softwareVersion": "0.7.1",
+      "packaged": true,
+      "codeRevision": "b3539798843995069c143ce3dcc63074b7593ba8",
+      "capturedAtUtc": "2026-10-25T08:23:37.894Z",
+      "source": "local_artifacts/release-0.7.1-readme/captures/quick-add.png",
+      "captureScript": "scripts/capture-readme.mjs",
+      "method": "BrowserWindow.webContents.capturePage; no image retouching",
+      "selfCheckReport": "test-results/desktop-report.json",
+      "sha256": "cdd67e7d6cc8c4102894ff54981f08b0400ede8b7dda498a396d71d52bb4ba4f",
+      "bytes": 417881,
+      "scope": "Supplementary real UI capture with isolated synthetic records; not research data."
     }
   ],
   "historical": [
