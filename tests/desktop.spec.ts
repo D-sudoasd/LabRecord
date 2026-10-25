@@ -1161,6 +1161,7 @@ test('metal preparation: concise names, composition and processing, explicit non
   dialog = page.getByRole('dialog');
   await dialog.getByLabel('样品统称 *', { exact: true }).fill('Ti2448 拉伸试样');
   await dialog.getByLabel('样品状态', { exact: true }).fill('NOHR_aged');
+  await dialog.getByText('材料与制备状态（可选）', { exact: true }).click();
   await dialog.getByLabel('成分', { exact: true }).fill('Ti-24Nb-4Zr-8Sn（wt.%）');
   await dialog.getByLabel('加工工艺', { exact: true }).fill('热轧 → 冷轧 60%');
   await dialog
@@ -1177,6 +1178,7 @@ test('metal preparation: concise names, composition and processing, explicit non
   await page.getByRole('button', { name: '新增样品', exact: true }).first().click();
   dialog = page.getByRole('dialog');
   await dialog.getByLabel('样品统称 *', { exact: true }).fill('Ti15Nb 对照试样');
+  await dialog.getByText('材料与制备状态（可选）', { exact: true }).click();
   await dialog.getByLabel('成分', { exact: true }).fill('Ti-15Nb（at.%）');
   await dialog.getByLabel('加工工艺', { exact: true }).fill('铸态');
   await dialog.getByRole('button', { name: '热处理制度设为无', exact: true }).click();
@@ -1274,6 +1276,7 @@ test('material fields remain editable at 900 by 700 and 150 percent zoom; bulk n
   await page.getByRole('button', { name: '新增样品', exact: true }).click();
   let dialog = page.getByRole('dialog');
   await dialog.getByLabel('样品统称 *', { exact: true }).fill('窄窗口合金');
+  await dialog.getByText('材料与制备状态（可选）', { exact: true }).click();
   await dialog.getByRole('combobox', { name: '成分', exact: true }).fill('Ti-15Nb（at.%）');
   await dialog.getByRole('button', { name: '热处理制度设为无', exact: true }).click();
   await dialog.getByRole('combobox', { name: '其他工艺', exact: true }).fill('激光冲击');

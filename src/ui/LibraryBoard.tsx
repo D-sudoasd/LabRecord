@@ -1,5 +1,11 @@
 import type { Snapshot } from '../shared/model';
-import { boardActions, knownQuantity, libraryBoard, nextOperationBrief, runningOperationSummary } from '../shared/library';
+import {
+  boardActions,
+  knownQuantity,
+  libraryBoard,
+  nextOperationBrief,
+  runningOperationSummary,
+} from '../shared/library';
 
 const MIX = [
   ['completed', '已完成', 'mix-completed'],
@@ -62,11 +68,13 @@ function Quantity({
 
 export function LibraryBoard({
   snapshot,
+  currentExperimentId,
   active,
   onOpen,
   onHover,
 }: {
   snapshot: Snapshot;
+  currentExperimentId: string;
   active: number;
   onOpen: (index: number) => void;
   onHover: (index: number) => void;
@@ -106,6 +114,10 @@ export function LibraryBoard({
               <span className="library-title" id={`library-title-${card.experimentId}`}>
                 <strong>{card.name}</strong>
                 <small>{card.code}</small>
+                {card.experimentId === currentExperimentId && (
+                  <span className="library-current">当前实验</span>
+                )}
+                <small className="library-open-label">打开规划</small>
               </span>
               {card.description.trim() && (
                 <small className="library-description">{card.description}</small>
@@ -145,12 +157,14 @@ export function LibraryBoard({
                 )}
                 {card.missingTimes > 0 && (
                   <span className="library-count">
-                    <span className="library-count-label">时间不完整</span> <b>{card.missingTimes}</b>
+                    <span className="library-count-label">时间不完整</span>{' '}
+                    <b>{card.missingTimes}</b>
                   </span>
                 )}
                 {card.missingFiles > 0 && (
                   <span className="library-count">
-                    <span className="library-count-label">文件未关联</span> <b>{card.missingFiles}</b>
+                    <span className="library-count-label">文件未关联</span>{' '}
+                    <b>{card.missingFiles}</b>
                   </span>
                 )}
                 {card.recordedLabel && (
@@ -205,7 +219,13 @@ export function LibraryBoard({
                     <span>查看下一项 {card.next.sampleCode}</span>
                     {nextBrief && (
                       <small title={nextBrief.protocol || undefined}>
-                        {[nextBrief.measurement, nextBrief.preparation, nextBrief.repeat, nextBrief.sourceIssue, nextBrief.folder]
+                        {[
+                          nextBrief.measurement,
+                          nextBrief.preparation,
+                          nextBrief.repeat,
+                          nextBrief.sourceIssue,
+                          nextBrief.folder,
+                        ]
                           .filter(Boolean)
                           .join(' · ')}
                       </small>
@@ -223,9 +243,7 @@ export function LibraryBoard({
                     onMouseEnter={() => onHover(recentIndex)}
                     onClick={() => onOpen(recentIndex)}
                   >
-                    <span>
-                      查看最近记录 {card.recent.sampleCode}
-                    </span>
+                    <span>查看最近记录 {card.recent.sampleCode}</span>
                     <small>
                       {[
                         card.recent.status === 'interrupted' ? '最近中断' : '最近完成',

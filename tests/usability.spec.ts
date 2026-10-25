@@ -469,7 +469,7 @@ test('experiment library and next pending open the field without starting a run'
   expect((await snapshot()).runs).toHaveLength(1);
 
   await page.getByRole('button', { name: '全库搜索', exact: true }).click();
-  const search = page.getByRole('dialog', { name: '全库搜索' }).getByLabel('全库搜索');
+  const search = page.getByRole('dialog', { name: '全库搜索' }).getByRole('combobox', { name: '全库搜索', exact: true });
   await search.fill('核对装样方向');
   await expect(page.getByText('没有匹配的样品或实验')).toBeVisible();
   await search.fill('演示材料');
@@ -575,7 +575,7 @@ test('experiment library and next pending open the field without starting a run'
   expect(opened.runs).toHaveLength(1);
   expect(opened.runs[0].endedAt).toBeNull();
   await page.getByRole('button', { name: '全库搜索', exact: true }).click();
-  const referenceSearch = page.getByRole('dialog', { name: '全库搜索' }).getByLabel('全库搜索');
+  const referenceSearch = page.getByRole('dialog', { name: '全库搜索' }).getByRole('combobox', { name: '全库搜索', exact: true });
   await referenceSearch.fill('SCAN-88421');
   await expect(page.getByRole('option', { name: /TA-01/ })).toBeVisible();
   await referenceSearch.fill('核对装样方向');

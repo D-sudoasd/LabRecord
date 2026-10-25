@@ -566,6 +566,24 @@ export function Review() {
       current.includes(filter) ? current.filter((key) => key !== filter) : [...current, filter],
     );
   }
+  async function openFollowUp(itemId: string, kind: 'times' | 'files') {
+    try {
+      await flush();
+      const latest = getSnapshot();
+      const item = latest.items.find(
+        (entry) => entry.id === itemId && entry.experimentId === experimentId,
+      );
+      const run = latest.runs.find((entry) => entry.itemId === itemId);
+      if (!item || !run) throw new Error('这条记录已不存在，请重新选择。');
+      if (kind === 'times') {
+        setTimes({ itemId: item.id, experimentId: item.experimentId, runId: run.id });
+      } else {
+        setFileRunId(run.id);
+      }
+    } catch (error) {
+      notify(error instanceof Error ? error.message : '无法打开记录。', true);
+    }
+  }
   async function report() {
     setExporting(true);
     try {
@@ -837,25 +855,54 @@ export function Review() {
           <div className="review-roster">
             {roster.length > 0 && (
               <ul className="follow-up-roster" aria-label="待核对清单">
-                {roster.map((entry) => (
-                  <li key={entry.itemId}>
-                    <button
-                      type="button"
-                      aria-label={`打开 ${entry.sampleCode}`}
-                      onClick={() => {
-                        void flush()
-                          .then(() => {
-                            setItemId(entry.itemId);
-                            setPage('live');
-                          })
-                          .catch((error) => notify(error.message, true));
-                      }}
-                    >
-                      <strong>{entry.sampleCode}</strong>
-                      <span>{entry.gaps.join('、')}</span>
-                    </button>
-                  </li>
-                ))}
+                {roster.map((entry) => {
+                  const item = items.find((item) => item.id === entry.itemId)!;
+                  return (
+                    <li key={entry.itemId}>
+                      <button
+                        type="button"
+                        className="follow-up-open"
+                        aria-label={`打开 ${entry.sampleCode}`}
+                        onClick={() => {
+                          void flush()
+                            .then(() => {
+                              setItemId(entry.itemId);
+                              setPage('live');
+                            })
+                            .catch((error) => notify(error.message, true));
+                        }}
+                      >
+                        <strong>{entry.sampleCode}</strong>
+                        <span>{entry.gaps.join('、')}</span>
+                      </button>
+                      {(filterItemIds.missingTimes.has(entry.itemId) ||
+                        filterItemIds.missingFiles.has(entry.itemId)) && (
+                        <div className="follow-up-actions">
+                          {filterItemIds.missingTimes.has(entry.itemId) && (
+                            <button
+                              type="button"
+                              className="button small"
+                              aria-label={`补充时间 ${entry.sampleCode} 操作 ${item.order + 1}`}
+                              onClick={() => void openFollowUp(entry.itemId, 'times')}
+                            >
+                              补充时间
+                            </button>
+                          )}
+                          {filterItemIds.missingFiles.has(entry.itemId) && (
+                            <button
+                              type="button"
+                              className="button small"
+                              aria-label={`填写文件 ${entry.sampleCode} 操作 ${item.order + 1}`}
+                              onClick={() => void openFollowUp(entry.itemId, 'files')}
+                            >
+                              填写文件
+                            </button>
+                          )}
+                        </div>
+                      )}
+                    </li>
+                  );
+                })}
               </ul>
             )}
             {unlinkedIssues > 0 && (

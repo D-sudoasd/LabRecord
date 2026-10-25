@@ -83,6 +83,45 @@
   gap: 6px;
   margin-top: 12px;
 }
+
+.workbench-modal .modal-body {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.workspace-search-controls {
+  flex-shrink: 0;
+}
+
+.workspace-search-input {
+  margin-top: 6px;
+}
+
+.workspace-search-input input {
+  flex: 1;
+  width: 100%;
+}
+
+.workspace-search-controls .hint {
+  margin: 8px 0;
+}
+
+.workspace-result-count {
+  margin: 8px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.workspace-search-content {
+  min-height: 0;
+  overflow: auto;
+}
+
+.workspace-more-results {
+  width: 100%;
+  margin-top: 10px;
+}
 .workspace-hits button {
   display: flex;
   flex-direction: column;
@@ -99,6 +138,11 @@
 .shortcut-table small,
 .step-order span {
   color: var(--muted);
+}
+
+.workspace-hits strong,
+.workspace-hits small {
+  overflow-wrap: anywhere;
 }
 .shortcut-table {
   width: 100%;
@@ -474,9 +518,21 @@
   min-width: 0;
 }
 
+.library-title strong,
 .library-title small,
 .library-description {
   overflow-wrap: anywhere;
+}
+
+.library-current {
+  color: var(--primary);
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.library-open-label {
+  margin-left: auto;
+  color: var(--primary);
 }
 
 .library-description {

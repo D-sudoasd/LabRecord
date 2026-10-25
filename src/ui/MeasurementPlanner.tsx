@@ -417,6 +417,14 @@ export function MeasurementPlanner() {
   const actualChangedCount = items.filter((item) =>
     recordedPlanDiffers(snapshot.runs.find((run) => run.itemId === item.id)),
   ).length;
+  const hasActiveFilters = !!search || !!statusFilter || driftOnly || actualOnly;
+  function clearFilters() {
+    setSearch('');
+    setStatusFilter('');
+    setDriftOnly(false);
+    setActualOnly(false);
+    setSelected(new Set());
+  }
   const visible = items.filter(
     (item) =>
       (!statusFilter || item.status === statusFilter) &&
@@ -474,7 +482,7 @@ export function MeasurementPlanner() {
         <div className="toolbar-title">
           <h2>测量计划</h2>
           <span>
-            {statusFilter || search.trim() || driftOnly || actualOnly
+            {hasActiveFilters
               ? `${visible.length} / ${items.length} 项操作`
               : `${items.length} 项操作`}
             {' · 可复用同一样品'}
@@ -533,6 +541,11 @@ export function MeasurementPlanner() {
             }}
           >
             实际已改 <span aria-hidden="true">{actualChangedCount}</span>
+          </button>
+        )}
+        {hasActiveFilters && (
+          <button type="button" className="text-button" onClick={clearFilters}>
+            清除筛选
           </button>
         )}
       </div>
@@ -602,7 +615,9 @@ export function MeasurementPlanner() {
       {!items.length ? (
         <p className="hint measurement-empty">先添加或安排待测样品，再配置制度。</p>
       ) : visible.length === 0 ? (
-        <p className="hint measurement-empty">没有符合筛选的测量。筛选不改变队列顺序。</p>
+        <p className="hint measurement-empty">
+          没有符合筛选的测量。清除筛选可恢复全部测量，队列顺序保持不变。
+        </p>
       ) : (
         <div className="table-wrap measurement-table-wrap">
           <table className="measurement-table">

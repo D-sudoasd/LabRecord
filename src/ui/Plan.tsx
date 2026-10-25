@@ -443,7 +443,7 @@ export function ArrangeDialog({
     requestId: string;
   } | null>(null);
   const cap = Math.min(1000, counts.spare ?? 1000);
-  const [count, setCount] = useState(spare ? '1' : ''),
+  const [count, setCount] = useState('1'),
     [prefix, setPrefix] = useState('S'),
     [rows, setRows] = useState<
       { name: string; nameEdited: boolean; protocol: string; protocolEdited: boolean }[]
@@ -579,6 +579,15 @@ export function ArrangeDialog({
               placeholder="只填写本次要测试的数量"
             />
           </label>
+          {counts.spare !== null && counts.spare > 1 && counts.spare <= 1000 && (
+            <button
+              type="button"
+              className="text-button"
+              onClick={() => setCount(String(counts.spare))}
+            >
+              全部安排 {counts.spare} 个
+            </button>
+          )}
           <label className="field">
             <span>样品编号前缀</span>
             <input

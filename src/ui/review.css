@@ -60,7 +60,13 @@
   margin: 0;
   padding: 8px 20px 4px;
 }
-.follow-up-roster button {
+.review-page .follow-up-roster li {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+}
+.follow-up-roster > li > button {
   display: flex;
   flex-wrap: wrap;
   gap: 4px 10px;
@@ -72,9 +78,18 @@
   border-radius: var(--radius-control);
   padding: 8px 10px;
 }
-.follow-up-roster button span {
+.follow-up-roster > li > button span {
   color: var(--warning);
   overflow-wrap: anywhere;
+}
+.review-page .follow-up-open {
+  flex: 1 1 120px;
+  width: auto;
+}
+.review-page .follow-up-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
 }
 .review-sample-id {
   display: block;

@@ -1,4 +1,4 @@
-import { useId, type ReactNode } from 'react';
+import { useEffect, useId, useState, type ReactNode } from 'react';
 import type { GroupPatch } from '../shared/model';
 import { MATERIAL_FIELDS, type MaterialKey } from '../shared/materials';
 
@@ -6,15 +6,21 @@ export function MaterialPreparationFields({
   value,
   onChange,
   label,
+  collapsible = false,
 }: {
   value: GroupPatch;
   onChange: (key: MaterialKey, value: string) => void;
   label?: (key: string, title: string) => ReactNode;
+  collapsible?: boolean;
 }) {
   const id = useId();
-  return (
-    <fieldset className="form-section span-2 material-preparation-fields">
-      <legend>材料与制备状态</legend>
+  const hasValues = MATERIAL_FIELDS.some(({ key }) => value[key]?.trim());
+  const [expanded, setExpanded] = useState(hasValues);
+  useEffect(() => {
+    if (hasValues) setExpanded(true);
+  }, [hasValues]);
+  const fields = (
+    <>
       <div className="form-grid">
         {MATERIAL_FIELDS.map((field) => (
           <label className="field" key={field.key}>
@@ -57,6 +63,24 @@ export function MaterialPreparationFields({
       <p className="hint">
         按制备先后填写工艺、温度、时间和冷却方式。留空表示未填写，“无”表示明确没有；现场加载或升温另填实验制度。
       </p>
+    </>
+  );
+  if (collapsible) {
+    return (
+      <details
+        className="span-2 quick-add-extra material-preparation-fields"
+        open={expanded}
+        onToggle={(event) => setExpanded(event.currentTarget.open)}
+      >
+        <summary>材料与制备状态（可选）{hasValues && ' · 已填写'}</summary>
+        {fields}
+      </details>
+    );
+  }
+  return (
+    <fieldset className="form-section span-2 material-preparation-fields">
+      <legend>材料与制备状态</legend>
+      {fields}
     </fieldset>
   );
 }
