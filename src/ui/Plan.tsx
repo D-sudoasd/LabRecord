@@ -31,6 +31,7 @@ import {
   sampleOverrideLabel,
   STATUS_LABEL,
   dimensions,
+  filledSize,
   MODE_OPTIONS,
   PROTOCOL_PLACEHOLDER,
   planSpecimens,
@@ -38,6 +39,7 @@ import {
   suggestedSpecimenName,
 } from '../shared/model';
 import { reportInsights } from '../shared/summary';
+import { emptySpecimenSize, SpecimenSizeFields, type SpecimenSize } from './specimenSize';
 import { operationStatusReason } from '../shared/history';
 import { operationPlanDrift } from '../shared/planChanges';
 import { operationProtocolLabel } from '../shared/measurement';
@@ -94,10 +96,7 @@ export function GroupForm({
   const bulk = !!ids,
     experiment = snapshot.experiments.find((e) => e.id === experimentId)!;
   group = group ? snapshot.groups.find((g) => g.id === group!.id) || group : undefined;
-  const [name, setName] = useState(group?.name || ''),
-    [width, setWidth] = useState(group?.width || ''),
-    [height, setHeight] = useState(group?.height || ''),
-    [dimensionUnit, setDimensionUnit] = useState(group?.dimensionUnit || '');
+  const [name, setName] = useState(group?.name || '');
   const [material, setMaterial] = useState(group?.material || '');
   const [materials, setMaterials] = useState<GroupPatch>(
     Object.fromEntries(
@@ -111,8 +110,6 @@ export function GroupForm({
     [prepared, setPrepared] = useState(group?.preparedCount?.toString() || (temporary ? '1' : ''));
   const [mode, setMode] = useState<Mode>(group?.mode || '未定'),
     [priority, setPriority] = useState<Priority>(group?.priority || 'P0');
-  const [thickness, setThickness] = useState(group?.thickness || ''),
-    [unit, setUnit] = useState(group?.thicknessUnit || '');
   const [preparation, setPreparation] = useState(group?.preparation || ''),
     [notes, setNotes] = useState(group?.notes || ''),
     [protocol, setProtocol] = useState(group?.protocol || '');
@@ -131,14 +128,9 @@ export function GroupForm({
       name,
       material,
       ...materials,
-      width,
-      height,
-      dimensionUnit,
       preparedCount: prepared.trim() ? Number(prepared) : null,
       mode,
       priority,
-      thickness,
-      thicknessUnit: unit,
       preparation,
       notes,
       protocol,
@@ -288,68 +280,7 @@ export function GroupForm({
             <option>P2</option>
           </select>
         </label>
-        <label className="field">
-          {label('thickness', '厚度')}
-          <input
-            value={thickness}
-            onChange={(event) => {
-              setThickness(event.target.value);
-              mark('thickness');
-            }}
-            placeholder="未填写"
-          />
-        </label>
-        <label className="field">
-          {label('thicknessUnit', '厚度单位')}
-          <select
-            value={unit}
-            onChange={(event) => {
-              setUnit(event.target.value);
-              mark('thicknessUnit');
-            }}
-          >
-            <option value="">未指定</option>
-            <option>mm</option>
-            <option>μm</option>
-            <option>nm</option>
-            <option>cm</option>
-          </select>
-        </label>
-        <label className="field">
-          {label('width', '宽度')}
-          <input
-            value={width}
-            onChange={(event) => {
-              setWidth(event.target.value);
-              mark('width');
-            }}
-          />
-        </label>
-        <label className="field">
-          {label('height', '高度（可选）')}
-          <input
-            value={height}
-            onChange={(event) => {
-              setHeight(event.target.value);
-              mark('height');
-            }}
-          />
-        </label>
-        <label className="field">
-          {label('dimensionUnit', '宽度 / 高度单位')}
-          <select
-            value={dimensionUnit}
-            onChange={(event) => {
-              setDimensionUnit(event.target.value);
-              mark('dimensionUnit');
-            }}
-          >
-            <option value="">未指定</option>
-            {['mm', 'μm', 'nm', 'cm'].map((unit) => (
-              <option key={unit}>{unit}</option>
-            ))}
-          </select>
-        </label>
+        <p className="hint span-2">尺寸在安排测试时按每一件填写。这里不再写全组共用的尺寸。</p>
         {mode !== '未定' ? (
           <label className="field span-2 protocol-card">
             {label('protocol', '实验制度')}
@@ -392,7 +323,7 @@ export function GroupForm({
               mark('notes');
             }}
             rows={3}
-            placeholder="尺寸、成分、装样方向等"
+            placeholder="装样方向、其他需要记住的事"
           />
         </label>
         {experiment.fields.length > 0 && (
@@ -446,7 +377,13 @@ export function ArrangeDialog({
   const [count, setCount] = useState('1'),
     [prefix, setPrefix] = useState('S'),
     [rows, setRows] = useState<
-      { name: string; nameEdited: boolean; protocol: string; protocolEdited: boolean }[]
+      ({
+        name: string;
+        nameEdited: boolean;
+        protocol: string;
+        protocolEdited: boolean;
+        sizeEdited: boolean;
+      } & SpecimenSize)[]
     >([]),
     [paste, setPaste] = useState(''),
     [pasteNote, setPasteNote] = useState(''),
@@ -480,15 +417,22 @@ export function ArrangeDialog({
     setRows((current) =>
       preview.map((item, index) => {
         const previous = current[index];
+        const size = previous?.sizeEdited ? previous : { ...emptySpecimenSize(group), sizeEdited: false };
         return {
           name: previous?.nameEdited ? previous.name : suggestedSpecimenName(group, item.ordinal),
           nameEdited: previous?.nameEdited ?? false,
           protocol: previous?.protocol ?? '',
           protocolEdited: previous?.protocolEdited ?? false,
+          thickness: size.thickness,
+          thicknessUnit: size.thicknessUnit,
+          width: size.width,
+          height: size.height,
+          dimensionUnit: size.dimensionUnit,
+          sizeEdited: size.sizeEdited,
         };
       }),
     );
-  }, [planned, prefix, group.name, group.state, existingCodes]);
+  }, [planned, prefix, group.name, group.state, group.thicknessUnit, group.dimensionUnit, existingCodes]);
   function fillNames() {
     const lines = paste
       .split(/\r?\n/)
@@ -505,12 +449,21 @@ export function ArrangeDialog({
     );
     setCount(String(next));
     setRows(
-      assigned.map((item, index) => ({
-        name: lines[index] ?? suggestedSpecimenName(group, item.ordinal),
-        nameEdited: lines[index] !== undefined,
-        protocol: rows[index]?.protocol ?? '',
-        protocolEdited: rows[index]?.protocolEdited ?? false,
-      })),
+      assigned.map((item, index) => {
+        const size = rows[index]?.sizeEdited ? rows[index] : { ...emptySpecimenSize(group), sizeEdited: false };
+        return {
+          name: lines[index] ?? suggestedSpecimenName(group, item.ordinal),
+          nameEdited: lines[index] !== undefined,
+          protocol: rows[index]?.protocol ?? '',
+          protocolEdited: rows[index]?.protocolEdited ?? false,
+          thickness: size.thickness,
+          thicknessUnit: size.thicknessUnit,
+          width: size.width,
+          height: size.height,
+          dimensionUnit: size.dimensionUnit,
+          sizeEdited: size.sizeEdited,
+        };
+      }),
     );
     setPasteNote(skipped > 0 ? `${skipped} 行超出还能安排的数量，没有写入。` : '');
   }
@@ -525,7 +478,15 @@ export function ArrangeDialog({
           groupId: group.id,
           count: planned,
           prefix,
-          specimens: rows.map((row) => ({ name: row.name, protocol: row.protocol })),
+          specimens: rows.map((row) => ({
+            name: row.name,
+            protocol: row.protocol,
+            thickness: row.thickness,
+            thicknessUnit: row.thicknessUnit,
+            width: row.width,
+            height: row.height,
+            dimensionUnit: row.dimensionUnit,
+          })),
           measurement,
         },
         requestId: crypto.randomUUID(),
@@ -603,6 +564,7 @@ export function ArrangeDialog({
           )}
           <p className="hint">
             编号按安排顺序接着编，下一组也顺着来。每一件的名字可以改，清空后显示编号。重测仍用这件的编号。
+            每一件单独写尺寸。留空表示这一件还没量，不会套用别人的尺寸。
           </p>
           {preview.length > 0 && (
             <ol className="specimen-plan">
@@ -670,6 +632,44 @@ export function ArrangeDialog({
                           后面的空行也用这个
                         </button>
                       )}
+                    {row && (
+                      <SpecimenSizeFields
+                        code={item.code}
+                        value={row}
+                        onChange={(next) =>
+                          setRows((current) =>
+                            current.map((entry, entryIndex) =>
+                              entryIndex === index ? { ...entry, ...next, sizeEdited: true } : entry,
+                            ),
+                          )
+                        }
+                      />
+                    )}
+                    {row?.sizeEdited && rows.slice(index + 1).some((entry) => !entry.sizeEdited) && (
+                      <button
+                        type="button"
+                        className="text-button"
+                        onClick={() =>
+                          setRows((current) =>
+                            current.map((entry, entryIndex) =>
+                              entryIndex > index && !entry.sizeEdited
+                                ? {
+                                    ...entry,
+                                    thickness: row.thickness,
+                                    thicknessUnit: row.thicknessUnit,
+                                    width: row.width,
+                                    height: row.height,
+                                    dimensionUnit: row.dimensionUnit,
+                                    sizeEdited: true,
+                                  }
+                                : entry,
+                            ),
+                          )
+                        }
+                      >
+                        后面也用这个尺寸
+                      </button>
+                    )}
                   </li>
                 );
               })}
@@ -887,10 +887,12 @@ export function Plan() {
   const repeatingRecent = useRef(false);
   useEffect(() => {
     const listener = (event: KeyboardEvent) => {
+      const target = event.target;
       if (
         event.altKey &&
         event.key.toLowerCase() === 'n' &&
-        !document.querySelector('dialog[open]')
+        !document.querySelector('dialog[open]') &&
+        !(target instanceof Element && target.closest('input, textarea, select'))
       ) {
         event.preventDefault();
         quickAddTrigger.current?.focus();
@@ -1525,6 +1527,34 @@ export function Plan() {
     </div>
   );
 }
+function groupSizeText(group: Group, samples: Sample[]) {
+  const own = samples.filter((sample) =>
+    (['thickness', 'width', 'height'] as const).some((key) => key in sample.parameters),
+  );
+  if (samples.length > 0 && own.length === samples.length) {
+    const labels = own.map((sample) =>
+      filledSize({
+        thickness: sample.parameters.thickness ?? '',
+        thicknessUnit: sample.parameters.thicknessUnit ?? '',
+        width: sample.parameters.width ?? '',
+        height: sample.parameters.height ?? '',
+        dimensionUnit: sample.parameters.dimensionUnit ?? '',
+      }),
+    );
+    if (new Set(labels).size === 1) {
+      return (
+        <>
+          <span>{labels[0] || '安排测试时按每一件填写'}</span>
+          {labels[0] && <small>{samples.length} 件各自保存</small>}
+        </>
+      );
+    }
+    return <span>尺寸各不相同，见下面每一件</span>;
+  }
+  const inherited = filledSize(group);
+  if (inherited) return <span>尚未单独填写的样品沿用：{inherited}</span>;
+  return <span>安排测试时按每一件填写</span>;
+}
 function GroupRows({
   group,
   counts,
@@ -1684,8 +1714,16 @@ function GroupRows({
             <AutoInput
               label={`${group.state} 准备数量`}
               value={group.preparedCount?.toString() ?? ''}
-              onSave={(value) => save({ preparedCount: value.trim() ? Number(value) : null })}
+              onSave={(value) => {
+                const trimmed = value.trim();
+                if (!trimmed) return save({ preparedCount: null });
+                if (!/^\d+$/.test(trimmed) || Number(trimmed) > 10000)
+                  return Promise.reject(new Error('准备数量应为 0–10000 的整数。'));
+                return save({ preparedCount: Number(trimmed) });
+              }}
               type="number"
+              min={0}
+              step={1}
               placeholder="未定"
             />
             <small>准备</small>
@@ -1700,33 +1738,7 @@ function GroupRows({
           {operationStatus && <small className="group-operation-status">{operationStatus}</small>}
           {recordedLabel && <small className="group-recorded-duration">{recordedLabel}</small>}
         </td>
-        <td className="size-cell">
-          <div>
-            <small>厚</small>
-            <AutoInput
-              label={`${group.state} 厚度`}
-              value={group.thickness}
-              onSave={(thickness) => save({ thickness })}
-              placeholder="—"
-            />
-            <small>{group.thicknessUnit || '单位未定'}</small>
-          </div>
-          <div>
-            <small>宽</small>
-            <AutoInput
-              label={`${group.state} 宽度`}
-              value={group.width || ''}
-              onSave={(width) => save({ width })}
-              placeholder="—"
-            />
-            <small>{group.dimensionUnit || '单位未定'}</small>
-          </div>
-          {group.height && (
-            <small>
-              高 {group.height} {group.dimensionUnit}
-            </small>
-          )}
-        </td>
+        <td className="size-cell">{groupSizeText(group, samples)}</td>
         <td>
           <AutoInput
             label={`${group.state} 实验方式`}

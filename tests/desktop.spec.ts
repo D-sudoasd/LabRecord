@@ -544,19 +544,32 @@ test('quick entry and dimensions → real PDF/HTML report; compact plan and clou
   await modal.getByLabel('样品状态', { exact: true }).fill('400C-aged');
   await modal.getByLabel('准备数量', { exact: true }).fill('6');
   await modal.getByLabel('计划测试数量', { exact: true }).fill('4');
-  await modal.getByLabel('厚度', { exact: true }).fill('0.8');
-  await modal.getByLabel('宽度', { exact: true }).fill('3.0');
+  await modal.getByLabel('S01 厚度', { exact: true }).fill('0.8');
+  await modal.getByLabel('S01 宽度', { exact: true }).fill('3.0');
+  await modal.getByRole('button', { name: '后面也用这个尺寸', exact: true }).click();
+  await expect(modal.getByLabel('S04 厚度', { exact: true })).toHaveValue('0.8');
   await page.screenshot({ path: info.outputPath('quick-add.png') });
   await modal.getByRole('button', { name: '保存并继续添加', exact: true }).click();
   await expect(modal.getByLabel('样品统称 *', { exact: true })).toHaveValue('');
-  await expect(modal.getByLabel('宽度', { exact: true })).toHaveValue('3.0');
+  await expect(modal.getByLabel('S05 厚度', { exact: true })).toHaveValue('');
   await modal.getByLabel('样品统称 *', { exact: true }).fill('参考样品 B');
   await modal.getByLabel('准备数量', { exact: true }).fill('1');
   await modal.getByLabel('计划测试数量', { exact: true }).fill('1');
+  await modal.getByLabel('S05 厚度', { exact: true }).fill('1.0');
+  await modal.getByLabel('S05 宽度', { exact: true }).fill('2.0');
   await modal.getByRole('button', { name: '添加并安排测试', exact: true }).click();
   await expect(modal).toHaveCount(0);
   const data = await snapshot(page);
   expect(data.samples.map((s) => s.code)).toEqual(['S01', 'S02', 'S03', 'S04', 'S05']);
+  expect(data.groups.map((group) => group.thickness)).toEqual(['', '']);
+  expect(data.samples.slice(0, 4).map((sample) => sample.parameters.thickness)).toEqual([
+    '0.8',
+    '0.8',
+    '0.8',
+    '0.8',
+  ]);
+  expect(data.samples[4].parameters.thickness).toBe('1.0');
+  expect(data.samples[4].parameters.width).toBe('2.0');
   expect(data.groups[0].height).toBe('');
   await application.evaluate(({ BrowserWindow }) =>
     BrowserWindow.getAllWindows()[0].setSize(900, 700),
@@ -704,6 +717,59 @@ test('in-situ protocol is visible on the live page and stays at the text written
   expect(after.snapshot.group.protocol).toBe('升温 5 °C/min，至 400 °C 保温 20 min');
 });
 
+test('each arranged specimen keeps its own size', async () => {
+  const created = await command(page, {
+    type: 'createExperiment',
+    code: 'SIZE-1',
+    name: '尺寸按件',
+  });
+  await command(page, {
+    type: 'createGroup',
+    experimentId: created.experimentId!,
+    patch: { state: '拉伸', name: '按件试样', preparedCount: 4 },
+  });
+  await page.reload();
+  await page.getByRole('button', { name: '实验规划', exact: true }).click();
+  await page
+    .locator('tr', { hasText: '拉伸' })
+    .first()
+    .getByRole('button', { name: '安排测试', exact: true })
+    .click();
+  const dialog = page.getByRole('dialog', { name: '安排待测样品', exact: true });
+  await dialog.getByLabel('本次加入待测队列的数量 *', { exact: true }).fill('2');
+  await dialog.getByLabel('样品编号前缀', { exact: true }).fill('TA-');
+  await dialog.getByLabel('TA-01 厚度', { exact: true }).fill('1.1');
+  await dialog.getByLabel('TA-01 宽度', { exact: true }).fill('3');
+  await dialog.getByRole('button', { name: '后面也用这个尺寸', exact: true }).click();
+  await expect(dialog.getByLabel('TA-02 厚度', { exact: true })).toHaveValue('1.1');
+  await dialog.getByLabel('TA-02 厚度', { exact: true }).fill('0.4');
+  await dialog.getByLabel('TA-02 厚度单位', { exact: true }).selectOption('μm');
+  await dialog.getByRole('button', { name: '加入待测队列', exact: true }).click();
+  await expect(dialog).toHaveCount(0);
+  const data = await snapshot(page);
+  expect(data.groups[0].thickness).toBe('');
+  expect(data.samples.map((sample) => sample.parameters.thickness)).toEqual(['1.1', '0.4']);
+  expect(data.samples[1].parameters.thicknessUnit).toBe('μm');
+  await page.getByRole('button', { name: '展开 拉伸', exact: true }).click();
+  await expect(page.locator('.sample-strip', { hasText: 'TA-01' })).toContainText('1.1');
+  await expect(page.locator('.sample-strip', { hasText: 'TA-02' })).toContainText('0.4');
+});
+
+test('the plan no longer edits one size for a whole group', async () => {
+  await page.getByRole('button', { name: '载入演示实验' }).click();
+  await page.getByRole('button', { name: '实验规划', exact: true }).click();
+  await expect(page.getByLabel('Ti-A-热处理 厚度')).toHaveCount(0);
+  await expect(page.getByText('尚未单独填写的样品沿用：厚 0.8 mm · 宽 3 mm')).toBeVisible();
+});
+
+test('Alt+N in a text field does not open quick add', async () => {
+  await page.getByRole('button', { name: '载入演示实验' }).click();
+  await page.getByRole('button', { name: '实验规划', exact: true }).click();
+  await page.getByLabel('Ti-A 拉伸试样 样品统称').click();
+  await page.keyboard.press('Alt+n');
+  await expect(page.getByRole('dialog', { name: '添加样品' })).toHaveCount(0);
+});
+
 test('arranging one state can name each specimen and give it a different in-situ protocol', async () => {
   await page.getByRole('button', { name: '载入演示实验' }).click();
   await page
@@ -756,6 +822,74 @@ test('arranging one state can name each specimen and give it a different in-situ
   await expect(
     page.getByRole('button', { name: '选择样品 TA-05 操作 5', exact: true }),
   ).toBeVisible();
+});
+
+test('a batch measurement edit writes only the fields that changed', async () => {
+  const created = await command(page, {
+    type: 'createExperiment',
+    code: 'BATCH-1',
+    name: '批量制度',
+    namingPattern: '{experiment}_{sample}_{regime}_{batch}',
+  });
+  await command(page, {
+    type: 'addSamples',
+    experimentId: created.experimentId!,
+    count: 1,
+    prefix: 'A-',
+    patch: { name: '甲', state: '拉伸', preparedCount: 1, mode: 'In situ', protocol: '循环 10 次' },
+    measurement: {
+      mode: 'In situ',
+      technique: 'SXRD',
+      regime: 'cyclic',
+      batch: 'B01',
+      protocol: '循环 10 次',
+    },
+  });
+  await command(page, {
+    type: 'addSamples',
+    experimentId: created.experimentId!,
+    count: 1,
+    prefix: 'B-',
+    patch: { name: '乙', state: '压缩', preparedCount: 1, mode: 'Ex situ', protocol: '旋转 5°' },
+    measurement: {
+      mode: 'Ex situ',
+      technique: 'ND',
+      regime: 'rotation',
+      batch: 'B09',
+      protocol: '旋转 5°',
+    },
+  });
+  await page.reload();
+  await page.getByRole('button', { name: '实验规划', exact: true }).click();
+  const planner = page.getByRole('region', { name: '测量计划', exact: true });
+  await planner.locator('tbody tr').nth(0).getByRole('checkbox').check();
+  await planner.locator('tbody tr').nth(1).getByRole('checkbox').check();
+  await planner.getByRole('button', { name: '批量配置制度', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: '配置测量制度', exact: true });
+  await expect(dialog).toContainText('不会套成第一件的值');
+  await dialog.getByLabel('批次', { exact: true }).fill('B02');
+  await expect(dialog.getByLabel('测量名称预览')).toContainText('rotation_B02');
+  await expect(dialog.getByLabel('测量名称预览')).toContainText('cyclic_B02');
+  await dialog.getByRole('button', { name: '保存测量配置', exact: true }).click();
+  await expect(dialog).toHaveCount(0);
+  const items = (await snapshot(page)).items;
+  const first = items.find((item) => item.measurement?.technique === 'SXRD');
+  const second = items.find((item) => item.measurement?.technique === 'ND');
+  expect(first?.measurement).toMatchObject({
+    mode: 'In situ',
+    technique: 'SXRD',
+    regime: 'cyclic',
+    batch: 'B02',
+    protocol: '循环 10 次',
+  });
+  expect(second?.measurement).toMatchObject({
+    mode: 'Ex situ',
+    technique: 'ND',
+    regime: 'rotation',
+    batch: 'B02',
+    protocol: '旋转 5°',
+  });
+  expect(second?.operation).toBe('旋转扫描');
 });
 
 test('offline beamtime: preview and copy folder names, schedule multiple regimes on one sample and keep independent snapshots', async ({}, info) => {

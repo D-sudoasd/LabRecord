@@ -72,29 +72,43 @@ export function Modal({
 }) {
   const ref = useModalDialog(),
     id = useId();
+  const dismissGuard = useRef(false);
+  function requestDismiss() {
+    if (closeDisabled || dismissGuard.current) return;
+    // keydown and cancel both see one Escape. A second call would undo a confirm step.
+    dismissGuard.current = true;
+    queueMicrotask(() => {
+      dismissGuard.current = false;
+    });
+    onClose();
+  }
   useEffect(() => {
     const dialog = ref.current;
     if (!dialog) return;
     dialog.setAttribute('closedby', closeDisabled ? 'none' : 'closerequest');
     const onDialogClose = () => {
-      if (dialog.open) return;
-      if (closeDisabled) {
-        if (dialog.isConnected) dialog.showModal();
-        return;
-      }
-      onClose();
+      if (dialog.open || !dialog.isConnected) return;
+      // Chromium can ignore preventDefault on a later Escape and close the dialog
+      // while this component is still mounted. Open it again instead of dismissing twice.
+      dialog.showModal();
     };
     dialog.addEventListener('close', onDialogClose);
     return () => dialog.removeEventListener('close', onDialogClose);
-  }, [closeDisabled, onClose, ref]);
+  }, [closeDisabled, ref]);
   return (
     <dialog
       ref={ref}
       className={`modal ${wide ? 'wide' : ''} ${className}`}
       aria-labelledby={id}
+      onKeyDown={(event) => {
+        if (event.key !== 'Escape' || event.repeat || event.nativeEvent.isComposing) return;
+        event.preventDefault();
+        event.stopPropagation();
+        requestDismiss();
+      }}
       onCancel={(event) => {
         event.preventDefault();
-        if (!closeDisabled) onClose();
+        requestDismiss();
       }}
     >
       <header className="modal-head">
@@ -251,6 +265,8 @@ export function AutoInput({
   className = '',
   inputMode,
   options,
+  min,
+  step,
 }: {
   value: string;
   onSave: (value: string) => Promise<unknown>;
@@ -261,6 +277,8 @@ export function AutoInput({
   className?: string;
   inputMode?: 'decimal' | 'numeric';
   options?: { value: string; label: string }[];
+  min?: number;
+  step?: number;
 }) {
   const workspace = useWorkspace();
   const [draft, setDraft] = useState(value),
@@ -361,7 +379,7 @@ export function AutoInput({
       ) : multiline ? (
         <textarea {...props} rows={4} />
       ) : (
-        <input {...props} type={type} inputMode={inputMode} />
+        <input {...props} type={type} inputMode={inputMode} min={min} step={step} />
       )}{' '}
       {error && (
         <span className="field-error" role="alert">

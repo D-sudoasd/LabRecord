@@ -22,6 +22,7 @@ import type {
   CommandResult,
   Values,
   Field,
+  SpecimenInput,
 } from '../shared/model.js';
 import { validateCommand } from './validation.js';
 import {
@@ -273,7 +274,7 @@ export class Store {
     groupId: string,
     count: number,
     prefix?: string,
-    specimens?: { name?: string; protocol?: string }[],
+    specimens?: SpecimenInput[],
     measurement?: import('../shared/model.js').MeasurementPlan,
   ): Selection {
     const group = this.get('groups', groupId);
@@ -547,7 +548,7 @@ export class Store {
               group.id,
               command.count,
               command.prefix || 'S',
-              undefined,
+              command.specimens,
               command.measurement,
             )
           : { experimentId: command.experimentId };
@@ -1027,8 +1028,10 @@ export class Store {
         return { experimentId: item.experimentId, itemId: item.id };
       }
       case 'demo': {
-        const code =
-          'DEMO-' + (this.list('experiments').filter((e) => e.code.startsWith('DEMO-')).length + 1);
+        const taken = new Set(this.list('experiments').map((experiment) => experiment.code.toLowerCase()));
+        let number = 1;
+        while (taken.has(`demo-${number}`)) number += 1;
+        const code = `DEMO-${number}`;
         const result = this.execute({
           type: 'createExperiment',
           name: '同步辐射实验 · 演示',

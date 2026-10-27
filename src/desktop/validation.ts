@@ -13,6 +13,17 @@ export const measurementSchema = z
     customName: z.string().max(200).optional(),
   })
   .strict();
+const specimenInput = z
+  .object({
+    name: z.string().max(300).optional(),
+    protocol: text.optional(),
+    thickness: text.optional(),
+    thicknessUnit: z.string().max(40).optional(),
+    width: text.optional(),
+    height: text.optional(),
+    dimensionUnit: z.string().max(40).optional(),
+  })
+  .strict();
 const patch = z
   .object({
     state: z.string().trim().min(1).max(300).optional(),
@@ -95,6 +106,7 @@ const schemas: Record<string, z.ZodType> = {
       patch,
       count: z.number().int().min(0).max(1000),
       prefix: z.string().max(250).optional(),
+      specimens: z.array(specimenInput).max(1000).optional(),
       measurement: measurementSchema.optional(),
     })
     .strict(),
@@ -120,17 +132,7 @@ const schemas: Record<string, z.ZodType> = {
       count: z.number().int().min(1).max(1000),
       prefix: z.string().max(250).optional(),
       measurement: measurementSchema.optional(),
-      specimens: z
-        .array(
-          z
-            .object({
-              name: z.string().max(300).optional(),
-              protocol: z.string().max(50000).optional(),
-            })
-            .strict(),
-        )
-        .max(1000)
-        .optional(),
+      specimens: z.array(specimenInput).max(1000).optional(),
     })
     .strict(),
   updateSamples: z

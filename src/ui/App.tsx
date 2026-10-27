@@ -183,14 +183,18 @@ function NewExperiment({ onClose }: { onClose: () => void }) {
                 value={reuseId}
                 onChange={(event) => setReuseId(event.target.value)}
               >
-                <option value="">文件夹用实验编号和样品编号</option>
+                <option value="">不复用</option>
                 {snapshot.experiments.map((entry) => (
                   <option key={entry.id} value={entry.id}>
                     {entry.name} · {entry.code}
                   </option>
                 ))}
               </select>
-              <small>沿用文件夹写法和自定义字段。新实验的样品与记录单独建立。</small>
+              <small>
+                {reuseId
+                  ? '沿用所选实验的文件夹写法和自定义字段。新实验的样品与记录单独建立。'
+                  : '使用默认文件夹：实验编号加样品编号。不带自定义字段。'}
+              </small>
             </label>
           )}
         </fieldset>
@@ -235,6 +239,7 @@ function SettingsDialog({
     [fields, setFields] = useState<Field[]>(experiment?.fields || []);
   const [info, setInfo] = useState<DesktopInfo | null>(null),
     [error, setError] = useState(''),
+    [backupNote, setBackupNote] = useState(''),
     [working, setWorking] = useState(false),
     [cloudWorking, setCloudWorking] = useState(false),
     [tab, setTab] = useState<'experiment' | 'data' | 'cloud'>(
@@ -283,11 +288,13 @@ function SettingsDialog({
         name,
         description,
         namingPattern: pattern,
-        fields: fields.map((field) =>
-          field.type === 'select'
-            ? { ...field, options: field.options.map((option) => option.trim()).filter(Boolean) }
-            : field,
-        ),
+        fields: fields.map((field) => ({
+          ...field,
+          options:
+            field.type === 'select'
+              ? field.options.map((option) => option.trim()).filter(Boolean)
+              : [],
+        })),
       });
       notify('实验设置已保存。');
       onClose();
@@ -299,11 +306,18 @@ function SettingsDialog({
   }
   async function backup() {
     setWorking(true);
+    setBackupNote('');
     try {
       await flush();
       const path = await unwrap(window.labrecord.backup());
-      if (path) notify(`完整备份已保存：${path}`);
+      if (path) {
+        setError('');
+        const note = `完整备份已保存：${path}`;
+        setBackupNote(note);
+        notify(note);
+      }
     } catch (error) {
+      setBackupNote('');
       setError((error as Error).message);
     } finally {
       setWorking(false);
@@ -391,7 +405,9 @@ function SettingsDialog({
               <p className="hint">
                 {pattern === DEFAULT_PATTERN
                   ? '实验编号加样品编号。同一件样品再测一次，末尾加 _02。已经开始的记录保持原名。'
-                  : '这是以前保存的写法。尚未开始的名称会跟着更新，已经开始的记录保持原名。'}
+                  : pattern === experiment?.namingPattern
+                    ? '这是以前保存的写法。尚未开始的名称会跟着更新，已经开始的记录保持原名。'
+                    : '保存后才会更新尚未开始的名称。已经开始的记录保持原名。'}
               </p>
             )}
             <details className="folder-rule">
@@ -644,6 +660,11 @@ function SettingsDialog({
               <p>实验数据文件引用保存为路径；仪器数据保存在原来的位置。</p>
             </div>
             <p className="hint">LabRecord {info?.version || ''} · 起止时间用于大致对应仪器数据</p>
+            {backupNote && (
+              <p className="hint" role="status">
+                {backupNote}
+              </p>
+            )}
             {error && (
               <p className="error-text" role="alert">
                 {error}

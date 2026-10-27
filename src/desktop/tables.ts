@@ -306,8 +306,15 @@ export function importTable(store: Store, request: ImportRequest): Snapshot {
       const raw = (key: ImportKey) =>
         mapping[key] === undefined ? '' : (row[mapping[key]!] || '').trim();
       if (!raw('state') && !raw('name')) {
-        if (row.some((v) => v.trim()))
-          throw new Error(`第 ${index + 2} 行缺少样品状态；请补齐后导入。`);
+        if (row.some((v) => v.trim())) {
+          const missing = [
+            mapping.name !== undefined ? '样品名称' : '',
+            mapping.state !== undefined ? '样品状态' : '',
+          ].filter(Boolean);
+          throw new Error(
+            `第 ${index + 2} 行缺少${missing.join('或') || '样品名称或样品状态'}；请补齐后导入。`,
+          );
+        }
         continue;
       }
       const quantity = raw('preparedCount');

@@ -4,6 +4,7 @@ import type { Command, Experiment, Group, PlanItem, Sample, Snapshot } from '../
 import { sampleName } from '../shared/model';
 import { useWorkspace } from './context';
 import { Modal } from './components';
+import { menuPosition } from './menuPosition';
 
 export type MenuEntry =
   | { kind: 'separator' }
@@ -87,8 +88,8 @@ export function groupDeleteRequest(groups: Group[]): DeleteRequest {
   return {
     title: one ? '删除样品组' : '删除所选样品组',
     body: one
-      ? `删除「${names[0]}」。这一组里还没开始的样品和测量会一起去掉，准备数量也不保留。已经开始的记录不能删除。`
-      : `删除 ${listed(names, '组')}。这些组里还没开始的样品和测量会一起去掉。只要其中已有实际记录，这次删除就不会进行。`,
+      ? `删除「${names[0]}」。这一组里还没开始的样品和测量会一起去掉，准备数量也不保留。`
+      : `删除 ${listed(names, '组')}。这些组里还没开始的样品和测量会一起去掉。`,
     confirmLabel: one ? '删除样品组' : '删除所选样品组',
     done: one ? '样品组已删除。' : '所选样品组已删除。',
     command: { type: 'deleteGroups', ids: groups.map((group) => group.id) },
@@ -104,7 +105,7 @@ export function sampleDeleteReason(snapshot: Snapshot, sample: Sample) {
 export function sampleDeleteRequest(sample: Sample): DeleteRequest {
   return {
     title: '移出计划',
-    body: `把 ${sample.code} 移出计划。它还没开始的测量会去掉，样品组的准备数量不变，这件回到备样。已经有实际记录的样品不能移出。`,
+    body: `把 ${sample.code} 移出计划。它还没开始的测量会去掉，样品组的准备数量不变，这件回到备样。`,
     confirmLabel: '移出计划',
     done: '样品已移出计划。',
     command: { type: 'deleteSamples', ids: [sample.id] },
@@ -187,8 +188,9 @@ function ContextMenu({
     const node = ref.current;
     if (!node) return;
     const rect = node.getBoundingClientRect();
-    const left = Math.min(Math.max(8, x), Math.max(8, window.innerWidth - rect.width - 8));
-    const top = Math.min(Math.max(8, y), Math.max(8, window.innerHeight - rect.height - 8));
+    const placed = menuPosition(x, y, rect.width, rect.height, window.innerWidth, window.innerHeight);
+    const left = placed.left;
+    const top = placed.top;
     node.style.left = `${left}px`;
     node.style.top = `${top}px`;
     node.focus({ preventScroll: true });

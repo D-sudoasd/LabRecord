@@ -144,6 +144,8 @@ export function MeasurementDialog({
     ...measurementFor(snapshot, items[0]),
     ...(append ? { customName: '' } : {}),
   }));
+  const openedValue = useRef<MeasurementPlan>({ ...value });
+  const copiedHistory = useRef(false);
   const [repetitions, setRepetitions] = useState('1');
   const [error, setError] = useState(''),
     [busy, setBusy] = useState(false);
@@ -181,10 +183,18 @@ export function MeasurementDialog({
   const baseline = measurementFor(snapshot, items[0]);
   const owned = items[0].measurement ?? {};
   const changes = { ...value };
-  // Leave inherited blanks unset so a later group protocol still applies. An edit, including an explicit empty string, is stored.
-  (['mode', 'protocol', 'technique', 'regime', 'batch', 'customName'] as const).forEach((key) => {
-    if (owned[key] === undefined && changes[key] === baseline[key]) delete changes[key];
-  });
+  const measurementKeys = ['mode', 'protocol', 'technique', 'regime', 'batch', 'customName'] as const;
+  if (items.length > 1 && !copiedHistory.current) {
+    // The form opens on the first item. Untouched fields stay on each item.
+    for (const key of measurementKeys) {
+      if (changes[key] === openedValue.current[key]) delete changes[key];
+    }
+  } else {
+    // Leave inherited blanks unset so a later group protocol still applies. An edit, including an explicit empty string, is stored.
+    for (const key of measurementKeys) {
+      if (owned[key] === undefined && changes[key] === baseline[key]) delete changes[key];
+    }
+  }
   if (multiple) delete changes.customName;
   let names: PlanItem[] = [],
     previewError = '';
@@ -265,6 +275,7 @@ export function MeasurementDialog({
             ? '每个所选操作追加独立测量，复用物理样品，不占用备样。'
             : '统一配置所选待测操作，已有实际记录保持固定。'}{' '}
           已选 {items.length} 项。
+          {items.length > 1 && '没改过的字段仍按每一件原来的制度，不会套成第一件的值。'}
         </p>
         <fieldset disabled={busy || closing || !!pending.current} className="measurement-editor">
           {history.length > 0 && (
@@ -275,7 +286,9 @@ export function MeasurementDialog({
                 defaultValue=""
                 onChange={(event) => {
                   const item = snapshot.items.find((entry) => entry.id === event.target.value);
-                  if (item) setValue({ ...measurementFor(snapshot, item), customName: '' });
+                  if (!item) return;
+                  copiedHistory.current = true;
+                  setValue({ ...measurementFor(snapshot, item), customName: '' });
                 }}
               >
                 <option value="">选择本机已有配置…</option>
@@ -451,6 +464,7 @@ export function MeasurementPlanner() {
     while (neighbor >= 0 && neighbor < items.length && !movable(items[neighbor]))
       neighbor += direction;
     if (neighbor < 0 || neighbor >= items.length) return;
+    const hidden = !visible.some((entry) => entry.id === items[neighbor].id);
     const ids = placeId(
       items.map((entry) => entry.id),
       item.id,
@@ -468,6 +482,7 @@ export function MeasurementPlanner() {
           throw new Error('队列已变化，请重新排序。');
         if (ids.every((id, position) => id === ordered[position])) return;
         await execute({ type: 'reorder', experimentId, ids }, false);
+        if (hidden) notify('已与被隐藏的相邻操作交换。');
       })
       .catch((error) => notify(error instanceof Error ? error.message : '无法调整顺序。', true));
   }
@@ -693,6 +708,7 @@ export function MeasurementPlanner() {
                           kind: 'item',
                           label: '复制名称',
                           disabled: !name,
+                          title: name ? undefined : '还没有数据文件夹名。',
                           onSelect: () => copyFolder(item.id),
                         },
                         {

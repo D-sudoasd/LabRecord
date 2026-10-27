@@ -17,6 +17,11 @@ import { latestEndedMark, latestEndedSummary, runningOperationSummary } from '..
 
 export const hashBytes = (value: string | Buffer) =>
   createHash('sha256').update(value).digest('hex');
+export function directoryContains(parent: string, child: string) {
+  const root = resolve(parent);
+  const prefix = root.endsWith(sep) ? root : root + sep;
+  return resolve(child).startsWith(prefix);
+}
 const escape = (value: unknown) =>
   String(value ?? '').replace(
     /[&<>"']/g,
@@ -304,7 +309,7 @@ export async function writeReportBundle(
     return target;
   } finally {
     if (
-      !resolve(staging).startsWith(resolve(parent) + sep) ||
+      !directoryContains(parent, staging) ||
       !staging.endsWith(`LabRecord-report-${id}`)
     )
       throw new Error('报告临时路径无效。');

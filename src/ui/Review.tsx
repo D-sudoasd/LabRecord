@@ -983,6 +983,7 @@ export function Review() {
                             kind: 'item',
                             label: '复制数据文件夹名',
                             disabled: !identity?.folder,
+                            title: identity?.folder ? undefined : '还没有数据文件夹名。',
                             onSelect: () => {
                               void copyRecord(item.id, 'folder');
                             },
@@ -1052,6 +1053,7 @@ export function Review() {
                             type="button"
                             className="text-button"
                             aria-label={`复制数据文件夹 ${sample.code} 操作 ${item.order + 1}`}
+                            title={identity?.folder ? undefined : '还没有数据文件夹名。'}
                             disabled={!identity?.folder}
                             onClick={() => {
                               void copyRecord(item.id, 'folder');

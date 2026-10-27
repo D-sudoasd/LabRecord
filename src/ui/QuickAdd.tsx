@@ -1,5 +1,5 @@
 import { useRef, useState, useEffect } from 'react';
-import { Plus, Copy, Layers, Ruler, Package, CheckCircle2 } from 'lucide-react';
+import { Plus, Copy, Layers, Package, CheckCircle2 } from 'lucide-react';
 import {
   MODE_OPTIONS,
   PROTOCOL_PLACEHOLDER,
@@ -15,14 +15,16 @@ import { MeasurementFields } from './MeasurementPlanner';
 import { MaterialPreparationFields } from './MaterialPreparation';
 import { useWorkspace, DesktopReplyError } from './context';
 import { Modal, FieldInputs, useCommandClose } from './components';
+import { emptySpecimenSize, SpecimenSizeFields, type SpecimenSize } from './specimenSize';
 
 function draftSignature(
   patch: GroupPatch,
   count: string,
   prefix: string,
   measurement: MeasurementPlan,
+  sizes: SpecimenSize[],
 ) {
-  return JSON.stringify([patch, count, prefix, measurement]);
+  return JSON.stringify([patch, count, prefix, measurement, sizes]);
 }
 
 export function QuickAdd({ onClose }: { onClose: () => void }) {
@@ -33,25 +35,21 @@ export function QuickAdd({ onClose }: { onClose: () => void }) {
     name: '',
     state: '',
     preparedCount: 1,
-    thicknessUnit: 'mm',
-    dimensionUnit: 'mm',
     mode: '未定',
     priority: 'P0',
-    thickness: '',
-    width: '',
-    height: '',
     notes: '',
     protocol: '',
     values: {},
   });
   const [count, setCount] = useState('1'),
-    [prefix, setPrefix] = useState('S');
+    [prefix, setPrefix] = useState('S'),
+    [sizeRows, setSizeRows] = useState<(SpecimenSize & { sizeEdited: boolean })[]>([]);
   const [measurement, setMeasurement] = useState<MeasurementPlan>({
     technique: '',
     regime: '',
     batch: '',
   });
-  const cleanDraft = useRef(draftSignature(patch, count, prefix, measurement));
+  const cleanDraft = useRef(draftSignature(patch, count, prefix, measurement, sizeRows));
   const [namingOpen, setNamingOpen] = useState(false);
   const [busy, setBusy] = useState(false),
     [error, setError] = useState(''),
@@ -69,6 +67,25 @@ export function QuickAdd({ onClose }: { onClose: () => void }) {
     (prepared === null ||
       (Number.isInteger(prepared) && prepared >= 0 && prepared <= 10000 && planned <= prepared));
   const spare = validCounts && prepared !== null ? prepared - planned! : null;
+  const arrangedCount = validCounts && planned !== null && planned >= 1 ? planned : 0;
+  const sizeCodes = planSpecimens(
+    snapshot.samples.filter((sample) => sample.experimentId === experimentId).map((sample) => sample.code),
+    arrangedCount,
+    prefix,
+    { state: patch.state?.trim() || '未指定' },
+  )
+    .map((item) => item.code)
+    .join('\n');
+  useEffect(() => {
+    const codes = sizeCodes ? sizeCodes.split('\n') : [];
+    setSizeRows((current) =>
+      codes.map((_, index) => {
+        const previous = current[index];
+        if (previous?.sizeEdited) return previous;
+        return { ...emptySpecimenSize(), sizeEdited: false };
+      }),
+    );
+  }, [sizeCodes]);
   const nameInput = useRef<HTMLInputElement>(null);
   const submitting = useRef(false);
   const intent = useRef<{
@@ -84,7 +101,7 @@ export function QuickAdd({ onClose }: { onClose: () => void }) {
   });
   const discardButton = useRef<HTMLButtonElement>(null);
   const returnFocus = useRef<HTMLElement | null>(null);
-  const hasChanges = draftSignature(patch, count, prefix, measurement) !== cleanDraft.current;
+  const hasChanges = draftSignature(patch, count, prefix, measurement, sizeRows) !== cleanDraft.current;
   function requestClose() {
     if (busy || closing) return;
     if (confirmDiscard) {
@@ -119,13 +136,28 @@ export function QuickAdd({ onClose }: { onClose: () => void }) {
     try {
       if (!patch.name?.trim()) throw new Error('请填写样品统称。');
       if (!count.trim()) throw new Error('请填写计划测试数量；仅准备样品可填 0。');
+      const plannedCount = Number(count);
+      if (plannedCount >= 1 && sizeRows.length !== plannedCount)
+        throw new Error('尺寸行还没准备好，请再试一次。');
+      const {
+        thickness: _thickness,
+        thicknessUnit: _thicknessUnit,
+        width: _width,
+        height: _height,
+        dimensionUnit: _dimensionUnit,
+        ...groupPatch
+      } = patch;
       intent.current ??= {
         command: {
           type: 'addSamples',
           experimentId,
-          patch: { ...patch, name: patch.name.trim(), state: patch.state?.trim() || '未指定' },
-          count: Number(count),
+          patch: { ...groupPatch, name: patch.name.trim(), state: patch.state?.trim() || '未指定' },
+          count: plannedCount,
           prefix,
+          specimens:
+            plannedCount >= 1
+              ? sizeRows.map(({ sizeEdited: _edited, ...size }) => size)
+              : undefined,
           measurement: { ...measurement, mode: patch.mode },
         },
         requestId: crypto.randomUUID(),
@@ -138,7 +170,6 @@ export function QuickAdd({ onClose }: { onClose: () => void }) {
       );
       await execute(intent.current.command, true, intent.current.requestId);
       const keepAdding = intent.current.continueAdding;
-      const plannedCount = Number(count);
       intent.current = null;
       if (!keepAdding) {
         onClose();
@@ -162,7 +193,9 @@ export function QuickAdd({ onClose }: { onClose: () => void }) {
       setAdded((n) => n + 1);
       const nextPatch = { ...patch, name: '', state: '' };
       setPatch(nextPatch);
-      cleanDraft.current = draftSignature(nextPatch, count, prefix, measurement);
+      const clearedSizes = sizeRows.map(() => ({ ...emptySpecimenSize(), sizeEdited: false }));
+      setSizeRows(clearedSizes);
+      cleanDraft.current = draftSignature(nextPatch, count, prefix, measurement, clearedSizes);
     } catch (failure) {
       if (failure instanceof DesktopReplyError && failure.rejected) intent.current = null;
       setError((failure as Error).message);
@@ -207,11 +240,6 @@ export function QuickAdd({ onClose }: { onClose: () => void }) {
                     preparedCount,
                     mode,
                     priority,
-                    thickness,
-                    thicknessUnit,
-                    width,
-                    height,
-                    dimensionUnit,
                     preparation,
                     notes,
                     protocol,
@@ -227,11 +255,6 @@ export function QuickAdd({ onClose }: { onClose: () => void }) {
                     preparedCount,
                     mode,
                     priority,
-                    thickness,
-                    thicknessUnit,
-                    width: width || '',
-                    height: height || '',
-                    dimensionUnit: dimensionUnit || '',
                     preparation,
                     notes,
                     protocol: protocol || '',
@@ -356,6 +379,57 @@ export function QuickAdd({ onClose }: { onClose: () => void }) {
                 计划测试数量应为 0–1000 的整数，且不超过准备数量；准备数量未知可留空。
               </p>
             )}
+            {arrangedCount > 0 ? (
+              <ol className="specimen-plan">
+                {sizeCodes.split('\n').map((code, index) => {
+                  const row = sizeRows[index];
+                  if (!row) return null;
+                  return (
+                    <li key={code}>
+                      <code>{code}</code>
+                      <SpecimenSizeFields
+                        code={code}
+                        value={row}
+                        onChange={(next) =>
+                          setSizeRows((current) =>
+                            current.map((entry, entryIndex) =>
+                              entryIndex === index ? { ...entry, ...next, sizeEdited: true } : entry,
+                            ),
+                          )
+                        }
+                      />
+                      {row.sizeEdited && sizeRows.slice(index + 1).some((entry) => !entry.sizeEdited) && (
+                        <button
+                          type="button"
+                          className="text-button"
+                          onClick={() =>
+                            setSizeRows((current) =>
+                              current.map((entry, entryIndex) =>
+                                entryIndex > index && !entry.sizeEdited
+                                  ? {
+                                      ...entry,
+                                      thickness: row.thickness,
+                                      thicknessUnit: row.thicknessUnit,
+                                      width: row.width,
+                                      height: row.height,
+                                      dimensionUnit: row.dimensionUnit,
+                                      sizeEdited: true,
+                                    }
+                                  : entry,
+                              ),
+                            )
+                          }
+                        >
+                          后面也用这个尺寸
+                        </button>
+                      )}
+                    </li>
+                  );
+                })}
+              </ol>
+            ) : (
+              <p className="hint">尺寸在安排时按每一件填写。</p>
+            )}
             <div className="form-grid">
               <label className="field">
                 <span>实验方式</span>
@@ -418,74 +492,14 @@ export function QuickAdd({ onClose }: { onClose: () => void }) {
               count={validCounts ? planned! : 0}
             />
           </div>
-          <fieldset className="form-section span-2">
-            <legend>
-              <Ruler size={16} />
-              样品尺寸 <small>可稍后补充</small>
-            </legend>
-            <div className="dimension-fields">
-              <label className="field">
-                <span>厚度</span>
-                <input
-                  value={patch.thickness || ''}
-                  onChange={(e) => set('thickness', e.target.value)}
-                  inputMode="decimal"
-                  placeholder="未填写"
-                />
-              </label>
-              <label className="field">
-                <span>厚度单位</span>
-                <select
-                  value={patch.thicknessUnit || ''}
-                  onChange={(event) => set('thicknessUnit', event.target.value)}
-                >
-                  <option value="">未指定</option>
-                  {['mm', 'μm', 'nm', 'cm'].map((unit) => (
-                    <option key={unit}>{unit}</option>
-                  ))}
-                </select>
-              </label>
-              <label className="field">
-                <span>宽度</span>
-                <input
-                  value={patch.width || ''}
-                  onChange={(e) => set('width', e.target.value)}
-                  inputMode="decimal"
-                  placeholder="未填写"
-                />
-              </label>
-              <label className="field">
-                <span>宽高单位</span>
-                <select
-                  value={patch.dimensionUnit || ''}
-                  onChange={(e) => {
-                    set('dimensionUnit', e.target.value);
-                  }}
-                >
-                  <option value="">未指定</option>
-                  {['mm', 'μm', 'nm', 'cm'].map((unit) => (
-                    <option key={unit}>{unit}</option>
-                  ))}
-                </select>
-              </label>
-            </div>
-          </fieldset>
           <MaterialPreparationFields
             collapsible
             value={patch}
             onChange={(key, value) => set(key, value)}
           />
           <details className="span-2 quick-add-extra">
-            <summary>更多信息 · 高度、制备、条件与备注</summary>
+            <summary>更多信息 · 制备、条件与备注</summary>
             <div className="form-grid">
-              <label className="field">
-                <span>高度（可选）</span>
-                <input
-                  value={patch.height || ''}
-                  onChange={(e) => set('height', e.target.value)}
-                  inputMode="decimal"
-                />
-              </label>
               <label className="field">
                 <span>编号前缀</span>
                 <input value={prefix} onChange={(e) => setPrefix(e.target.value)} placeholder="S" />
@@ -531,7 +545,7 @@ export function QuickAdd({ onClose }: { onClose: () => void }) {
         </fieldset>
         {added > 0 && (
           <p className="hint span-2" role="status">
-            已连续添加 {added} 组；尺寸、数量和条件已保留，可继续输入名称。
+            已连续添加 {added} 组；数量和条件已保留，可继续输入名称。
           </p>
         )}
         {error && (

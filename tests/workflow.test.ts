@@ -60,6 +60,18 @@ test('request IDs and repeated start / finish do not create duplicate records', 
   assert.throws(() => store.command({ type: 'finish', itemId }, 'start-request'), /另一项/);
 });
 
+test('the next demo uses the first free DEMO number and ignores case', (t) => {
+  const { store } = fixture(t);
+  store.command({ type: 'createExperiment', code: 'DEMO-1', name: '旧演示' });
+  store.command({ type: 'createExperiment', code: 'demo-2', name: '小写演示' });
+  const created = store.command({ type: 'demo' });
+  assert.equal(store.get('experiments', created.experimentId!).code, 'DEMO-3');
+  const first = store.snapshot().experiments.find((experiment) => experiment.code === 'DEMO-1')!;
+  store.command({ type: 'deleteExperiment', id: first.id });
+  const reused = store.command({ type: 'demo' });
+  assert.equal(store.get('experiments', reused.experimentId!).code, 'DEMO-1');
+});
+
 test('one active operation across experiments; unfinished operation survives reopening', (t) => {
   const f = fixture(t);
   const first = f.store.command({ type: 'demo' });

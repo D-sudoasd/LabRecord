@@ -942,7 +942,7 @@ export function Live() {
     )
       return;
     const target = event.target;
-    if (target instanceof HTMLElement && target.matches('input, textarea, select')) return;
+    if (!(target instanceof Element) || !target.closest('.queue-index, .queue-choice')) return;
     event.preventDefault();
     void move(item, event.key === 'ArrowUp' ? -1 : 1);
   }

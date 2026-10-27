@@ -49,9 +49,19 @@ export function sharedSamplePrefix(codes: readonly string[]) {
 export function suggestedSpecimenName(group: { name?: string; state: string }, ordinal: string) {
   return `${(group.name?.trim() || group.state).trim()}-${ordinal}`;
 }
+export type SpecimenInput = {
+  name?: string;
+  protocol?: string;
+  thickness?: string;
+  thicknessUnit?: string;
+  width?: string;
+  height?: string;
+  dimensionUnit?: string;
+};
+const SIZE_KEYS = ['thickness', 'thicknessUnit', 'width', 'height', 'dimensionUnit'] as const;
 export function specimenParameters(
   group: { protocol?: string },
-  specimen: { name?: string; protocol?: string },
+  specimen: SpecimenInput,
 ): Partial<Group> {
   const parameters: Partial<Group> = {};
   const name = specimen.name?.trim() ?? '';
@@ -59,6 +69,10 @@ export function specimenParameters(
   const protocol = specimen.protocol ?? '';
   if (protocol.trim() && protocol.trim() !== (group.protocol ?? '').trim())
     parameters.protocol = protocol;
+  const sentSize = SIZE_KEYS.some((key) => key in specimen);
+  if (sentSize) {
+    for (const key of SIZE_KEYS) parameters[key] = specimen[key] ?? '';
+  }
   return parameters;
 }
 export type Priority = 'P0' | 'P1' | 'P2';
@@ -241,6 +255,7 @@ export type Command =
       patch: GroupPatch;
       count: number;
       prefix?: string;
+      specimens?: SpecimenInput[];
       measurement?: MeasurementPlan;
     }
   | { type: 'temporary'; experimentId: string; patch: GroupPatch }
@@ -255,7 +270,7 @@ export type Command =
       groupId: string;
       count: number;
       prefix?: string;
-      specimens?: { name?: string; protocol?: string }[];
+      specimens?: SpecimenInput[];
       measurement?: MeasurementPlan;
     }
   | {

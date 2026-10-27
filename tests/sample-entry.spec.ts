@@ -96,6 +96,13 @@ test('a changed sample form warns; Escape and continue preserve fields; discard 
   await expect(dialog.locator('form.quick-add-form')).toBeVisible();
   await expect(name).toHaveValue('暂存的试样名称');
   await expect(closeButton).toBeFocused();
+  await page.keyboard.press('Escape');
+  await expect(prompt).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(prompt).toHaveCount(0);
+  await expect(dialog).toBeVisible();
+  await expect(dialog.locator('form.quick-add-form')).toBeVisible();
+  await expect(name).toHaveValue('暂存的试样名称');
 
   await closeButton.click();
   await prompt.getByRole('button', { name: '继续填写' }).click();

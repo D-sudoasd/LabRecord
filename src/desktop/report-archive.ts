@@ -1,9 +1,9 @@
 import { readFile, writeFile, mkdir, copyFile, rename, rm } from 'node:fs/promises';
-import { join, resolve, sep } from 'node:path';
+import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import { GithubClient, GithubError, repositorySchema } from './github-sync.js';
-import { hashBytes } from './reports.js';
+import { directoryContains, hashBytes } from './reports.js';
 import type { CloudReport, ReportJob } from '../shared/model.js';
 
 const CHUNK = 20 * 1024 * 1024;
@@ -352,7 +352,7 @@ export class ReportArchive {
       await rename(staging, target);
       return target;
     } finally {
-      if (!resolve(staging).startsWith(resolve(parent) + sep) || !staging.endsWith(nonce))
+      if (!directoryContains(parent, staging) || !staging.endsWith(nonce))
         throw new Error('报告下载临时路径无效。');
       await rm(staging, { recursive: true, force: true });
     }
