@@ -11,7 +11,7 @@
 <p align="center"><strong>规划样品、记录现场操作，一次导出可追溯的实验报告。</strong></p>
 
 <p align="center">
-  <a href="https://github.com/D-sudoasd/LabRecord/releases/download/v0.8.0/LabRecord-0.8.0-Windows-x64.zip"><strong>下载 Windows 版 · 0.8.0</strong></a>
+  <a href="https://github.com/D-sudoasd/LabRecord/releases/download/v0.8.1/LabRecord-0.8.1-Windows-x64.zip"><strong>下载 Windows 版 · 0.8.1</strong></a>
   &nbsp;·&nbsp; <a href="#三步完成一次实验">三步开始使用</a>
   &nbsp;·&nbsp; <a href="docs/beamtime-workflow.md">现场使用流程</a>
   &nbsp;·&nbsp; <a href="CHANGELOG.md">更新记录</a>
@@ -20,7 +20,7 @@
 <p align="center">
   <img src="https://img.shields.io/badge/Windows-x64-196B63" alt="Windows x64">
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-196B63" alt="MIT License"></a>
-  <img src="https://img.shields.io/badge/version-0.8.0-196B63" alt="version 0.8.0">
+  <img src="https://img.shields.io/badge/version-0.8.1-196B63" alt="version 0.8.1">
 </p>
 
 > 中文 Windows 桌面应用。实验规划、现场记录和报告导出可以离线完成；需要换电脑时，再连接各自的 GitHub 私人数据仓库。

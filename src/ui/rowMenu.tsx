@@ -220,6 +220,10 @@ function ContextMenu({
         onClose();
         return;
       }
+      if (!ref.current?.contains(event.target as Node)) {
+        onClose();
+        return;
+      }
       if (event.key === 'F8' || event.ctrlKey || event.metaKey || event.altKey) {
         event.preventDefault();
         event.stopPropagation();

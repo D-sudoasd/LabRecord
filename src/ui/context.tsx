@@ -117,6 +117,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   );
   const execute = useCallback(
     async (command: Command, follow = true, requestId?: string) => {
+      const startedOnHome = preferHome.current;
       setBusy((n) => n + 1);
       try {
         const result = await unwrap(
@@ -125,12 +126,13 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
         setLastWriteFailed(false);
         setAlert((current) => (current?.error ? null : current));
         replace(result.snapshot);
-        if (follow && result.experimentId) {
+        const stayedOnHome = preferHome.current && !startedOnHome;
+        if (!stayedOnHome && follow && result.experimentId) {
           preferHome.current = false;
           currentExperiment.current = result.experimentId;
           setExperiment(result.experimentId);
         }
-        if (follow && result.itemId) setItemId(result.itemId);
+        if (!stayedOnHome && follow && result.itemId) setItemId(result.itemId);
         return result;
       } catch (error) {
         setLastWriteFailed(true);

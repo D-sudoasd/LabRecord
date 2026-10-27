@@ -72,6 +72,21 @@ export function Modal({
 }) {
   const ref = useModalDialog(),
     id = useId();
+  useEffect(() => {
+    const dialog = ref.current;
+    if (!dialog) return;
+    dialog.setAttribute('closedby', closeDisabled ? 'none' : 'closerequest');
+    const onDialogClose = () => {
+      if (dialog.open) return;
+      if (closeDisabled) {
+        if (dialog.isConnected) dialog.showModal();
+        return;
+      }
+      onClose();
+    };
+    dialog.addEventListener('close', onDialogClose);
+    return () => dialog.removeEventListener('close', onDialogClose);
+  }, [closeDisabled, onClose, ref]);
   return (
     <dialog
       ref={ref}
