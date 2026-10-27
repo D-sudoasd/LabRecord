@@ -82,6 +82,33 @@ test('a name without size keys does not invent a sample size', (t) => {
   const sample = store.snapshot().samples[0];
   assert.equal(sample.parameters.name, '甲');
   assert.equal('thickness' in sample.parameters, false);
+  assert.equal('state' in sample.parameters, false);
+  assert.equal('notes' in sample.parameters, false);
+});
+
+test('each arranged specimen keeps its own state and note', (t) => {
+  const { store, group } = setup(t);
+  store.command({
+    type: 'updateGroups',
+    ids: [group.id],
+    patch: { notes: '组里的备注' },
+  });
+  store.command({
+    type: 'arrange',
+    groupId: group.id,
+    count: 2,
+    specimens: [
+      { state: '时效', notes: '先测这件' },
+      { state: '', notes: '' },
+    ],
+  });
+  const samples = store.snapshot().samples;
+  assert.equal(samples[0].parameters.state, '时效');
+  assert.equal(samples[0].parameters.notes, '先测这件');
+  assert.equal(samples[1].parameters.state, '共用旧尺寸');
+  assert.equal('notes' in samples[1].parameters, false);
+  assert.equal(store.snapshot().groups[0].state, '共用旧尺寸');
+  assert.equal(store.snapshot().groups[0].notes, '组里的备注');
 });
 
 test('addSamples stores each specimen size and ignores specimens when nothing is arranged', (t) => {

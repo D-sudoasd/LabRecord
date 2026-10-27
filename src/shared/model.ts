@@ -52,6 +52,8 @@ export function suggestedSpecimenName(group: { name?: string; state: string }, o
 export type SpecimenInput = {
   name?: string;
   protocol?: string;
+  state?: string;
+  notes?: string;
   thickness?: string;
   thicknessUnit?: string;
   width?: string;
@@ -59,8 +61,13 @@ export type SpecimenInput = {
   dimensionUnit?: string;
 };
 const SIZE_KEYS = ['thickness', 'thicknessUnit', 'width', 'height', 'dimensionUnit'] as const;
+export function effectiveNotes(group: { notes?: string }, parameters?: { notes?: string }) {
+  const own = parameters?.notes;
+  if (typeof own === 'string' && own.trim()) return own;
+  return group.notes ?? '';
+}
 export function specimenParameters(
-  group: { protocol?: string },
+  group: { protocol?: string; state?: string; notes?: string },
   specimen: SpecimenInput,
 ): Partial<Group> {
   const parameters: Partial<Group> = {};
@@ -69,6 +76,11 @@ export function specimenParameters(
   const protocol = specimen.protocol ?? '';
   if (protocol.trim() && protocol.trim() !== (group.protocol ?? '').trim())
     parameters.protocol = protocol;
+  if ('state' in specimen) {
+    const state = specimen.state?.trim() || group.state?.trim() || '';
+    if (state) parameters.state = state;
+  }
+  if ('notes' in specimen && (specimen.notes ?? '').trim()) parameters.notes = specimen.notes;
   const sentSize = SIZE_KEYS.some((key) => key in specimen);
   if (sentSize) {
     for (const key of SIZE_KEYS) parameters[key] = specimen[key] ?? '';

@@ -209,7 +209,7 @@ export function GroupForm({
               onChange={(event) => setState(event.target.value)}
               placeholder="如 NOHR_aged；保留原表文字，可留空"
             />
-            <small>保留原始状态名称，具体样品在安排测试时单独编号。</small>
+            <small>这一组的默认状态。安排测试时每一件可以改成自己的状态，也可以单独写备注。</small>
           </label>
         )}
         <MaterialPreparationFields
@@ -382,6 +382,10 @@ export function ArrangeDialog({
         nameEdited: boolean;
         protocol: string;
         protocolEdited: boolean;
+        state: string;
+        stateEdited: boolean;
+        notes: string;
+        notesEdited: boolean;
         sizeEdited: boolean;
       } & SpecimenSize)[]
     >([]),
@@ -418,11 +422,18 @@ export function ArrangeDialog({
       preview.map((item, index) => {
         const previous = current[index];
         const size = previous?.sizeEdited ? previous : { ...emptySpecimenSize(group), sizeEdited: false };
+        const state = previous?.stateEdited ? previous.state : group.state;
         return {
-          name: previous?.nameEdited ? previous.name : suggestedSpecimenName(group, item.ordinal),
+          name: previous?.nameEdited
+            ? previous.name
+            : suggestedSpecimenName({ ...group, state: state.trim() || group.state }, item.ordinal),
           nameEdited: previous?.nameEdited ?? false,
           protocol: previous?.protocol ?? '',
           protocolEdited: previous?.protocolEdited ?? false,
+          state,
+          stateEdited: previous?.stateEdited ?? false,
+          notes: previous?.notesEdited ? previous.notes : '',
+          notesEdited: previous?.notesEdited ?? false,
           thickness: size.thickness,
           thicknessUnit: size.thicknessUnit,
           width: size.width,
@@ -451,11 +462,16 @@ export function ArrangeDialog({
     setRows(
       assigned.map((item, index) => {
         const size = rows[index]?.sizeEdited ? rows[index] : { ...emptySpecimenSize(group), sizeEdited: false };
+        const state = rows[index]?.stateEdited ? rows[index].state : group.state;
         return {
-          name: lines[index] ?? suggestedSpecimenName(group, item.ordinal),
+          name: lines[index] ?? suggestedSpecimenName({ ...group, state: state.trim() || group.state }, item.ordinal),
           nameEdited: lines[index] !== undefined,
           protocol: rows[index]?.protocol ?? '',
           protocolEdited: rows[index]?.protocolEdited ?? false,
+          state,
+          stateEdited: rows[index]?.stateEdited ?? false,
+          notes: rows[index]?.notesEdited ? rows[index].notes : '',
+          notesEdited: rows[index]?.notesEdited ?? false,
           thickness: size.thickness,
           thicknessUnit: size.thicknessUnit,
           width: size.width,
@@ -481,6 +497,8 @@ export function ArrangeDialog({
           specimens: rows.map((row) => ({
             name: row.name,
             protocol: row.protocol,
+            state: row.state,
+            notes: row.notes,
             thickness: row.thickness,
             thicknessUnit: row.thicknessUnit,
             width: row.width,
@@ -564,6 +582,7 @@ export function ArrangeDialog({
           )}
           <p className="hint">
             编号按安排顺序接着编，下一组也顺着来。每一件的名字可以改，清空后显示编号。重测仍用这件的编号。
+            每一件单独写样品状态和备注。状态留空则记下本组现在的状态。备注留空则沿用样品组。
             每一件单独写尺寸。留空表示这一件还没量，不会套用别人的尺寸。
           </p>
           {preview.length > 0 && (
@@ -589,6 +608,77 @@ export function ArrangeDialog({
                         }
                       />
                     </label>
+                    <label className="field">
+                      <span>{item.code} 样品状态</span>
+                      <input
+                        aria-label={`${item.code} 样品状态`}
+                        value={row?.state ?? ''}
+                        placeholder={group.state || '本组状态'}
+                        onChange={(event) =>
+                          setRows((current) =>
+                            current.map((entry, entryIndex) =>
+                              entryIndex === index
+                                ? { ...entry, state: event.target.value, stateEdited: true }
+                                : entry,
+                            ),
+                          )
+                        }
+                      />
+                    </label>
+                    {!!row?.stateEdited && rows.slice(index + 1).some((entry) => !entry.stateEdited) && (
+                      <button
+                        type="button"
+                        className="text-button"
+                        onClick={() =>
+                          setRows((current) =>
+                            current.map((entry, entryIndex) =>
+                              entryIndex > index && !entry.stateEdited
+                                ? { ...entry, state: row.state, stateEdited: true }
+                                : entry,
+                            ),
+                          )
+                        }
+                      >
+                        后面也用这个状态
+                      </button>
+                    )}
+                    <label className="field">
+                      <span>{item.code} 备注</span>
+                      <textarea
+                        aria-label={`${item.code} 备注`}
+                        rows={2}
+                        value={row?.notes ?? ''}
+                        placeholder={group.notes?.trim() || '留空则沿用样品组'}
+                        onChange={(event) =>
+                          setRows((current) =>
+                            current.map((entry, entryIndex) =>
+                              entryIndex === index
+                                ? { ...entry, notes: event.target.value, notesEdited: true }
+                                : entry,
+                            ),
+                          )
+                        }
+                      />
+                    </label>
+                    {!!row?.notes.trim() &&
+                      !!row.notesEdited &&
+                      rows.slice(index + 1).some((entry) => !entry.notesEdited) && (
+                        <button
+                          type="button"
+                          className="text-button"
+                          onClick={() =>
+                            setRows((current) =>
+                              current.map((entry, entryIndex) =>
+                                entryIndex > index && !entry.notesEdited
+                                  ? { ...entry, notes: row.notes, notesEdited: true }
+                                  : entry,
+                              ),
+                            )
+                          }
+                        >
+                          后面也用这个备注
+                        </button>
+                      )}
                     {showProtocol && (
                       <label className="field">
                         <span>{item.code} 实验制度</span>
@@ -730,6 +820,7 @@ function SampleEditor({ sample, onClose }: { sample: Sample; onClose: () => void
   const group = snapshot.groups.find((g) => g.id === sample.groupId)!;
   const experiment = snapshot.experiments.find((e) => e.id === sample.experimentId)!;
   const [name, setName] = useState(sample.parameters.name ?? ''),
+    [state, setState] = useState(sample.parameters.state ?? group.state),
     [width, setWidth] = useState(sample.parameters.width ?? group.width ?? ''),
     [height, setHeight] = useState(sample.parameters.height ?? group.height ?? ''),
     [dimensionUnit, setDimensionUnit] = useState(
@@ -738,7 +829,7 @@ function SampleEditor({ sample, onClose }: { sample: Sample; onClose: () => void
   const [code, setCode] = useState(sample.code),
     [thickness, setThickness] = useState(sample.parameters.thickness ?? group.thickness),
     [unit, setUnit] = useState(sample.parameters.thicknessUnit ?? group.thicknessUnit),
-    [notes, setNotes] = useState(sample.parameters.notes ?? group.notes),
+    [notes, setNotes] = useState(sample.parameters.notes ?? ''),
     [protocol, setProtocol] = useState(sample.parameters.protocol ?? '');
   const [materials, setMaterials] = useState<GroupPatch>({ ...group, ...sample.parameters });
   const [materialChanges, setMaterialChanges] = useState(new Set<string>());
@@ -755,6 +846,7 @@ function SampleEditor({ sample, onClose }: { sample: Sample; onClose: () => void
         code,
         parameters: {
           name: name.trim(),
+          state: state.trim() || group.state,
           width,
           height,
           dimensionUnit,
@@ -788,6 +880,15 @@ function SampleEditor({ sample, onClose }: { sample: Sample; onClose: () => void
             onChange={(event) => setName(event.target.value)}
             placeholder={`不填则显示编号 ${sample.code}`}
           />
+        </label>
+        <label className="field">
+          <span>这一件的样品状态</span>
+          <input
+            value={state}
+            onChange={(event) => setState(event.target.value)}
+            placeholder={group.state || '本组状态'}
+          />
+          <small>留空则记下本组现在的状态。</small>
         </label>
         <div className="form-grid">
           <label className="field">
@@ -832,8 +933,14 @@ function SampleEditor({ sample, onClose }: { sample: Sample; onClose: () => void
           </label>
         </div>
         <label className="field">
-          <span>计划备注</span>
-          <textarea value={notes} onChange={(event) => setNotes(event.target.value)} rows={3} />
+          <span>这一件的备注</span>
+          <textarea
+            value={notes}
+            onChange={(event) => setNotes(event.target.value)}
+            rows={3}
+            placeholder={group.notes?.trim() || '留空则沿用样品组'}
+          />
+          <small>留空则沿用样品组的计划备注。</small>
         </label>
         {(group.mode !== '未定' || protocol.trim() || group.protocol?.trim()) && (
           <label className="field protocol-card">
@@ -1619,9 +1726,15 @@ function GroupRows({
   ]
     .filter(Boolean)
     .join(' · ');
-  const overrideCount = samples.filter((sample) =>
-    sampleOverrideLabel(group, sample.parameters),
-  ).length;
+  const overrideCount = samples.filter((sample) => {
+    const state = sample.parameters.state?.trim();
+    const notes = sample.parameters.notes?.trim();
+    return (
+      sampleOverrideLabel(group, sample.parameters) ||
+      (!!state && state !== group.state.trim()) ||
+      (!!notes && notes !== (group.notes || '').trim())
+    );
+  }).length;
   const driftCount = groupItems.filter((item) => operationPlanDrift(snapshot, item)).length;
   const firstDrift = groupItems
     .filter((item) => operationPlanDrift(snapshot, item))
@@ -1888,6 +2001,12 @@ function GroupRows({
                         <small className="sample-note">
                           {dimensions({ ...group, ...sample.parameters })}
                         </small>
+                        {sample.parameters.state?.trim() &&
+                          sample.parameters.state.trim() !== group.state.trim() && (
+                            <small className="sample-note">
+                              状态 {sample.parameters.state.trim()}
+                            </small>
+                          )}
                         {sampleOverrideLabel(group, sample.parameters) && (
                           <small className="sample-override">
                             本样品 {sampleOverrideLabel(group, sample.parameters)}
@@ -1975,6 +2094,20 @@ function GroupRows({
                           value={sample.parameters.name || ''}
                           placeholder={`不填则显示 ${sample.code}`}
                           onSave={(name) => saveSpecimen(sample.id, { name: name.trim() })}
+                        />
+                        <AutoInput
+                          label={`${sample.code} 样品状态`}
+                          value={sample.parameters.state || group.state}
+                          placeholder={group.state || '本组状态'}
+                          onSave={(state) =>
+                            saveSpecimen(sample.id, { state: state.trim() || group.state })
+                          }
+                        />
+                        <AutoInput
+                          label={`${sample.code} 备注`}
+                          value={sample.parameters.notes || ''}
+                          placeholder={group.notes?.trim() || '留空则沿用样品组'}
+                          onSave={(notes) => saveSpecimen(sample.id, { notes })}
                         />
                         {showProtocol && (
                           <AutoInput

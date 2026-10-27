@@ -1,5 +1,5 @@
 import type { Experiment, Group, MeasurementPlan, PlanItem, Sample, Snapshot } from './model.js';
-import { effectiveProtocol, filenameFor } from './model.js';
+import { effectiveNotes, effectiveProtocol, filenameFor } from './model.js';
 
 export const REGIMES = [
   { value: 'monotonic', label: '单调拉伸 / 压缩' },
@@ -16,6 +16,7 @@ export function plannedGroup(group: Group, sample: Sample, item: PlanItem): Grou
   return {
     ...group,
     ...sample.parameters,
+    notes: effectiveNotes(group, sample.parameters),
     mode: item.measurement?.mode ?? sample.parameters.mode ?? group.mode,
     protocol: item.measurement?.protocol ?? effectiveProtocol(group, sample.parameters),
   };

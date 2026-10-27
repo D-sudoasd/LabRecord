@@ -17,6 +17,8 @@ const specimenInput = z
   .object({
     name: z.string().max(300).optional(),
     protocol: text.optional(),
+    state: z.string().max(300).optional(),
+    notes: text.optional(),
     thickness: text.optional(),
     thicknessUnit: z.string().max(40).optional(),
     width: text.optional(),

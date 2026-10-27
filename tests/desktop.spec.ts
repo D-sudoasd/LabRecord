@@ -755,6 +755,50 @@ test('each arranged specimen keeps its own size', async () => {
   await expect(page.locator('.sample-strip', { hasText: 'TA-02' })).toContainText('0.4');
 });
 
+test('each arranged specimen keeps its own state and note', async () => {
+  const created = await command(page, {
+    type: 'createExperiment',
+    code: 'STATE-1',
+    name: '状态按件',
+  });
+  await command(page, {
+    type: 'createGroup',
+    experimentId: created.experimentId!,
+    patch: { state: '热处理', name: '按件试样', preparedCount: 4, notes: '组里的备注' },
+  });
+  await page.reload();
+  await page.getByRole('button', { name: '实验规划', exact: true }).click();
+  await page
+    .locator('tr', { hasText: '热处理' })
+    .first()
+    .getByRole('button', { name: '安排测试', exact: true })
+    .click();
+  const dialog = page.getByRole('dialog', { name: '安排待测样品', exact: true });
+  await dialog.getByLabel('本次加入待测队列的数量 *', { exact: true }).fill('2');
+  await expect(dialog.getByLabel('S01 样品状态', { exact: true })).toHaveValue('热处理');
+  await dialog.getByLabel('S01 样品状态', { exact: true }).fill('时效');
+  await dialog.getByLabel('S01 备注', { exact: true }).fill('先测这件');
+  await dialog.getByRole('button', { name: '后面也用这个状态', exact: true }).click();
+  await dialog.getByRole('button', { name: '后面也用这个备注', exact: true }).click();
+  await expect(dialog.getByLabel('S02 样品状态', { exact: true })).toHaveValue('时效');
+  await expect(dialog.getByLabel('S02 备注', { exact: true })).toHaveValue('先测这件');
+  await dialog.getByLabel('S02 样品状态', { exact: true }).fill('退火');
+  await dialog.getByLabel('S02 备注', { exact: true }).fill('');
+  await dialog.getByRole('button', { name: '加入待测队列', exact: true }).click();
+  await expect(dialog).toHaveCount(0);
+  const data = await snapshot(page);
+  expect(data.groups[0].state).toBe('热处理');
+  expect(data.groups[0].notes).toBe('组里的备注');
+  expect(data.samples.map((sample) => sample.parameters.state)).toEqual(['时效', '退火']);
+  expect(data.samples[0].parameters.notes).toBe('先测这件');
+  expect(data.samples[1].parameters.notes).toBeUndefined();
+  await page.getByRole('button', { name: '展开 热处理', exact: true }).click();
+  await expect(page.getByLabel('S01 样品状态', { exact: true })).toHaveValue('时效');
+  await expect(page.getByLabel('S02 样品状态', { exact: true })).toHaveValue('退火');
+  await expect(page.getByLabel('S01 备注', { exact: true })).toHaveValue('先测这件');
+  await expect(page.locator('.sample-strip', { hasText: 'S01' })).toContainText('状态 时效');
+});
+
 test('the plan no longer edits one size for a whole group', async () => {
   await page.getByRole('button', { name: '载入演示实验' }).click();
   await page.getByRole('button', { name: '实验规划', exact: true }).click();
