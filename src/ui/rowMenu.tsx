@@ -159,7 +159,7 @@ export function experimentDeleteReason(snapshot: Snapshot, experimentId: string)
 export function experimentDeleteRequest(experiment: Experiment): DeleteRequest {
   return {
     title: '删除实验',
-    body: `删除实验「${experiment.name}」（${experiment.code}）。其中的样品组和还没开始的测量会一起去掉。已经有实际记录的实验不能删除。`,
+    body: `删除实验「${experiment.name}」（${experiment.code}）。其中的样品组和还没开始的测量会一起去掉。`,
     confirmLabel: '删除实验',
     done: '实验已删除。',
     command: { type: 'deleteExperiment', id: experiment.id },

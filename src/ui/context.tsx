@@ -89,8 +89,11 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
   const savedSnapshot = useRef(EMPTY);
   const flushing = useRef<Promise<void> | null>(null);
   const currentExperiment = useRef('');
+  // Empty selection is the start page. It must survive later snapshot refreshes.
+  const preferHome = useRef(false);
   const setExperimentId = useCallback((id: string) => {
     currentExperiment.current = id;
+    preferHome.current = id === '';
     setExperiment(id);
     setItemId('');
   }, []);
@@ -99,6 +102,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
     (data: Snapshot) => {
       savedSnapshot.current = data;
       setSnapshot(data);
+      if (preferHome.current) return;
       if (!data.experiments.some((e) => e.id === currentExperiment.current)) {
         const running = data.items.find((i) => i.status === 'running');
         const id = running?.experimentId || data.experiments[0]?.id || '';
@@ -122,6 +126,7 @@ export function WorkspaceProvider({ children }: { children: ReactNode }) {
         setAlert((current) => (current?.error ? null : current));
         replace(result.snapshot);
         if (follow && result.experimentId) {
+          preferHome.current = false;
           currentExperiment.current = result.experimentId;
           setExperiment(result.experimentId);
         }

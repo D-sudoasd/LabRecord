@@ -11,9 +11,11 @@ const RESULT_BATCH_SIZE = 8;
 export function WorkspaceSearchDialog({
   onClose,
   onCreate,
+  onHome,
 }: {
   onClose: () => void;
   onCreate: () => void;
+  onHome: () => void;
 }) {
   const { snapshot, experimentId, flush, notify, setExperimentId, setItemId, setPage } =
     useWorkspace();
@@ -80,6 +82,10 @@ export function WorkspaceSearchDialog({
 
   function createExperiment() {
     void flush().then(onCreate).catch(fail);
+  }
+
+  function goHome() {
+    void flush().then(onHome).catch(fail);
   }
 
   function changeQuery(value: string) {
@@ -168,6 +174,9 @@ export function WorkspaceSearchDialog({
               onHover={setActive}
             />
             <div className="library-create">
+              <button type="button" className="button" onClick={goHome}>
+                回到开始页
+              </button>
               <button type="button" className="button" onClick={createExperiment}>
                 新建实验
               </button>

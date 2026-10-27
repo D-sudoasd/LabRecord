@@ -22,6 +22,9 @@ import {
   Eye,
   ArrowRight,
   Search,
+  House,
+  ChevronUp,
+  ChevronDown,
 } from 'lucide-react';
 import { useWorkspace, unwrap, DesktopReplyError } from './context';
 import { Plan } from './Plan';
@@ -259,6 +262,16 @@ function SettingsDialog({
   function patchField(id: string, patch: Partial<Field>) {
     setFields((old) => old.map((f) => (f.id === id ? { ...f, ...patch } : f)));
   }
+  function moveField(index: number, direction: -1 | 1) {
+    setFields((old) => {
+      const next = index + direction;
+      if (next < 0 || next >= old.length) return old;
+      const copy = old.slice();
+      const [item] = copy.splice(index, 1);
+      copy.splice(next, 0, item);
+      return copy;
+    });
+  }
   async function save(event: React.FormEvent) {
     event.preventDefault();
     if (!experiment) return;
@@ -270,7 +283,11 @@ function SettingsDialog({
         name,
         description,
         namingPattern: pattern,
-        fields,
+        fields: fields.map((field) =>
+          field.type === 'select'
+            ? { ...field, options: field.options.map((option) => option.trim()).filter(Boolean) }
+            : field,
+        ),
       });
       notify('实验设置已保存。');
       onClose();
@@ -404,12 +421,12 @@ function SettingsDialog({
                   带上技术和制度
                 </button>
               </div>
-              {historicalPatterns.size > 1 && (
+              {historicalPatterns.size > 0 && (
                 <label className="field">
                   <span>用过的写法</span>
                   <select
                     aria-label="用过的写法"
-                    defaultValue=""
+                    value=""
                     onChange={(event) => {
                       if (event.target.value) setPattern(event.target.value);
                     }}
@@ -453,7 +470,7 @@ function SettingsDialog({
               </button>
             </div>
             <p className="hint">
-              字段可以填写尺寸、成分、温度、浓度、载荷等。已有操作保留开始时的字段与单位。
+              字段可以填写尺寸、成分、温度、浓度、载荷等。上下箭头调整填写顺序，保存后生效。已有操作保留开始时的字段与单位。
             </p>
             <div className="field-definition-list">
               {fields.map((field, index) => (
@@ -482,14 +499,36 @@ function SettingsDialog({
                     value={field.unit}
                     onChange={(event) => patchField(field.id, { unit: event.target.value })}
                   />
-                  <button
-                    type="button"
-                    className="icon-button"
-                    aria-label={`移除字段 ${index + 1}`}
-                    onClick={() => setFields((old) => old.filter((f) => f.id !== field.id))}
-                  >
-                    <Trash2 size={16} />
-                  </button>
+                  <div className="field-actions">
+                    <button
+                      type="button"
+                      className="icon-button"
+                      aria-label={`上移字段 ${index + 1}`}
+                      title="上移"
+                      disabled={index === 0}
+                      onClick={() => moveField(index, -1)}
+                    >
+                      <ChevronUp size={16} />
+                    </button>
+                    <button
+                      type="button"
+                      className="icon-button"
+                      aria-label={`下移字段 ${index + 1}`}
+                      title="下移"
+                      disabled={index === fields.length - 1}
+                      onClick={() => moveField(index, 1)}
+                    >
+                      <ChevronDown size={16} />
+                    </button>
+                    <button
+                      type="button"
+                      className="icon-button"
+                      aria-label={`移除字段 ${index + 1}`}
+                      onClick={() => setFields((old) => old.filter((f) => f.id !== field.id))}
+                    >
+                      <Trash2 size={16} />
+                    </button>
+                  </div>
                   {field.type === 'select' && (
                     <input
                       className="span-4"
@@ -498,10 +537,7 @@ function SettingsDialog({
                       value={field.options.join(',')}
                       onChange={(event) =>
                         patchField(field.id, {
-                          options: event.target.value
-                            .split(/[,，]/)
-                            .map((s) => s.trim())
-                            .filter(Boolean),
+                          options: event.target.value.split(/[,，]/).map((s) => s.trim()),
                         })
                       }
                     />
@@ -637,6 +673,7 @@ export function App() {
     flush,
     notify,
   } = workspace;
+  const demoOnce = useRef(false);
   const [cloudFirst, setCloudFirst] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
@@ -733,6 +770,19 @@ export function App() {
         </div>
         <p className="rail-section-label">实验工作空间</p>
         <nav aria-label="主要导航">
+          <button
+            className={!loading && !experiment ? 'active' : ''}
+            aria-label="开始页"
+            aria-current={!loading && !experiment ? 'page' : undefined}
+            title="开始页"
+            onClick={() => navigate(() => setExperimentId(''))}
+          >
+            <House size={21} />
+            <span className="nav-copy">
+              <strong>开始页</strong>
+              <small>选择或新建实验</small>
+            </span>
+          </button>
           {nav.map(({ id, label, detail, icon: Icon }, index) => (
             <button
               key={id}
@@ -741,7 +791,9 @@ export function App() {
               aria-label={label}
               aria-current={page === id ? 'page' : undefined}
               aria-keyshortcuts={`Control+${index + 1}`}
-              title={`${label} · Ctrl + ${index + 1}`}
+              title={
+                experiment ? `${label} · Ctrl + ${index + 1}` : '先从开始页打开或新建一个实验'
+              }
               onClick={() => navigate(() => setPage(id))}
             >
               <Icon size={21} />
@@ -814,6 +866,12 @@ export function App() {
               const entries: MenuEntry[] = [
                 {
                   kind: 'item',
+                  label: '开始页',
+                  disabled: !experiment,
+                  onSelect: () => navigate(() => setExperimentId('')),
+                },
+                {
+                  kind: 'item',
                   label: '新建实验',
                   onSelect: () => navigate(() => setNewExperiment(true)),
                 },
@@ -862,20 +920,17 @@ export function App() {
                   navigate(() => setExperimentId(id));
                 }}
               >
-                {snapshot.experiments.length ? (
-                  snapshot.experiments.map((e) => (
-                    <option key={e.id} value={e.id}>
-                      {experimentOptionLabel(
-                        e.name,
-                        e.code,
-                        followUpRoster(snapshot, e.id).length,
-                        recordedPlanChangeCount(snapshot, e.id),
-                      )}
-                    </option>
-                  ))
-                ) : (
-                  <option value="">尚未建立实验</option>
-                )}
+                <option value="">开始页</option>
+                {snapshot.experiments.map((e) => (
+                  <option key={e.id} value={e.id}>
+                    {experimentOptionLabel(
+                      e.name,
+                      e.code,
+                      followUpRoster(snapshot, e.id).length,
+                      recordedPlanChangeCount(snapshot, e.id),
+                    )}
+                  </option>
+                ))}
               </select>
             </div>
             <button
@@ -941,7 +996,7 @@ export function App() {
             )}
           </div>
         </header>
-        {!loading && page !== 'live' && runningItem && (
+        {!loading && runningItem && (!experiment || page !== 'live') && (
           <div className="workspace-running" role="region" aria-label="进行中的操作">
             <span className="pulse-dot" aria-hidden="true" />
             <div>
@@ -1055,8 +1110,28 @@ export function App() {
             <div className="welcome-mark" aria-hidden="true">
               <FlaskConical size={28} />
             </div>
-            <h1>开始记录这次实验</h1>
-            <p>先建立实验，再安排样品。记录保存在本机。</p>
+            <h1>{snapshot.experiments.length ? '开始页' : '开始记录这次实验'}</h1>
+            <p>
+              {snapshot.experiments.length
+                ? '已有实验都还在。打开其中一个，或新建这次实验。'
+                : '先建立实验，再安排样品。记录保存在本机。'}
+            </p>
+            {snapshot.experiments.length > 0 && (
+              <ul className="welcome-list">
+                {snapshot.experiments.map((entry) => (
+                  <li key={entry.id}>
+                    <button
+                      type="button"
+                      aria-label={`打开实验 ${entry.name}`}
+                      onClick={() => navigate(() => setExperimentId(entry.id))}
+                    >
+                      <strong>{entry.name}</strong>
+                      <span>{entry.code}</span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
             <ol className="welcome-steps">
               <li>
                 <strong>建立实验</strong>
@@ -1074,20 +1149,30 @@ export function App() {
             <div className="welcome-actions">
               <button className="button primary" onClick={() => setNewExperiment(true)}>
                 <Plus size={18} />
-                新建第一个实验
+                {snapshot.experiments.length ? '新建实验' : '新建第一个实验'}
               </button>
               <button
                 className="button"
                 disabled={busy > 0}
                 onClick={() => {
-                  void execute({ type: 'demo' }).catch(() => {});
+                  if (demoOnce.current) return;
+                  demoOnce.current = true;
+                  void execute({ type: 'demo' })
+                    .catch(() => {})
+                    .finally(() => {
+                      demoOnce.current = false;
+                    });
                 }}
               >
                 <FilePlus2 size={17} />
                 载入演示实验
               </button>
             </div>
-            <p className="hint">演示实验会保存在本机实验库中，之后可从实验库切换。</p>
+            <p className="hint">
+              {snapshot.experiments.length
+                ? '左侧「开始页」或顶部实验列表都可以回到这里。演示实验也会留在本机。'
+                : '演示实验会保存在本机实验库中，之后可从开始页或实验列表打开。'}
+            </p>
           </div>
         ) : (
           <div key={experimentId}>
@@ -1113,6 +1198,10 @@ export function App() {
           onCreate={() => {
             setSearchOpen(false);
             setNewExperiment(true);
+          }}
+          onHome={() => {
+            setSearchOpen(false);
+            setExperimentId('');
           }}
         />
       )}

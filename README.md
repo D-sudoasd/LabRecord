@@ -11,7 +11,7 @@
 <p align="center"><strong>规划样品、记录现场操作，一次导出可追溯的实验报告。</strong></p>
 
 <p align="center">
-  <a href="https://github.com/D-sudoasd/LabRecord/releases/download/v0.7.1/LabRecord-0.7.1-Windows-x64.zip"><strong>下载 Windows 版 · 0.7.1</strong></a>
+  <a href="https://github.com/D-sudoasd/LabRecord/releases/download/v0.8.0/LabRecord-0.8.0-Windows-x64.zip"><strong>下载 Windows 版 · 0.8.0</strong></a>
   &nbsp;·&nbsp; <a href="#三步完成一次实验">三步开始使用</a>
   &nbsp;·&nbsp; <a href="docs/beamtime-workflow.md">现场使用流程</a>
   &nbsp;·&nbsp; <a href="CHANGELOG.md">更新记录</a>
@@ -20,7 +20,7 @@
 <p align="center">
   <img src="https://img.shields.io/badge/Windows-x64-196B63" alt="Windows x64">
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-196B63" alt="MIT License"></a>
-  <img src="https://img.shields.io/badge/version-0.7.1-196B63" alt="version 0.7.1">
+  <img src="https://img.shields.io/badge/version-0.8.0-196B63" alt="version 0.8.0">
 </p>
 
 > 中文 Windows 桌面应用。实验规划、现场记录和报告导出可以离线完成；需要换电脑时，再连接各自的 GitHub 私人数据仓库。
@@ -66,7 +66,7 @@
 
 Windows 程序目前尚未代码签名。
 
-0.7.1 会自动建议当天未使用的实验编号；重复编号在保存前提示。添加样品时，关闭弹窗或按 `Escape` 可先继续填写或明确放弃；清除全库搜索会回到实验列表，并保留键盘焦点。数据库与备份格式继续使用 v1。
+0.8.0 可以随时回到开始页，并直接打开已有实验。自定义参数可以调整填写顺序。0.7.1 起会自动建议当天未使用的实验编号；重复编号在保存前提示。添加样品时，关闭弹窗或按 `Escape` 可先继续填写或明确放弃；清除全库搜索会回到实验列表，并保留键盘焦点。数据库与备份格式继续使用 v1。下面的规划、现场和回看截图来自 0.7.1。
 
 ## 适合实验室工作流的细节
 
