@@ -117,7 +117,7 @@ test('Windows desktop: plan → notes/problem/image → finish → export → co
   await capture(application, info.outputPath('welcome.png'));
   await page.getByRole('button', { name: '载入演示实验' }).click();
   await expect(page.getByRole('heading', { name: '实验规划' })).toBeVisible();
-  await expect(page.locator('tr', { hasText: 'Ti-A-热处理' }).locator('.count-cell')).toContainText(
+  await expect(page.locator('.plan-table tr', { hasText: 'Ti-A-热处理' }).locator('.count-cell')).toContainText(
     '2 备样',
   );
   await capture(application, info.outputPath('planning.png'));
@@ -233,14 +233,14 @@ test('UI paste mapping imports legacy flags, null times and original states with
   expect(data.groups[0].state).toBe('Ti-demo-375C-aged');
   expect(data.groups[0].legacyTime).toBe('');
   await page
-    .locator('tr', { hasText: 'Ti-demo-375C-aged' })
+    .locator('.plan-table tr', { hasText: 'Ti-demo-375C-aged' })
     .getByRole('button', { name: '安排测试' })
     .click();
   await page.getByLabel('本次加入待测队列的数量 *').fill('4');
   await page.getByLabel('样品编号前缀').fill('NO-');
   await page.getByRole('button', { name: '加入待测队列' }).click();
   await expect(
-    page.locator('tr', { hasText: 'Ti-demo-375C-aged' }).locator('.count-cell'),
+    page.locator('.plan-table tr', { hasText: 'Ti-demo-375C-aged' }).locator('.count-cell'),
   ).toContainText('2 备样');
 });
 
@@ -391,7 +391,9 @@ test('operation duration uses recorded timestamps across midnight, corrections a
   });
   await page.reload();
   await expect(page.getByRole('heading', { name: '实验规划' })).toBeVisible();
-  await page.keyboard.press('Control+2');
+  await expect(page.getByRole('button', { name: '现场记录', exact: true })).toBeEnabled();
+  await page.getByRole('button', { name: '现场记录', exact: true }).click();
+  await expect(page.locator('.live-page')).toBeVisible();
   await page.getByRole('button', { name: '选择样品 TA-01 操作 1', exact: true }).click();
   await expect(page.getByLabel('本次操作用时', { exact: true })).toHaveText('24:03:00');
   await expect(page.getByRole('progressbar', { name: '完成进度' })).toHaveAttribute('value', '1');
@@ -404,7 +406,9 @@ test('operation duration uses recorded timestamps across midnight, corrections a
   });
   await application.close();
   ({ application, page } = await launch(directory));
-  await page.keyboard.press('Control+2');
+  await expect(page.getByRole('button', { name: '现场记录', exact: true })).toBeEnabled();
+  await page.getByRole('button', { name: '现场记录', exact: true }).click();
+  await expect(page.locator('.live-page')).toBeVisible();
   await page.getByRole('button', { name: '选择样品 TA-01 操作 1', exact: true }).click();
   await expect(page.getByLabel('本次操作用时', { exact: true })).toHaveText('00:03:00');
   expect((await snapshot(page)).events.filter((event) => event.type === 'correction')).toHaveLength(
@@ -419,7 +423,9 @@ test('operation duration uses recorded timestamps across midnight, corrections a
   const recorded = (await snapshot(page)).runs.find((run) => run.itemId !== item.id)!;
   await application.close();
   ({ application, page } = await launch(directory));
-  await page.keyboard.press('Control+2');
+  await expect(page.getByRole('button', { name: '现场记录', exact: true })).toBeEnabled();
+  await page.getByRole('button', { name: '现场记录', exact: true }).click();
+  await expect(page.locator('.live-page')).toBeVisible();
   await expect(page.locator('.current-heading')).toContainText('TA-02');
   await expect(page.getByLabel('本次操作用时', { exact: true })).not.toHaveText('—');
   expect((await snapshot(page)).runs.find((run) => run.id === recorded.id)!.endedAt).toBeNull();
@@ -544,23 +550,23 @@ test('quick entry and dimensions → real PDF/HTML report; compact plan and clou
   await modal.getByLabel('样品状态', { exact: true }).fill('400C-aged');
   await modal.getByLabel('准备数量', { exact: true }).fill('6');
   await modal.getByLabel('计划测试数量', { exact: true }).fill('4');
-  await modal.getByLabel('S01 厚度', { exact: true }).fill('0.8');
-  await modal.getByLabel('S01 宽度', { exact: true }).fill('3.0');
+  await modal.getByLabel('G-1 厚度', { exact: true }).fill('0.8');
+  await modal.getByLabel('G-1 宽度', { exact: true }).fill('3.0');
   await modal.getByRole('button', { name: '后面也用这个尺寸', exact: true }).click();
-  await expect(modal.getByLabel('S04 厚度', { exact: true })).toHaveValue('0.8');
+  await expect(modal.getByLabel('G-4 厚度', { exact: true })).toHaveValue('0.8');
   await page.screenshot({ path: info.outputPath('quick-add.png') });
   await modal.getByRole('button', { name: '保存并继续添加', exact: true }).click();
   await expect(modal.getByLabel('样品统称 *', { exact: true })).toHaveValue('');
-  await expect(modal.getByLabel('S05 厚度', { exact: true })).toHaveValue('');
+  await expect(modal.getByLabel('G-5 厚度', { exact: true })).toHaveValue('');
   await modal.getByLabel('样品统称 *', { exact: true }).fill('参考样品 B');
   await modal.getByLabel('准备数量', { exact: true }).fill('1');
   await modal.getByLabel('计划测试数量', { exact: true }).fill('1');
-  await modal.getByLabel('S05 厚度', { exact: true }).fill('1.0');
-  await modal.getByLabel('S05 宽度', { exact: true }).fill('2.0');
+  await modal.getByLabel('G-5 厚度', { exact: true }).fill('1.0');
+  await modal.getByLabel('G-5 宽度', { exact: true }).fill('2.0');
   await modal.getByRole('button', { name: '添加并安排测试', exact: true }).click();
   await expect(modal).toHaveCount(0);
   const data = await snapshot(page);
-  expect(data.samples.map((s) => s.code)).toEqual(['S01', 'S02', 'S03', 'S04', 'S05']);
+  expect(data.samples.map((s) => s.code)).toEqual(['G-1', 'G-2', 'G-3', 'G-4', 'G-5']);
   expect(data.groups.map((group) => group.thickness)).toEqual(['', '']);
   expect(data.samples.slice(0, 4).map((sample) => sample.parameters.thickness)).toEqual([
     '0.8',
@@ -731,19 +737,19 @@ test('each arranged specimen keeps its own size', async () => {
   await page.reload();
   await page.getByRole('button', { name: '实验规划', exact: true }).click();
   await page
-    .locator('tr', { hasText: '拉伸' })
+    .locator('.plan-table tr', { hasText: '拉伸' })
     .first()
     .getByRole('button', { name: '安排测试', exact: true })
     .click();
   const dialog = page.getByRole('dialog', { name: '安排待测样品', exact: true });
   await dialog.getByLabel('本次加入待测队列的数量 *', { exact: true }).fill('2');
-  await dialog.getByLabel('样品编号前缀', { exact: true }).fill('TA-');
-  await dialog.getByLabel('TA-01 厚度', { exact: true }).fill('1.1');
-  await dialog.getByLabel('TA-01 宽度', { exact: true }).fill('3');
+  await dialog.getByLabel('样品编号前缀', { exact: true }).fill('TA');
+  await dialog.getByLabel('TA-1 厚度', { exact: true }).fill('1.1');
+  await dialog.getByLabel('TA-1 宽度', { exact: true }).fill('3');
   await dialog.getByRole('button', { name: '后面也用这个尺寸', exact: true }).click();
-  await expect(dialog.getByLabel('TA-02 厚度', { exact: true })).toHaveValue('1.1');
-  await dialog.getByLabel('TA-02 厚度', { exact: true }).fill('0.4');
-  await dialog.getByLabel('TA-02 厚度单位', { exact: true }).selectOption('μm');
+  await expect(dialog.getByLabel('TA-2 厚度', { exact: true })).toHaveValue('1.1');
+  await dialog.getByLabel('TA-2 厚度', { exact: true }).fill('0.4');
+  await dialog.getByLabel('TA-2 厚度单位', { exact: true }).selectOption('μm');
   await dialog.getByRole('button', { name: '加入待测队列', exact: true }).click();
   await expect(dialog).toHaveCount(0);
   const data = await snapshot(page);
@@ -751,8 +757,8 @@ test('each arranged specimen keeps its own size', async () => {
   expect(data.samples.map((sample) => sample.parameters.thickness)).toEqual(['1.1', '0.4']);
   expect(data.samples[1].parameters.thicknessUnit).toBe('μm');
   await page.getByRole('button', { name: '展开 拉伸', exact: true }).click();
-  await expect(page.locator('.sample-strip', { hasText: 'TA-01' })).toContainText('1.1');
-  await expect(page.locator('.sample-strip', { hasText: 'TA-02' })).toContainText('0.4');
+  await expect(page.locator('.sample-strip', { hasText: 'TA-1' })).toContainText('1.1');
+  await expect(page.locator('.sample-strip', { hasText: 'TA-2' })).toContainText('0.4');
 });
 
 test('each arranged specimen keeps its own state and note', async () => {
@@ -769,21 +775,21 @@ test('each arranged specimen keeps its own state and note', async () => {
   await page.reload();
   await page.getByRole('button', { name: '实验规划', exact: true }).click();
   await page
-    .locator('tr', { hasText: '热处理' })
+    .locator('.plan-table tr', { hasText: '热处理' })
     .first()
     .getByRole('button', { name: '安排测试', exact: true })
     .click();
   const dialog = page.getByRole('dialog', { name: '安排待测样品', exact: true });
   await dialog.getByLabel('本次加入待测队列的数量 *', { exact: true }).fill('2');
-  await expect(dialog.getByLabel('S01 样品状态', { exact: true })).toHaveValue('热处理');
-  await dialog.getByLabel('S01 样品状态', { exact: true }).fill('时效');
-  await dialog.getByLabel('S01 备注', { exact: true }).fill('先测这件');
+  await expect(dialog.getByLabel('G-1 样品状态', { exact: true })).toHaveValue('热处理');
+  await dialog.getByLabel('G-1 样品状态', { exact: true }).fill('时效');
+  await dialog.getByLabel('G-1 备注', { exact: true }).fill('先测这件');
   await dialog.getByRole('button', { name: '后面也用这个状态', exact: true }).click();
   await dialog.getByRole('button', { name: '后面也用这个备注', exact: true }).click();
-  await expect(dialog.getByLabel('S02 样品状态', { exact: true })).toHaveValue('时效');
-  await expect(dialog.getByLabel('S02 备注', { exact: true })).toHaveValue('先测这件');
-  await dialog.getByLabel('S02 样品状态', { exact: true }).fill('退火');
-  await dialog.getByLabel('S02 备注', { exact: true }).fill('');
+  await expect(dialog.getByLabel('G-2 样品状态', { exact: true })).toHaveValue('时效');
+  await expect(dialog.getByLabel('G-2 备注', { exact: true })).toHaveValue('先测这件');
+  await dialog.getByLabel('G-2 样品状态', { exact: true }).fill('退火');
+  await dialog.getByLabel('G-2 备注', { exact: true }).fill('');
   await dialog.getByRole('button', { name: '加入待测队列', exact: true }).click();
   await expect(dialog).toHaveCount(0);
   const data = await snapshot(page);
@@ -793,10 +799,10 @@ test('each arranged specimen keeps its own state and note', async () => {
   expect(data.samples[0].parameters.notes).toBe('先测这件');
   expect(data.samples[1].parameters.notes).toBeUndefined();
   await page.getByRole('button', { name: '展开 热处理', exact: true }).click();
-  await expect(page.getByLabel('S01 样品状态', { exact: true })).toHaveValue('时效');
-  await expect(page.getByLabel('S02 样品状态', { exact: true })).toHaveValue('退火');
-  await expect(page.getByLabel('S01 备注', { exact: true })).toHaveValue('先测这件');
-  await expect(page.locator('.sample-strip', { hasText: 'S01' })).toContainText('状态 时效');
+  await expect(page.getByLabel('G-1 样品状态', { exact: true })).toHaveValue('时效');
+  await expect(page.getByLabel('G-2 样品状态', { exact: true })).toHaveValue('退火');
+  await expect(page.getByLabel('G-1 备注', { exact: true })).toHaveValue('先测这件');
+  await expect(page.locator('.sample-strip', { hasText: 'G-1' })).toContainText('状态 时效');
 });
 
 test('the plan no longer edits one size for a whole group', async () => {
@@ -817,7 +823,7 @@ test('Alt+N in a text field does not open quick add', async () => {
 test('arranging one state can name each specimen and give it a different in-situ protocol', async () => {
   await page.getByRole('button', { name: '载入演示实验' }).click();
   await page
-    .locator('tr', { hasText: 'Ti-A-热处理' })
+    .locator('.plan-table tr', { hasText: 'Ti-A-热处理' })
     .first()
     .getByRole('button', { name: '安排测试', exact: true })
     .click();
@@ -859,7 +865,9 @@ test('arranging one state can name each specimen and give it a different in-situ
   const after = (await snapshot(page)).runs[0];
   expect(after.snapshot).toEqual(started.snapshot);
   expect(after.originalStartedAt).toBe(started.originalStartedAt);
-  await command(page, { type: 'updateSamples', ids: [started.sampleId], code: 'LATER-CODE' });
+  await expect(
+    command(page, { type: 'updateSamples', ids: [started.sampleId], code: 'LATER-CODE' }),
+  ).rejects.toThrow(/基础编号不能更改/);
   await page.reload();
   await expect(page.locator('.current-heading')).toContainText('TA-05');
   await expect(page.locator('.current-heading')).not.toContainText('LATER-CODE');
@@ -906,17 +914,19 @@ test('a batch measurement edit writes only the fields that changed', async () =>
   await page.reload();
   await page.getByRole('button', { name: '实验规划', exact: true }).click();
   const planner = page.getByRole('region', { name: '测量计划', exact: true });
+  const reservedNames = (await snapshot(page)).items.map((item) => item.plannedName!);
   await planner.locator('tbody tr').nth(0).getByRole('checkbox').check();
   await planner.locator('tbody tr').nth(1).getByRole('checkbox').check();
   await planner.getByRole('button', { name: '批量配置制度', exact: true }).click();
   const dialog = page.getByRole('dialog', { name: '配置测量制度', exact: true });
   await expect(dialog).toContainText('不会套成第一件的值');
   await dialog.getByLabel('批次', { exact: true }).fill('B02');
-  await expect(dialog.getByLabel('测量名称预览')).toContainText('rotation_B02');
-  await expect(dialog.getByLabel('测量名称预览')).toContainText('cyclic_B02');
+  await expect(dialog.getByLabel('测量名称预览')).toContainText(reservedNames[0]);
+  await expect(dialog.getByLabel('测量名称预览')).toContainText(reservedNames[1]);
   await dialog.getByRole('button', { name: '保存测量配置', exact: true }).click();
   await expect(dialog).toHaveCount(0);
   const items = (await snapshot(page)).items;
+  expect(items.map((item) => item.plannedName)).toEqual(reservedNames);
   const first = items.find((item) => item.measurement?.technique === 'SXRD');
   const second = items.find((item) => item.measurement?.technique === 'ND');
   expect(first?.measurement).toMatchObject({
@@ -966,7 +976,7 @@ test('offline beamtime: preview and copy folder names, schedule multiple regimes
   await dialog.getByLabel('测量技术', { exact: true }).fill('SXRD');
   await dialog.getByLabel('制度短码', { exact: true }).fill('cyclic');
   await dialog.getByLabel('批次', { exact: true }).fill('B01');
-  const preview = 'P212-202610_Ti2448_400C-aged_S01_IS_cyclic_B01_001';
+  const preview = 'P212-202610_Ti2448_400C-aged_G-1_IS_cyclic_B01_001';
   await expect(dialog.getByLabel('快速添加名称预览')).toContainText(preview);
   await dialog.getByRole('button', { name: '添加并安排测试', exact: true }).click();
   await expect(dialog).toHaveCount(0);
@@ -1021,7 +1031,7 @@ test('offline beamtime: preview and copy folder names, schedule multiple regimes
   data = await snapshot(page);
   expect(data.items[0].measurement!.batch).toBe('B01');
   expect(data.items[1].measurement!.batch).toBe('RT');
-  expect(data.items[2].plannedName).not.toBe(name);
+  expect(data.items[2].plannedName).toBe(name);
   const reserved = data.items[2].plannedName!;
   await capture(application, info.outputPath('multi-regime-planning.png'));
   await rows.nth(2).getByRole('button', { name: '现场查看', exact: true }).click();
@@ -1040,7 +1050,7 @@ test('offline beamtime: preview and copy folder names, schedule multiple regimes
   expect(started.snapshot.measurement!.regime).toBe('rotation');
   await capture(application, info.outputPath('rotation-live.png'));
   await page.getByRole('button', { name: '完成并切换下一项' }).click();
-  await page.getByRole('button', { name: '选择样品 S01 操作 3', exact: true }).click();
+  await page.getByRole('button', { name: '选择样品 G-1 操作 3', exact: true }).click();
   await page.getByRole('button', { name: '安排重测', exact: true }).click();
   data = await snapshot(page);
   expect(data.samples).toHaveLength(1);
@@ -1163,6 +1173,7 @@ test('historical naming rules and typed experiment settings are reusable; measur
   dialog = page.getByRole('dialog');
   await dialog.getByLabel('样品统称 *', { exact: true }).fill('下一批合金');
   await dialog.getByRole('button', { name: '添加并安排测试', exact: true }).click();
+  const reserved = (await snapshot(page)).items.find((item) => item.experimentId === next.id)!.plannedName;
   await planner
     .locator('tbody tr')
     .first()
@@ -1178,7 +1189,9 @@ test('historical naming rules and typed experiment settings are reusable; measur
   const data = await snapshot(page);
   const item = data.items.find((item) => item.experimentId === next.id)!;
   expect(item.measurement!.technique).toBe('SXRD');
-  expect(item.plannedName).toContain('_monotonic_RT_');
+  expect(item.plannedName).toBe(reserved);
+  expect(item.measurement!.regime).toBe('monotonic');
+  expect(item.measurement!.batch).toBe('RT');
   expect(data.samples.find((sample) => sample.id === item.sampleId)!.id).not.toBe(first.sampleId);
 });
 
@@ -1353,7 +1366,7 @@ test('metal preparation: concise names, composition and processing, explicit non
   await expect(dialog.getByLabel('其他工艺', { exact: true })).toHaveValue('无');
   await dialog.getByLabel('准备数量', { exact: true }).fill('4');
   await dialog.getByLabel('计划测试数量', { exact: true }).fill('2');
-  await expect(dialog.getByLabel('快速添加名称预览')).toContainText('HEPS-202610_S01');
+  await expect(dialog.getByLabel('快速添加名称预览')).toContainText('G-1');
   await expect(dialog.getByLabel('快速添加名称预览')).not.toContainText('_001');
   await capture(application, info.outputPath('material-add.png'));
   await dialog.getByRole('button', { name: '添加并安排测试', exact: true }).click();
@@ -1372,18 +1385,14 @@ test('metal preparation: concise names, composition and processing, explicit non
   await secondRow.getByRole('button', { name: '安排测试', exact: true }).click();
   dialog = page.getByRole('dialog');
   await dialog.getByLabel('本次加入待测队列的数量 *', { exact: true }).fill('1');
-  await expect(dialog.getByLabel('样品编号前缀', { exact: true })).toHaveValue('S');
-  await expect(dialog.getByText('S03', { exact: true })).toBeVisible();
+  await expect(dialog.getByLabel('样品编号前缀', { exact: true })).toHaveValue('G');
+  await expect(dialog.getByText('G-3', { exact: true })).toBeVisible();
   await dialog.getByRole('button', { name: /加入待测队列/ }).click();
   await expect(dialog).toHaveCount(0);
   await page.reload();
   let data = await snapshot(page);
-  expect(data.samples.map((sample) => sample.code)).toEqual(['S01', 'S02', 'S03']);
-  expect(data.items.map((item) => item.plannedName)).toEqual([
-    'HEPS-202610_S01',
-    'HEPS-202610_S02',
-    'HEPS-202610_S03',
-  ]);
+  expect(data.samples.map((sample) => sample.code)).toEqual(['G-1', 'G-2', 'G-3']);
+  expect(data.items.map((item) => item.plannedName)).toEqual(['G-1', 'G-2', 'G-3']);
   expect(data.groups[0].state).toBe('NOHR_aged');
   expect(data.groups[1].heatTreatment).toBe('无');
   await expect(page.locator('.material-preparation-summary').first()).toContainText('冷轧 60%');
@@ -1407,7 +1416,7 @@ test('metal preparation: concise names, composition and processing, explicit non
   data = await snapshot(page);
   expect(data.runs[0]).toEqual(historical);
   await page.getByRole('button', { name: '回看导出', exact: true }).click();
-  const historicalRow = page.locator('.review-table tbody tr').filter({ hasText: 'S01' });
+  const historicalRow = page.locator('.review-table tbody tr').filter({ hasText: 'G-1' });
   const recordedMaterial = historicalRow.locator('.material-preparation-summary');
   await expect(recordedMaterial).toContainText('400 °C × 2 h 时效');
   await expect(recordedMaterial).not.toContainText('激光冲击');
@@ -1442,7 +1451,7 @@ test('existing experiment switches to concise naming through settings while its 
   expect(data.runs[0]).toEqual(original);
   expect(data.items.map((item) => item.plannedName)).toEqual([
     'OLD-NAMES_S01_001',
-    'OLD-NAMES_S02',
+    'OLD-NAMES_S02_002',
   ]);
 });
 
@@ -1532,7 +1541,9 @@ test('copying a folder name flushes edited naming fields and refuses to copy a s
         const data = await snapshot(page);
         return (
           (await application.evaluate(({ clipboard }) => clipboard.readText())) ===
-            data.items[0].plannedName && data.items[0].plannedName !== before
+            data.items[0].plannedName &&
+          data.items[0].plannedName === before &&
+          data.groups[0].name === '刚录入的统称'
         );
       })
       .toBe(true);
@@ -1554,11 +1565,10 @@ test('copying a folder name flushes edited naming fields and refuses to copy a s
       };
     });
     await page.getByLabel('刚录入的统称 样品统称', { exact: true }).fill('失败后仍保留的统称');
+    await application.evaluate(({ clipboard }) => clipboard.writeText('copy-save-failed-marker'));
     await planner.getByRole('button', { name: '复制测量名称 1', exact: true }).click();
     await expect(page.locator('.save-indicator')).toContainText('保存失败');
-    expect((await application.evaluate(({ clipboard }) => clipboard.readText())) === copied).toBe(
-      true,
-    );
+    expect(await application.evaluate(({ clipboard }) => clipboard.readText())).toBe('copy-save-failed-marker');
     await application.evaluate(() => (globalThis as any).restoreCopySaveHandler());
     await planner.getByRole('button', { name: '复制测量名称 1', exact: true }).click();
     await expect
@@ -1566,7 +1576,9 @@ test('copying a folder name flushes edited naming fields and refuses to copy a s
         const data = await snapshot(page);
         return (
           (await application.evaluate(({ clipboard }) => clipboard.readText())) ===
-            data.items[0].plannedName && data.items[0].plannedName !== copied
+            data.items[0].plannedName &&
+          data.items[0].plannedName === copied &&
+          data.groups[0].name === '失败后仍保留的统称'
         );
       })
       .toBe(true);
@@ -1626,12 +1638,12 @@ test('right-click menus delete unstarted plans and keep recorded runs', async ()
   await page.keyboard.press('Escape');
 
   await page.getByRole('button', { name: '现场记录', exact: true }).click();
-  await page.getByRole('button', { name: /选择样品 S02/ }).click({ button: 'right' });
+  await page.getByRole('button', { name: /选择样品 G-2/ }).click({ button: 'right' });
   await expect(page.getByRole('menuitem', { name: '上移', exact: true })).toBeVisible();
   await expect(page.getByRole('menuitem', { name: '下移', exact: true })).toBeVisible();
   await expect(page.getByRole('menuitem', { name: '删除未开始的测量（已有记录）' })).toBeDisabled();
   await page.keyboard.press('Escape');
-  await page.getByRole('button', { name: /选择样品 S01/ }).click({ button: 'right' });
+  await page.getByRole('button', { name: /选择样品 G-1/ }).click({ button: 'right' });
   await expect(page.getByRole('menuitem', { name: '删除未开始的测量', exact: true })).toBeEnabled();
   await page.keyboard.press('Escape');
   await page.getByRole('button', { name: '实验规划', exact: true }).click();
@@ -1643,7 +1655,7 @@ test('right-click menus delete unstarted plans and keep recorded runs', async ()
   await expect(page.getByLabel('空组 样品统称', { exact: true })).toHaveCount(0);
 
   await page
-    .locator('tr', { has: page.getByLabel('选择测量 1 S01', { exact: true }) })
+    .locator('tr', { has: page.getByLabel('选择测量 1 G-1', { exact: true }) })
     .getByText('待测', { exact: true })
     .click({ button: 'right' });
   await page.getByRole('menuitem', { name: '删除这项测量', exact: true }).click();
@@ -1662,7 +1674,7 @@ test('right-click menus delete unstarted plans and keep recorded runs', async ()
   const after = await snapshot(page);
   expect(after.experiments.map((entry) => entry.code)).toEqual(['DEL-MENU']);
   expect(after.groups.map((group) => group.name).sort()).toEqual(['已测', '待删']);
-  expect(after.samples.map((sample) => sample.code)).toEqual(['S02']);
+  expect(after.samples.map((sample) => sample.code)).toEqual(['G-2']);
   expect(after.groups.find((group) => group.name === '待删')?.preparedCount).toBe(2);
   expect(after.runs).toHaveLength(1);
   expect(after.runs[0].filename).toBe(run.filename);
@@ -1670,7 +1682,7 @@ test('right-click menus delete unstarted plans and keep recorded runs', async ()
   expect(after.runs[0].snapshot).toEqual(run.snapshot);
 });
 
-test('only the group name is required and the folder name is the experiment code plus the sample code', async () => {
+test('only the group name is required and the default folder name is the short code', async () => {
   const forbidden = [
     '材料短名（用于命名）',
     '临时文件夹名称',
@@ -1705,14 +1717,14 @@ test('only the group name is required and the folder name is the experiment code
   await expect(dialog.getByLabel('样品统称 *', { exact: true })).toBeVisible();
   await expect(dialog.getByLabel('材料牌号', { exact: true })).toBeHidden();
   await dialog.getByLabel('样品统称 *', { exact: true }).fill('Ti2448合金');
-  await expect(dialog.getByLabel('快速添加名称预览')).toContainText('FOLDER-01_S01');
-  await expect(dialog.getByLabel('快速添加名称预览')).not.toContainText('FOLDER-01_S01_');
+  await expect(dialog.getByLabel('快速添加名称预览')).toContainText('G-1');
+  await expect(dialog.getByLabel('快速添加名称预览')).not.toContainText('FOLDER-01_');
   await dialog.getByRole('button', { name: '添加并安排测试', exact: true }).click();
   await expect(dialog).toHaveCount(0);
 
   const saved = await snapshot(page);
-  expect(saved.items.map((item) => item.plannedName)).toEqual(['FOLDER-01_S01']);
-  expect(saved.samples.map((sample) => sample.code)).toEqual(['S01']);
+  expect(saved.items.map((item) => item.plannedName)).toEqual(['G-1']);
+  expect(saved.samples.map((sample) => sample.code)).toEqual(['G-1']);
   expect(saved.runs).toEqual([]);
 
   await expect(page.getByRole('columnheader', { name: '数据文件夹', exact: true })).toBeVisible();
@@ -1727,7 +1739,7 @@ test('only the group name is required and the folder name is the experiment code
   const folderCard = page.locator('.filename-card').filter({ hasText: '数据文件夹' });
   await expect(folderCard).toContainText('数据文件夹');
   await expect(folderCard).not.toContainText('预期');
-  await expect(folderCard.locator('code')).toHaveText('FOLDER-01_S01');
+  await expect(folderCard.locator('code')).toHaveText('G-1');
 
   await page.getByRole('button', { name: '打开设置', exact: true }).click();
   dialog = page.getByRole('dialog');
@@ -1737,5 +1749,5 @@ test('only the group name is required and the folder name is the experiment code
     dialog.getByRole('button', { name: '实验编号和样品编号', exact: true }),
   ).toBeHidden();
   await expect(dialog.getByRole('button', { name: '带上材料和制度', exact: true })).toBeHidden();
-  await expect(dialog.locator('.filename-preview code')).toHaveText('FOLDER-01_S01');
+  await expect(dialog.locator('.filename-preview code')).toHaveText('G-1');
 });

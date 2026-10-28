@@ -115,6 +115,80 @@ test('XLSX numeric cells with zero-padding are preserved; explicit units remain 
   assert.equal(result.groups[0].values[result.experiments[0].fields[0].id], '000007');
 });
 
+test('field sheets with reordered or extra columns cannot be imported as samples', async (t) => {
+  const { store, directory } = fixture(t);
+  const experimentId = store.command({
+    type: 'createExperiment',
+    code: 'E3',
+    name: '现场表回导保护',
+  }).experimentId!;
+  const headers = ['状态', '实际样品信息', ' 简写编号 ', '原位参数', '尺寸'];
+  const rows = [
+    ['待测', '样品 A', 'G-1', '室温', '1 mm'],
+    ['待测', '样品 A', 'G-1-2', '加热', '1 mm'],
+  ];
+  const path = join(directory, '现场表-编辑后.xlsx');
+  const workbook = new ExcelJS.Workbook();
+  workbook.addWorksheet('现场规划表').addRows([headers, ...rows]);
+  await workbook.xlsx.writeFile(path);
+
+  const table = await previewFile(path);
+  assert.match(table.warnings.join('\n'), /现场规划表/);
+  assert.equal(table.mapping.state, 0, 'an additional status column is a plausible manual mapping');
+  const before = store.snapshot();
+  assert.throws(
+    () => importTable(store, { experimentId, table, mapping: { state: 0 }, keepOtherColumns: true }),
+    /现场规划表只用于打印对照/,
+  );
+  // Validate the main-process boundary as well as preview normalization.
+  assert.throws(
+    () =>
+      importTable(store, {
+        experimentId,
+        table: { ...table, headers },
+        mapping: { name: 1 },
+        keepOtherColumns: true,
+      }),
+    /现场规划表只用于打印对照/,
+  );
+  for (const variantHeaders of [
+    ['简写编号', '尺寸', '原位参数', '实际样品信息', '状态'],
+    ['实际样品信息', '简写编号', '尺寸', '原位参数'],
+  ]) {
+    const variant = previewRows([variantHeaders, variantHeaders.map((_, index) => String(index))]);
+    assert.match(variant.warnings.join('\n'), /现场规划表/);
+    assert.throws(
+      () =>
+        importTable(store, {
+          experimentId,
+          table: variant,
+          mapping: { name: 0 },
+          keepOtherColumns: true,
+        }),
+      /现场规划表只用于打印对照/,
+    );
+  }
+  assert.deepEqual(store.snapshot(), before);
+
+  const legacy = previewRows([
+    ['样品状态', '尺寸'],
+    ['固溶', '1 mm'],
+  ]);
+  assert.doesNotMatch(legacy.warnings.join('\n'), /现场规划表/);
+  const imported = importTable(store, {
+    experimentId,
+    table: legacy,
+    mapping: legacy.mapping,
+    keepOtherColumns: true,
+  });
+  const size = imported.experiments.find((experiment) => experiment.id === experimentId)!.fields.find(
+    (field) => field.label === '尺寸',
+  )!;
+  assert.equal(imported.groups[0].values[size.id], '1 mm');
+  assert.equal(imported.items.length, 0);
+  assert.equal(imported.runs.length, 0);
+});
+
 test('all exports include plan, actual changes, problems, originals, units, blank values and stable IDs', async (t) => {
   const { store, directory } = fixture(t);
   const { experimentId, itemId } = store.command({ type: 'demo' });
@@ -162,7 +236,7 @@ test('all exports include plan, actual changes, problems, originals, units, blan
   await excel.xlsx.readFile(join(directory, '导出.xlsx'));
   assert.deepEqual(
     excel.worksheets.map((s) => s.name),
-    ['实验规划', '操作记录', '时间线与修改历史', '附件清单', '参数定义'],
+    ['实验规划', '现场规划表', '操作记录', '时间线与修改历史', '附件清单', '参数定义'],
   );
   const operations = excel.getWorksheet('操作记录')!;
   const headers = operations.getRow(1).values as string[];

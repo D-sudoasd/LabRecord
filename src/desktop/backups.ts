@@ -100,12 +100,13 @@ export function inspectDatabase(path: string): Snapshot {
       if (item.plannedName !== undefined) {
         if (/[{}]/.test(item.plannedName)) throw new Error('备份中的计划名称无效。');
         filenameFor(item.plannedName, '', '', 1);
-        const key = item.plannedName.toLowerCase();
+        const key = `${item.experimentId}:${item.plannedName.toLowerCase()}`;
         if (
           names.has(key) ||
           result.runs.some(
             (entry) =>
               entry.itemId !== item.id &&
+              entry.experimentId === item.experimentId &&
               entry.filename.toLowerCase() === item.plannedName!.toLowerCase(),
           )
         )
@@ -257,7 +258,8 @@ export async function addAttachment(
   return attachment;
 }
 export async function removeAttachment(store: Store, attachmentId: string) {
-  if (typeof attachmentId !== 'string' || !attachmentId.trim()) throw new Error('图片不存在，请刷新后重试。');
+  if (typeof attachmentId !== 'string' || !attachmentId.trim())
+    throw new Error('图片不存在，请刷新后重试。');
   const attachment = store.get('attachments', attachmentId);
   if (!attachmentPath.test(attachment.relativePath)) throw new Error('图片路径无效。');
   const root = resolve(store.root);

@@ -35,6 +35,7 @@ import {
   laterPlanDrift,
   operationPlanDrift,
   operationSizeLine,
+  planChangeLabel,
   recordedPlanSearchText,
   startedPlanChanges,
 } from '../shared/planChanges';
@@ -2327,8 +2328,8 @@ export function Live() {
             {run && startedPlanChanges(run).length > 0 && (
               <ul className="plan-changes" aria-label="与开始时计划不同">
                 {startedPlanChanges(run).map((change) => (
-                  <li key={change.label}>
-                    <span>{change.label}</span>
+                  <li key={`${change.source}:${change.key}`}>
+                    <span>{planChangeLabel(change)}</span>
                     <span>{change.planned}</span>
                     <span>{change.actual}</span>
                   </li>

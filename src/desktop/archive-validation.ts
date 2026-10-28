@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { codePatternError } from '../shared/model.js';
 import { fieldSchema, measurementSchema } from './validation.js';
 
 const id = z.string().min(1).max(200),
@@ -71,6 +72,7 @@ const run = z.object({
   offsetMinutes: z.number().int().min(-840).max(840),
   snapshot: z.object({
     group,
+    sampleGroupName: z.string().max(300).nullable().optional(),
     sample,
     operation: text,
     fields: z.array(fieldSchema).max(50),
@@ -96,6 +98,11 @@ export const archiveSchema = z.object({
       name: z.string().min(1).max(300),
       description: text,
       namingPattern: z.string().max(240),
+      sampleCodePattern: z
+        .string()
+        .max(80)
+        .refine((value) => codePatternError(value) === '', '编号样式无效。')
+        .optional(),
       fields: z.array(fieldSchema).max(50),
       createdAt: time,
     }),

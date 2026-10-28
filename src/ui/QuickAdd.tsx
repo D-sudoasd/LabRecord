@@ -1,6 +1,7 @@
 import { useRef, useState, useEffect } from 'react';
 import { Plus, Copy, Layers, Package, CheckCircle2 } from 'lucide-react';
 import {
+  CODE_PATTERN_HYPHEN,
   MODE_OPTIONS,
   PROTOCOL_PLACEHOLDER,
   planSpecimens,
@@ -10,21 +11,30 @@ import {
   type Group,
   type PlanItem,
 } from '../shared/model';
-import { measurementFor, reserveMeasurementNames } from '../shared/measurement';
+import {
+  measurementFor,
+  reserveMeasurementNames,
+  validateFieldSampleCodes,
+} from '../shared/measurement';
 import { MeasurementFields } from './MeasurementPlanner';
 import { MaterialPreparationFields } from './MaterialPreparation';
 import { useWorkspace, DesktopReplyError } from './context';
 import { Modal, FieldInputs, useCommandClose } from './components';
 import { emptySpecimenSize, SpecimenSizeFields, type SpecimenSize } from './specimenSize';
 
+type QuickSpecimen = SpecimenSize & { sizeEdited: boolean; name: string };
+
 function draftSignature(
   patch: GroupPatch,
   count: string,
   prefix: string,
   measurement: MeasurementPlan,
-  sizes: SpecimenSize[],
+  sizes: QuickSpecimen[],
 ) {
-  return JSON.stringify([patch, count, prefix, measurement, sizes]);
+  const saved = sizes.slice();
+  const empty = JSON.stringify({ ...emptySpecimenSize(), sizeEdited: false, name: '' });
+  while (saved.length > 1 && JSON.stringify(saved.at(-1)) === empty) saved.pop();
+  return JSON.stringify([patch, count, prefix, measurement, saved]);
 }
 
 export function QuickAdd({ onClose }: { onClose: () => void }) {
@@ -42,8 +52,12 @@ export function QuickAdd({ onClose }: { onClose: () => void }) {
     values: {},
   });
   const [count, setCount] = useState('1'),
-    [prefix, setPrefix] = useState('S'),
-    [sizeRows, setSizeRows] = useState<(SpecimenSize & { sizeEdited: boolean })[]>([]);
+    [prefix, setPrefix] = useState(
+      experiment.sampleCodePattern === CODE_PATTERN_HYPHEN ? 'G' : 'S',
+    ),
+    [sizeRows, setSizeRows] = useState<QuickSpecimen[]>(() => [
+      { ...emptySpecimenSize(), sizeEdited: false, name: '' },
+    ]);
   const [measurement, setMeasurement] = useState<MeasurementPlan>({
     technique: '',
     regime: '',
@@ -68,24 +82,39 @@ export function QuickAdd({ onClose }: { onClose: () => void }) {
       (Number.isInteger(prepared) && prepared >= 0 && prepared <= 10000 && planned <= prepared));
   const spare = validCounts && prepared !== null ? prepared - planned! : null;
   const arrangedCount = validCounts && planned !== null && planned >= 1 ? planned : 0;
-  const sizeCodes = planSpecimens(
-    snapshot.samples.filter((sample) => sample.experimentId === experimentId).map((sample) => sample.code),
-    arrangedCount,
-    prefix,
-    { state: patch.state?.trim() || '未指定' },
-  )
-    .map((item) => item.code)
-    .join('\n');
+  const codePattern = experiment.sampleCodePattern;
+  let sizeCodes = '';
+  let codeError = '';
+  try {
+    const codes = planSpecimens(
+      snapshot.samples
+        .filter((sample) => sample.experimentId === experimentId)
+        .map((sample) => sample.code),
+      arrangedCount,
+      prefix,
+      { state: patch.state?.trim() || '未指定' },
+      codePattern,
+    ).map((item) => item.code);
+    sizeCodes = codes.join('\n');
+    validateFieldSampleCodes(snapshot, experimentId, codes);
+  } catch (failure) {
+    codeError = failure instanceof Error ? failure.message : '样品编号无效。';
+  }
   useEffect(() => {
+    if (codeError) return;
     const codes = sizeCodes ? sizeCodes.split('\n') : [];
-    setSizeRows((current) =>
-      codes.map((_, index) => {
-        const previous = current[index];
-        if (previous?.sizeEdited) return previous;
-        return { ...emptySpecimenSize(), sizeEdited: false };
-      }),
-    );
-  }, [sizeCodes]);
+    setSizeRows((current) => {
+      if (current.length >= codes.length) return current;
+      return [
+        ...current,
+        ...Array.from({ length: codes.length - current.length }, () => ({
+          ...emptySpecimenSize(),
+          sizeEdited: false,
+          name: '',
+        })),
+      ];
+    });
+  }, [sizeCodes, codeError]);
   const nameInput = useRef<HTMLInputElement>(null);
   const submitting = useRef(false);
   const intent = useRef<{
@@ -101,7 +130,8 @@ export function QuickAdd({ onClose }: { onClose: () => void }) {
   });
   const discardButton = useRef<HTMLButtonElement>(null);
   const returnFocus = useRef<HTMLElement | null>(null);
-  const hasChanges = draftSignature(patch, count, prefix, measurement, sizeRows) !== cleanDraft.current;
+  const hasChanges =
+    draftSignature(patch, count, prefix, measurement, sizeRows) !== cleanDraft.current;
   function requestClose() {
     if (busy || closing) return;
     if (confirmDiscard) {
@@ -129,7 +159,7 @@ export function QuickAdd({ onClose }: { onClose: () => void }) {
   const set = (key: keyof GroupPatch, value: unknown) =>
     setPatch((old) => ({ ...old, [key]: value }));
   async function submit(continueAdding: boolean) {
-    if (submitting.current || closing || !validCounts) return;
+    if (submitting.current || closing || !validCounts || codeError) return;
     submitting.current = true;
     setBusy(true);
     setError('');
@@ -137,7 +167,7 @@ export function QuickAdd({ onClose }: { onClose: () => void }) {
       if (!patch.name?.trim()) throw new Error('请填写样品统称。');
       if (!count.trim()) throw new Error('请填写计划测试数量；仅准备样品可填 0。');
       const plannedCount = Number(count);
-      if (plannedCount >= 1 && sizeRows.length !== plannedCount)
+      if (plannedCount >= 1 && sizeRows.length < plannedCount)
         throw new Error('尺寸行还没准备好，请再试一次。');
       const {
         thickness: _thickness,
@@ -156,7 +186,10 @@ export function QuickAdd({ onClose }: { onClose: () => void }) {
           prefix,
           specimens:
             plannedCount >= 1
-              ? sizeRows.map(({ sizeEdited: _edited, ...size }) => size)
+              ? sizeRows.slice(0, plannedCount).map(({ sizeEdited: _edited, ...size }) => ({
+                  ...size,
+                  ...(size.name.trim() ? { name: size.name.trim() } : {}),
+                }))
               : undefined,
           measurement: { ...measurement, mode: patch.mode },
         },
@@ -187,13 +220,18 @@ export function QuickAdd({ onClose }: { onClose: () => void }) {
           plannedCount,
           prefix,
           { state: patch.state || '未指定' },
+          codePattern,
         ).map((row) => row.code);
         setAddedLine(`已加入 ${span(created)}。下一组 ${span(next)}。`);
       } else setAddedLine('已加入备样。');
       setAdded((n) => n + 1);
       const nextPatch = { ...patch, name: '', state: '' };
       setPatch(nextPatch);
-      const clearedSizes = sizeRows.map(() => ({ ...emptySpecimenSize(), sizeEdited: false }));
+      const clearedSizes = Array.from({ length: Math.max(1, plannedCount) }, () => ({
+        ...emptySpecimenSize(),
+        sizeEdited: false,
+        name: '',
+      }));
       setSizeRows(clearedSizes);
       cleanDraft.current = draftSignature(nextPatch, count, prefix, measurement, clearedSizes);
     } catch (failure) {
@@ -379,6 +417,11 @@ export function QuickAdd({ onClose }: { onClose: () => void }) {
                 计划测试数量应为 0–1000 的整数，且不超过准备数量；准备数量未知可留空。
               </p>
             )}
+            {codeError && (
+              <p className="error-text quantity-hint" role="alert">
+                {codeError}
+              </p>
+            )}
             {arrangedCount > 0 ? (
               <ol className="specimen-plan">
                 {sizeCodes.split('\n').map((code, index) => {
@@ -387,42 +430,66 @@ export function QuickAdd({ onClose }: { onClose: () => void }) {
                   return (
                     <li key={code}>
                       <code>{code}</code>
+                      <label className="field specimen-identity-field">
+                        <span>原始编号或名称</span>
+                        <input
+                          aria-label={`${code} 原始编号或名称`}
+                          value={row.name}
+                          onChange={(event) =>
+                            setSizeRows((current) =>
+                              current.map((entry, entryIndex) =>
+                                entryIndex === index
+                                  ? { ...entry, name: event.target.value }
+                                  : entry,
+                              ),
+                            )
+                          }
+                          placeholder="可留空，例如原表中的样品号"
+                        />
+                      </label>
                       <SpecimenSizeFields
                         code={code}
                         value={row}
                         onChange={(next) =>
                           setSizeRows((current) =>
                             current.map((entry, entryIndex) =>
-                              entryIndex === index ? { ...entry, ...next, sizeEdited: true } : entry,
+                              entryIndex === index
+                                ? { ...entry, ...next, sizeEdited: true }
+                                : entry,
                             ),
                           )
                         }
                       />
-                      {row.sizeEdited && sizeRows.slice(index + 1).some((entry) => !entry.sizeEdited) && (
-                        <button
-                          type="button"
-                          className="text-button"
-                          onClick={() =>
-                            setSizeRows((current) =>
-                              current.map((entry, entryIndex) =>
-                                entryIndex > index && !entry.sizeEdited
-                                  ? {
-                                      ...entry,
-                                      thickness: row.thickness,
-                                      thicknessUnit: row.thicknessUnit,
-                                      width: row.width,
-                                      height: row.height,
-                                      dimensionUnit: row.dimensionUnit,
-                                      sizeEdited: true,
-                                    }
-                                  : entry,
-                              ),
-                            )
-                          }
-                        >
-                          后面也用这个尺寸
-                        </button>
-                      )}
+                      {row.sizeEdited &&
+                        sizeRows
+                          .slice(index + 1, arrangedCount)
+                          .some((entry) => !entry.sizeEdited) && (
+                          <button
+                            type="button"
+                            className="text-button"
+                            onClick={() =>
+                              setSizeRows((current) =>
+                                current.map((entry, entryIndex) =>
+                                  entryIndex > index &&
+                                  entryIndex < arrangedCount &&
+                                  !entry.sizeEdited
+                                    ? {
+                                        ...entry,
+                                        thickness: row.thickness,
+                                        thicknessUnit: row.thicknessUnit,
+                                        width: row.width,
+                                        height: row.height,
+                                        dimensionUnit: row.dimensionUnit,
+                                        sizeEdited: true,
+                                      }
+                                    : entry,
+                                ),
+                              )
+                            }
+                          >
+                            后面也用这个尺寸
+                          </button>
+                        )}
                     </li>
                   );
                 })}
@@ -430,6 +497,9 @@ export function QuickAdd({ onClose }: { onClose: () => void }) {
             ) : (
               <p className="hint">尺寸在安排时按每一件填写。</p>
             )}
+            <p className="hint specimen-identity-hint">
+              这里的原始编号或名称会显示在现场表的“实际样品信息”列。状态、成分和制备信息可在本组填写。
+            </p>
             <div className="form-grid">
               <label className="field">
                 <span>实验方式</span>
@@ -445,25 +515,17 @@ export function QuickAdd({ onClose }: { onClose: () => void }) {
                   ))}
                 </select>
               </label>
-              {(patch.mode === 'In situ' || patch.mode === 'Ex situ') && (
-                <label className="field span-2 protocol-card">
-                  <span>实验制度</span>
-                  <textarea
-                    aria-label="实验制度"
-                    rows={4}
-                    value={patch.protocol || ''}
-                    onChange={(e) => set('protocol', e.target.value)}
-                    placeholder={PROTOCOL_PLACEHOLDER}
-                  />
-                  <small>具体样品可以再单独改。留空也可以先安排。</small>
-                </label>
-              )}
-              {patch.mode === '未定' && patch.protocol?.trim() && (
-                <details className="protocol-kept span-2">
-                  <summary>仍保留实验制度</summary>
-                  <p>{patch.protocol}</p>
-                </details>
-              )}
+              <label className="field span-2 protocol-card">
+                <span>原位参数 / 实验制度（可选）</span>
+                <textarea
+                  aria-label="实验制度"
+                  rows={4}
+                  value={patch.protocol || ''}
+                  onChange={(e) => set('protocol', e.target.value)}
+                  placeholder={PROTOCOL_PLACEHOLDER}
+                />
+                <small>实验方式可以暂时留空；已填写的条件原文会保留。</small>
+              </label>
             </div>
           </fieldset>
           <details
@@ -502,8 +564,17 @@ export function QuickAdd({ onClose }: { onClose: () => void }) {
             <div className="form-grid">
               <label className="field">
                 <span>编号前缀</span>
-                <input value={prefix} onChange={(e) => setPrefix(e.target.value)} placeholder="S" />
-                <small>相同实验内自动避开已有编号。</small>
+                <input
+                  value={prefix}
+                  maxLength={50}
+                  onChange={(e) => setPrefix(e.target.value)}
+                  placeholder={codePattern === CODE_PATTERN_HYPHEN ? 'G' : 'S'}
+                />
+                <small>
+                  {codePattern === CODE_PATTERN_HYPHEN
+                    ? '新编号从 G-1 开始，前缀可修改；相同实验内自动避开已有编号。'
+                    : '相同实验内自动避开已有编号。'}
+                </small>
               </label>
               <label className="field">
                 <span>优先级</span>
@@ -566,7 +637,10 @@ export function QuickAdd({ onClose }: { onClose: () => void }) {
           >
             保存并继续添加
           </button>
-          <button className="button primary" disabled={busy || closing || !validCounts}>
+          <button
+            className="button primary"
+            disabled={busy || closing || !validCounts || !!codeError}
+          >
             <Plus size={16} />
             {busy
               ? '添加中…'
@@ -627,8 +701,9 @@ function QuickNamePreview({
         .filter((sample) => sample.experimentId === experimentId)
         .map((sample) => sample.code),
       Math.min(3, count),
-      prefix || 'S',
+      prefix,
       group,
+      snapshot.experiments.find((entry) => entry.id === experimentId)?.sampleCodePattern,
     );
     const samples = assigned.map((entry, index) => ({
       id: `preview-sample-${index}`,

@@ -22,6 +22,7 @@ import {
   actualProtocolLabel,
   operationPlanDrift,
   operationSizeLine,
+  planChangeLabel,
   recordedPlanDiffers,
   recordedPlanSearchText,
   startedPlanChanges,
@@ -1125,8 +1126,8 @@ export function Review() {
                             aria-label={`${sample.code} 与开始时计划不同`}
                           >
                             {startedPlanChanges(run).map((change) => (
-                              <li key={change.label}>
-                                <span>{change.label}</span>
+                              <li key={`${change.source}:${change.key}`}>
+                                <span>{planChangeLabel(change)}</span>
                                 <span>{change.planned}</span>
                                 <span>{change.actual}</span>
                               </li>

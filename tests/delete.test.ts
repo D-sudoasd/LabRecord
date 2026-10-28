@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { groupCounts } from '../src/shared/model.js';
+import { groupDeleteRequest, itemsDeleteRequest, sampleDeleteRequest } from '../src/ui/rowMenu.js';
 import { fixture } from './helpers.js';
 
 function setup(t: Parameters<typeof fixture>[0]) {
@@ -8,6 +9,24 @@ function setup(t: Parameters<typeof fixture>[0]) {
   const created = store.command({ type: 'createExperiment', name: '删除', code: 'DEL' });
   return { store, experimentId: created.experimentId! };
 }
+
+test('delete confirmations explain that manual folders remain and codes may be reused', (t) => {
+  const { store, experimentId } = setup(t);
+  store.command({
+    type: 'addSamples',
+    experimentId,
+    count: 1,
+    patch: { name: '需删除的样品', state: '待测', preparedCount: 1 },
+  });
+  const snapshot = store.snapshot();
+  const warning = '已手工创建的文件夹不会删除，编号之后可能再次使用。';
+  const messages = [
+    groupDeleteRequest([snapshot.groups[0]]).body,
+    sampleDeleteRequest(snapshot.samples[0]).body,
+    itemsDeleteRequest(snapshot, [snapshot.items[0].id]).body,
+  ];
+  assert.ok(messages.every((message) => message.endsWith(warning)));
+});
 
 test('unstarted groups, samples and measurements can be removed without renaming what remains', (t) => {
   const { store, experimentId } = setup(t);
@@ -203,9 +222,18 @@ test('recorded runs, snapshots and original times block deletion and stay unchan
   const runBefore = store.snapshot().runs[0];
   const completed = store.get('items', added.itemId!);
   store.command({ type: 'deleteItems', ids: [extra.itemId!] });
-  assert.equal(store.snapshot().items.some((item) => item.id === extra.itemId), false);
+  assert.equal(
+    store.snapshot().items.some((item) => item.id === extra.itemId),
+    false,
+  );
   assert.deepEqual(store.get('items', added.itemId!), completed);
-  assert.equal(store.snapshot().samples.some((sample) => sample.id === runBefore.sampleId), true);
+  assert.equal(
+    store.snapshot().samples.some((sample) => sample.id === runBefore.sampleId),
+    true,
+  );
   assert.deepEqual(store.snapshot().runs[0], runBefore);
-  assert.equal(store.snapshot().items.some((item) => item.id === pending.itemId), true);
+  assert.equal(
+    store.snapshot().items.some((item) => item.id === pending.itemId),
+    true,
+  );
 });

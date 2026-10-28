@@ -144,7 +144,7 @@ test('protocol captured at start stays in that snapshot after the plan changes',
     count: 2,
     prefix: 'S',
   });
-  const overridden = store.snapshot().samples.find((sample) => sample.code === 'S02');
+  const overridden = store.snapshot().samples.find((sample) => sample.code === 'S-2');
   store.command({
     type: 'updateSamples',
     ids: [overridden!.id],
@@ -191,10 +191,10 @@ test('one state keeps separate specimen names and in-situ protocols', (t) => {
       protocol: '升温 5 °C/min',
     },
     count: 1,
-    prefix: 'TA-',
+    prefix: 'TA',
   });
   const first = store.snapshot().samples[0];
-  assert.equal(first.code, 'TA-01');
+  assert.equal(first.code, 'TA-1');
   assert.deepEqual(first.parameters, {});
   assert.throws(
     () =>
@@ -210,7 +210,7 @@ test('one state keeps separate specimen names and in-situ protocols', (t) => {
     type: 'arrange',
     groupId: first.groupId,
     count: 2,
-    prefix: 'TA-',
+    prefix: 'TA',
     specimens: [
       { name: '时效试样甲', protocol: '升温 2 °C/min，至 300 °C' },
       { name: '  ', protocol: '升温 5 °C/min' },
@@ -219,7 +219,7 @@ test('one state keeps separate specimen names and in-situ protocols', (t) => {
   const samples = store.snapshot().samples.sort((a, b) => a.code.localeCompare(b.code));
   assert.deepEqual(
     samples.map((sample) => sample.code),
-    ['TA-01', 'TA-02', 'TA-03'],
+    ['TA-1', 'TA-2', 'TA-3'],
   );
   assert.equal(samples[1].parameters.name, '时效试样甲');
   assert.equal(samples[1].parameters.protocol, '升温 2 °C/min，至 300 °C');
@@ -267,7 +267,7 @@ test('plan snapshots and custom units stay unchanged after editing the plan', (t
     ids: [before.snapshot.group.id],
     patch: { state: '改名状态', thickness: '1.2', values: { temperature: 100 } },
   });
-  store.command({ type: 'updateSamples', ids: [before.sampleId], code: '000012' });
+  store.command({ type: 'updateSamples', ids: [before.sampleId], parameters: { state: '改名样品状态' } });
   store.command({ type: 'updateExperiment', id: experimentId, fields: [] });
   store.command({
     type: 'saveRun',
@@ -337,9 +337,9 @@ test('filename rules preserve the source name, disambiguate repeats and refuse W
   const repeat = store.command({ type: 'repeat', itemId });
   assert.equal(store.get('items', repeat.itemId!).status, 'pending');
   const source = store.snapshot().runs[0];
-  assert.equal(store.get('items', repeat.itemId!).plannedName, source.filename + '_02');
+  assert.equal(store.get('items', repeat.itemId!).plannedName, source.filename + '-2');
   store.command({ type: 'start', itemId: repeat.itemId });
-  assert.equal(store.snapshot().runs[1].filename, source.filename + '_02');
+  assert.equal(store.snapshot().runs[1].filename, source.filename + '-2');
   assert.equal(store.snapshot().runs[1].sampleId, source.sampleId);
   assert.deepEqual(store.snapshot().runs[0], source);
   assert.equal(

@@ -7,7 +7,7 @@ import { sampleName, STATUS_LABEL, groupCounts, effectiveProtocol } from '../sha
 import { exportFile, groupDurationExport, groupOverrideExport } from './tables.js';
 import { measurementFor, plannedGroup, measurementSummary } from '../shared/measurement.js';
 import { MATERIAL_FIELDS, materialSummary } from '../shared/materials.js';
-import { actualProtocolLabel, operationPlanDrift, startedPlanChanges, recordedPlanSearchText } from '../shared/planChanges.js';
+import { actualProtocolLabel, operationPlanDrift, planChangeLabel, startedPlanChanges, recordedPlanSearchText, plannedCustomFieldValue } from '../shared/planChanges.js';
 import { formatRecordedDuration, recordedDuration, runDurationLabel } from '../shared/duration.js';
 import { recordedClock } from '../shared/recordedTime.js';
 import { followUpRoster, followUpSets } from '../shared/followUps.js';
@@ -168,7 +168,7 @@ export async function renderReport(
       ];
       const valueRows: [string, unknown][] = fields.map((field) => [
         `${field.label}${field.unit ? ` / ${field.unit}` : ''}（计划 → 实际）`,
-        `${shown(sample.values[field.id] ?? group.values[field.id])} → ${shown(run?.actual[field.id])}`,
+        `${shown(plannedCustomFieldValue(sample.values, group.values, field.id))} → ${shown(run?.actual[field.id])}`,
       ]);
       const history = events.filter((e) => e.itemId === item.id || (run && e.runId === run.id));
       const changes = run ? startedPlanChanges(run) : [];
@@ -178,7 +178,7 @@ export async function renderReport(
       const reason = operationStatusReason(snapshot, item);
       const endedMark = latestEndedMark(snapshot, item.id);
       const changeHtml = changes.length
-        ? `<h3>与开始时计划不同</h3>${table(changes.map((change) => [change.label, `${change.planned} → ${change.actual}`]))}`
+        ? `<h3>与开始时计划不同</h3>${table(changes.map((change) => [planChangeLabel(change), `${change.planned} → ${change.actual}`]))}`
         : '';
       return `<section class="operation"><h2>${escape(sample.code)} · ${escape(sampleName(group))}<span>${escape(STATUS_LABEL[item.status])}${endedMark ? ` · ${escape(endedMark)}` : ''}${reason ? ` · 原因：${escape(reason)}` : ''}${item.repeatOf ? ' · 重测' : ''}</span></h2><p class="identity">sample_id: ${escape(sample.id)} · plan_item_id: ${escape(item.id)}${run ? ` · run_id: ${escape(run.id)}` : ''}${item.repeatOf ? ` · 原操作: ${escape(item.repeatOf)}${repeatSourceLabel(snapshot, item) ? ` · 重测来源: ${escape(repeatSourceLabel(snapshot, item))}` : ''}` : ''}</p>${drift ? `<p>当前计划已不同：${escape(drift)}</p>` : ''}${protocolLabel ? `<p>${escape(protocolLabel)}</p>` : ''}${recordedPlanText ? `<p>${escape(recordedPlanText)}</p>` : ''}<div class="columns"><div><h3>${run ? '开始时的计划' : '当前计划'}</h3>${table(planRows)}</div><div><h3>实际操作记录</h3>${run ? table(actualRows(run)) : '<p>尚无实际操作记录；没有生成起止时间。</p>'}</div></div>${valueRows.length ? `<h3>自定义参数</h3>${table(valueRows)}` : ''}${changeHtml}${history.length ? `<details open><summary>问题与修改历史 · ${history.length} 条</summary><ol class="timeline">${history.map((e) => `<li><time>${escape(eventStamp(snapshot, e))}</time><strong>${escape(e.type)}</strong><p>${escape(e.text)}</p>${eventEarlierText(e) ? `<p>${escape(eventEarlierText(e))}</p>` : ''}${Object.keys(eventDetailData(e)).length ? `<pre>${escape(JSON.stringify(eventDetailData(e), null, 2))}</pre>` : ''}</li>`).join('')}</ol></details>` : ''}${attachments
         .filter((a) => a.runId === run?.id)
@@ -234,7 +234,7 @@ export async function renderReport(
       return `### ${sample.code} · ${sampleName(group)}\n\n状态：${STATUS_LABEL[item.status]}${endedMark ? `；${endedMark}` : ''}${reason ? `；原因：${reason}` : ''}；样品 ID：${sample.id}；操作 ID：${item.id}${item.repeatOf ? `；原操作 ID：${item.repeatOf}${repeatSourceLabel(snapshot, item) ? `；重测来源：${repeatSourceLabel(snapshot, item)}` : ''}` : ''}\n\n测量配置：${measurementSummary(measurementFor(snapshot, item))}\n\n数据文件夹：${shown(run?.filename || item.plannedName)}\n\n开始（记录时区）：${shown(startLocal)}；结束（记录时区）：${shown(endLocal)}\n\n开始 UTC：${shown(run?.startedAt)}；结束 UTC：${shown(run?.endedAt)}；用时：${run ? runDurationLabel(run) : '尚未开始'}\n\n${operationPlanDrift(snapshot, item) ? `当前计划已不同：${operationPlanDrift(snapshot, item)}\n\n` : ''}${protocolLabel ? `${protocolLabel}\n\n` : ''}${recordedPlanText ? `${recordedPlanText}\n\n` : ''}${
         run && startedPlanChanges(run).length
           ? `与开始时计划不同：\n\n${startedPlanChanges(run)
-              .map((change) => `- ${change.label}：${change.planned} → ${change.actual}`)
+              .map((change) => `- ${planChangeLabel(change)}：${change.planned} → ${change.actual}`)
               .join('\n')}\n\n`
           : ''
       }${attachments

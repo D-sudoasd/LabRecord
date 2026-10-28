@@ -463,7 +463,7 @@ test('workspace search finds the open operation by the uncounted duration and ig
   assert.match(hits[0].title, /用时未计入/);
   assert.equal(hits[0].title.includes('现场备注ZZZ'), false);
   assert.equal(hits[0].title.includes('hidden.cbf'), false);
-  assert.match(searchWorkspace(store.snapshot(), 'S01')[0].detail, /用时未计入/);
+  assert.match(searchWorkspace(store.snapshot(), 'G-1')[0].detail, /用时未计入/);
   assert.equal(searchWorkspace(store.snapshot(), '现场备注ZZZ').length, 0);
   assert.equal(searchWorkspace(store.snapshot(), '隐藏词ZZZ').length, 0);
   store.command({ type: 'finish', itemId: first.id });

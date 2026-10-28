@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { readFile } from 'node:fs/promises';
 import ExcelJS from 'exceljs';
 import { fixture } from './helpers.js';
-import { DEFAULT_PATTERN, DETAILED_PATTERN, groupCounts } from '../src/shared/model.js';
+import { DEFAULT_PATTERN, DETAILED_PATTERN, FIELD_PATTERN, LEGACY_PATTERN, groupCounts } from '../src/shared/model.js';
 import { folderNameNote } from '../src/shared/measurement.js';
 import { MATERIAL_FIELDS } from '../src/shared/materials.js';
 import { archiveSchema } from '../src/desktop/archive-validation.js';
@@ -36,9 +36,10 @@ function setup(t: Parameters<typeof fixture>[0], namingPattern?: string) {
   return { ...data, experimentId };
 }
 
-test('default sample numbers continue across groups, arranged spares and temporary specimens without a redundant run suffix', (t) => {
+test('new experiments use short folder ids and continue numbering across groups and spares', (t) => {
   const { store, experimentId } = setup(t);
-  assert.equal(store.get('experiments', experimentId).namingPattern, DEFAULT_PATTERN);
+  assert.equal(store.get('experiments', experimentId).namingPattern, FIELD_PATTERN);
+  assert.equal(store.get('experiments', experimentId).sampleCodePattern, '{prefix}-{n}');
   store.command({
     type: 'addSamples',
     experimentId,
@@ -61,16 +62,16 @@ test('default sample numbers continue across groups, arranged spares and tempora
   const snapshot = store.snapshot();
   assert.deepEqual(
     snapshot.samples.map((sample) => sample.code),
-    ['S01', 'S02', 'S03', 'S04', 'S05'],
+    ['G-1', 'G-2', 'G-3', 'G-4', 'G-5'],
   );
   assert.deepEqual(
     snapshot.items.map((item) => item.plannedName),
-    ['METAL_S01', 'METAL_S02', 'METAL_S03', 'METAL_S04', 'METAL_S05'],
+    ['G-1', 'G-2', 'G-3', 'G-4', 'G-5'],
   );
   assert.equal(groupCounts(snapshot, group).spare, 1);
 });
 
-test('same-sample measurements only add _02 when needed; queue changes and out-of-order starts keep reserved names and identities', (t) => {
+test('same-sample measurements use -2 suffixes while queue changes preserve reserved names and identities', (t) => {
   const { store, experimentId } = setup(t);
   const first = store.command({
     type: 'addSamples',
@@ -82,7 +83,7 @@ test('same-sample measurements only add _02 when needed; queue changes and out-o
   let snapshot = store.snapshot();
   assert.deepEqual(
     snapshot.items.map((item) => item.plannedName),
-    ['METAL_S01', 'METAL_S02', 'METAL_S01_02', 'METAL_S01_03'],
+    ['G-1', 'G-2', 'G-1-2', 'G-1-3'],
   );
   const identities = snapshot.samples;
   const names = snapshot.items.map((item) => item.plannedName);
@@ -107,25 +108,26 @@ test('same-sample measurements only add _02 when needed; queue changes and out-o
   store.command({ type: 'repeat', itemId: second });
   snapshot = store.snapshot();
   assert.equal(snapshot.runs[0].number, 1);
-  assert.equal(snapshot.runs[0].filename, 'METAL_S02');
+  assert.equal(snapshot.runs[0].filename, 'G-2');
   assert.deepEqual(snapshot.samples, identities);
   assert.deepEqual(
     snapshot.items.slice(0, 4).map((item) => item.plannedName),
     names,
   );
-  assert.equal(snapshot.items.at(-1)!.plannedName, 'METAL_S02_02');
+  assert.equal(snapshot.items.at(-1)!.plannedName, 'G-2-2');
   assert.equal(snapshot.items.at(-1)!.sampleId, original.sampleId);
   assert.equal(snapshot.items.at(-1)!.repeatOf, second);
   assert.deepEqual(snapshot.runs[0], original);
   assert.equal(groupCounts(snapshot, snapshot.groups[0]).spare, 1);
 });
 
-test('an untouched old default drops the global serial; an explicitly saved serial rule stays', (t) => {
+test('reopening does not rename a legacy global serial or already reserved folder names', (t) => {
   const data = fixture(t);
   const legacyId = data.store.command({
     type: 'createExperiment',
     code: 'EXP-20261006',
     name: '旧默认',
+    sampleCodePattern: '',
   }).experimentId!;
   data.store.put('experiments', {
     ...data.store.get('experiments', legacyId),
@@ -158,13 +160,13 @@ test('an untouched old default drops the global serial; an explicitly saved seri
   const migrated = reopened.snapshot();
   assert.equal(
     migrated.experiments.find((entry) => entry.id === legacyId)!.namingPattern,
-    DEFAULT_PATTERN,
+    LEGACY_PATTERN,
   );
   assert.deepEqual(migrated.runs[0], run);
   assert.equal(
     migrated.items.find((item) => item.experimentId === legacyId && item.status === 'pending')!
       .plannedName,
-    'EXP-20261006_S02',
+    'EXP-20261006_S02_002',
   );
   assert.equal(
     migrated.experiments.find((entry) => entry.id === chosenId)!.namingPattern,
@@ -189,26 +191,26 @@ test('an untouched old default drops the global serial; an explicitly saved seri
   );
 });
 
-test('changing an existing template is explicit and only renames unstarted automatic plans', (t) => {
+test('changing an existing template leaves reserved names unchanged and applies to future plans', (t) => {
   const { store, experimentId } = setup(t, '{experiment}_{sample}_{run:03}');
   const first = store.command({
     type: 'addSamples',
     experimentId,
     count: 2,
-    patch: { state: '原态', preparedCount: 2 },
+    patch: { state: '原态', preparedCount: 3 },
   }).itemId!;
   store.command({ type: 'start', itemId: first });
   store.command({ type: 'finish', itemId: first });
   const run = structuredClone(store.snapshot().runs[0]);
   assert.equal(run.filename, 'METAL_S01_001');
+  const reserved = store.snapshot().items.map((item) => item.plannedName);
   store.command({ type: 'updateExperiment', id: experimentId, namingPattern: DEFAULT_PATTERN });
   assert.deepEqual(store.snapshot().runs[0], run);
-  assert.deepEqual(
-    store.snapshot().items.map((item) => item.plannedName),
-    ['METAL_S01_001', 'METAL_S02'],
-  );
+  assert.deepEqual(store.snapshot().items.map((item) => item.plannedName), reserved);
   store.command({ type: 'updateExperiment', id: experimentId, namingPattern: DETAILED_PATTERN });
-  assert.equal(store.snapshot().items[1].plannedName, 'METAL_原态_S02');
+  assert.deepEqual(store.snapshot().items.map((item) => item.plannedName), reserved);
+  const third = store.command({ type: 'arrange', groupId: store.snapshot().groups[0].id, count: 1, prefix: 'S' }).itemId!;
+  assert.equal(store.get('items', third).plannedName, 'METAL_原态_S03');
 });
 
 test('preparation metadata is validated, blank and none differ, sample overrides and original run history survive a v1 backup', async (t) => {

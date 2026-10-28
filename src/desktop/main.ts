@@ -11,10 +11,12 @@ import {
 } from 'electron';
 import { join, dirname, resolve, sep } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { readFile, rename, mkdir, rm } from 'node:fs/promises';
+import { readFile, rename, mkdir, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import { randomUUID } from 'node:crypto';
 import { Store, CommandRejectedError } from './store.js';
-import { previewFile, previewRows, parseDelimited, importTable, exportFile } from './tables.js';
+import { previewFile, previewRows, parseDelimited, importTable, exportFile, writeFieldSheetWorkbook } from './tables.js';
+import { fieldSheetHtml } from '../shared/fieldSheet.js';
 import { addAttachment, createBackup, dailyBackup, removeAttachment, unpackBackup } from './backups.js';
 import { writeReportBundle } from './reports.js';
 import { CloudSync } from './github-sync.js';
@@ -264,6 +266,45 @@ else {
         if (result.canceled || !result.filePath) return null;
         checkDestination(result.filePath);
         await exportFile(store.snapshot(), experimentId, format, result.filePath);
+        return result.filePath;
+      });
+      register('export-field-sheet', async (experimentId, format) => {
+        if (typeof experimentId !== 'string') throw new Error('实验编号无效。');
+        if (format !== 'xlsx' && format !== 'pdf') throw new Error('导出格式无效。');
+        const experiment = store.get('experiments', experimentId);
+        const extension = format === 'pdf' ? 'pdf' : 'xlsx';
+        const result = await dialog.showSaveDialog(window, {
+          title: '保存现场规划表',
+          defaultPath: `${experiment.code.replace(/[<>:"/\\|?*]/g, '_')}-现场规划表.${extension}`,
+          filters: [{ name: format === 'pdf' ? 'PDF' : 'Excel', extensions: [extension] }],
+        });
+        if (result.canceled || !result.filePath) return null;
+        checkDestination(result.filePath);
+        const snapshot = store.snapshot();
+        if (format === 'xlsx') {
+          await writeFieldSheetWorkbook(snapshot, experimentId, result.filePath);
+          return result.filePath;
+        }
+        const htmlPath = join(tmpdir(), `labrecord-field-${randomUUID()}.html`);
+        const report = new BrowserWindow({
+          show: false,
+          webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false },
+        });
+        report.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+        try {
+          await writeFile(htmlPath, fieldSheetHtml(snapshot, experimentId), 'utf8');
+          await report.loadFile(htmlPath);
+          const pdf = await report.webContents.printToPDF({
+            printBackground: true,
+            pageSize: 'A4',
+            landscape: true,
+            preferCSSPageSize: true,
+          });
+          await writeFile(result.filePath, pdf);
+        } finally {
+          report.destroy();
+          await rm(htmlPath, { force: true });
+        }
         return result.filePath;
       });
       register('reference', async () => {

@@ -76,7 +76,7 @@ async function createExperiment(name: string, code: string, first = false) {
 
 async function addSamples(name: string, state: string, prepared: string, count: string) {
   await page
-    .locator('.planning-card .toolbar-actions')
+    .getByRole('region', { name: '现场规划表', exact: true })
     .getByRole('button', { name: '新增样品', exact: true })
     .click();
   const modal = page.getByRole('dialog', { name: '添加样品', exact: true });

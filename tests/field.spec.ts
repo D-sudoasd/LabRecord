@@ -1,4 +1,11 @@
-import { test, expect, _electron, type ElectronApplication, type Page } from '@playwright/test';
+import {
+  test,
+  expect,
+  _electron,
+  type ElectronApplication,
+  type Locator,
+  type Page,
+} from '@playwright/test';
 import { createRequire } from 'node:module';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -3925,6 +3932,14 @@ test('the latest record names its saved file and not the file reference', async 
   expect(after.groups.find((group) => group.id === initial.groups[0].id)?.preparedCount).toBe(6);
 });
 
+async function expectClipboardCopy(button: Locator, expected: string) {
+  await application.evaluate(({ clipboard }) => clipboard.writeText('copy-test-pending'));
+  await button.click();
+  await expect
+    .poll(() => application.evaluate(({ clipboard }) => clipboard.readText()))
+    .toBe(expected);
+}
+
 test('the latest actual file name can be copied without leaving the current sample', async () => {
   const initial = await snapshot();
   await command({ type: 'start', itemId: initial.items[0].id });
@@ -3940,21 +3955,26 @@ test('the latest actual file name can be copied without leaving the current samp
   await command({ type: 'start', itemId: initial.items[1].id });
   await page.reload();
   const recent = page.getByRole('region', { name: '最近记录', exact: true });
-  await recent.getByRole('button', { name: '复制最近记录文件名 TA-01', exact: true }).click();
-  expect(await application.evaluate(({ clipboard }) => clipboard.readText())).toBe('frame-001.cbf');
+  await expectClipboardCopy(
+    recent.getByRole('button', { name: '复制最近记录文件名 TA-01', exact: true }),
+    'frame-001.cbf',
+  );
   await expect(page.locator('.current-heading')).toContainText('TA-02');
   await expect(page.locator('.current-heading')).toContainText('进行中');
   await page.getByRole('button', { name: '实验规划', exact: true }).click();
-  await page
-    .getByRole('region', { name: '最近记录', exact: true })
-    .getByRole('button', { name: '复制最近记录文件名 TA-01', exact: true })
-    .click();
-  expect(await application.evaluate(({ clipboard }) => clipboard.readText())).toBe('frame-001.cbf');
+  await expectClipboardCopy(
+    page
+      .getByRole('region', { name: '最近记录', exact: true })
+      .getByRole('button', { name: '复制最近记录文件名 TA-01', exact: true }),
+    'frame-001.cbf',
+  );
   await expect(page.locator('.plan-page')).toBeVisible();
   await page.getByRole('button', { name: '实验概览', exact: true }).click();
   const overview = page.getByRole('dialog', { name: '实验概览', exact: true });
-  await overview.getByRole('button', { name: '复制最近记录文件名 TA-01', exact: true }).click();
-  expect(await application.evaluate(({ clipboard }) => clipboard.readText())).toBe('frame-001.cbf');
+  await expectClipboardCopy(
+    overview.getByRole('button', { name: '复制最近记录文件名 TA-01', exact: true }),
+    'frame-001.cbf',
+  );
   await expect(overview).toBeVisible();
   await page.keyboard.press('Escape');
   await command({
@@ -3997,16 +4017,20 @@ test('the running operation shows and copies its saved file name from another sa
   await expect(banner).toContainText('文件 frame-001.cbf');
   await expect(banner).not.toContainText('hidden.cbf');
   await expect(banner).not.toContainText('只写备注');
-  await banner.getByRole('button', { name: '复制进行中的实际文件名', exact: true }).click();
-  expect(await application.evaluate(({ clipboard }) => clipboard.readText())).toBe('frame-001.cbf');
+  await expectClipboardCopy(
+    banner.getByRole('button', { name: '复制进行中的实际文件名', exact: true }),
+    'frame-001.cbf',
+  );
   await expect(page.locator('.current-heading')).toContainText('TA-02');
   await page.getByRole('button', { name: '实验概览', exact: true }).click();
   const overview = page.getByRole('dialog', { name: '实验概览', exact: true });
-  await expect(overview.getByRole('region', { name: '全库进行中的操作', exact: true })).toContainText(
-    '文件 frame-001.cbf',
+  await expect(
+    overview.getByRole('region', { name: '全库进行中的操作', exact: true }),
+  ).toContainText('文件 frame-001.cbf');
+  await expectClipboardCopy(
+    overview.getByRole('button', { name: '在概览中复制进行中的实际文件名', exact: true }),
+    'frame-001.cbf',
   );
-  await overview.getByRole('button', { name: '在概览中复制进行中的实际文件名', exact: true }).click();
-  expect(await application.evaluate(({ clipboard }) => clipboard.readText())).toBe('frame-001.cbf');
   await expect(overview).toBeVisible();
   const after = await snapshot();
   expect(after.runs).toHaveLength(1);
@@ -4037,14 +4061,18 @@ test('the plan and review bars copy the running file name without returning to l
   await expect(planBar).toContainText('文件 frame-001.cbf');
   await expect(planBar).not.toContainText('hidden.cbf');
   await expect(planBar).not.toContainText('只写备注');
-  await planBar.getByRole('button', { name: '复制进行中的实际文件名', exact: true }).click();
-  expect(await application.evaluate(({ clipboard }) => clipboard.readText())).toBe('frame-001.cbf');
+  await expectClipboardCopy(
+    planBar.getByRole('button', { name: '复制进行中的实际文件名', exact: true }),
+    'frame-001.cbf',
+  );
   await expect(page.locator('.plan-page')).toBeVisible();
   await page.getByRole('button', { name: '回看导出', exact: true }).click();
   const reviewBar = page.getByRole('region', { name: '进行中的操作', exact: true });
   await expect(reviewBar).toContainText('文件 frame-001.cbf');
-  await reviewBar.getByRole('button', { name: '复制进行中的实际文件名', exact: true }).click();
-  expect(await application.evaluate(({ clipboard }) => clipboard.readText())).toBe('frame-001.cbf');
+  await expectClipboardCopy(
+    reviewBar.getByRole('button', { name: '复制进行中的实际文件名', exact: true }),
+    'frame-001.cbf',
+  );
   await expect(page.locator('.review-page')).toBeVisible();
   await expect(page.locator('.live-page')).toHaveCount(0);
   const after = await snapshot();
@@ -4075,31 +4103,38 @@ test('a running scan id can be copied from the plan, review, live and overview',
   await expect(planBar).toContainText('扫描 SCAN-RUN-1');
   await expect(planBar).not.toContainText('hidden.cbf');
   await expect(planBar).not.toContainText('只写备注');
-  await planBar.getByRole('button', { name: '复制进行中的扫描编号', exact: true }).click();
-  expect(await application.evaluate(({ clipboard }) => clipboard.readText())).toBe('SCAN-RUN-1');
+  await expectClipboardCopy(
+    planBar.getByRole('button', { name: '复制进行中的扫描编号', exact: true }),
+    'SCAN-RUN-1',
+  );
   await expect(page.locator('.plan-page')).toBeVisible();
   await page.getByRole('button', { name: '回看导出', exact: true }).click();
-  await page
-    .getByRole('region', { name: '进行中的操作', exact: true })
-    .getByRole('button', { name: '复制进行中的扫描编号', exact: true })
-    .click();
-  expect(await application.evaluate(({ clipboard }) => clipboard.readText())).toBe('SCAN-RUN-1');
+  await expectClipboardCopy(
+    page
+      .getByRole('region', { name: '进行中的操作', exact: true })
+      .getByRole('button', { name: '复制进行中的扫描编号', exact: true }),
+    'SCAN-RUN-1',
+  );
   await expect(page.locator('.review-page')).toBeVisible();
   await page.getByRole('button', { name: '现场记录', exact: true }).click();
   await page.getByRole('button', { name: '选择样品 TA-02 操作 2', exact: true }).click();
   const banner = page.getByRole('region', { name: '现场进行中的操作', exact: true });
   await expect(banner).toContainText('扫描 SCAN-RUN-1');
   await expect(banner).not.toContainText('只写备注');
-  await banner.getByRole('button', { name: '复制进行中的扫描编号', exact: true }).click();
-  expect(await application.evaluate(({ clipboard }) => clipboard.readText())).toBe('SCAN-RUN-1');
+  await expectClipboardCopy(
+    banner.getByRole('button', { name: '复制进行中的扫描编号', exact: true }),
+    'SCAN-RUN-1',
+  );
   await expect(page.locator('.current-heading')).toContainText('TA-02');
   await page.getByRole('button', { name: '实验概览', exact: true }).click();
   const overview = page.getByRole('dialog', { name: '实验概览', exact: true });
-  await expect(overview.getByRole('region', { name: '全库进行中的操作', exact: true })).toContainText(
-    '扫描 SCAN-RUN-1',
+  await expect(
+    overview.getByRole('region', { name: '全库进行中的操作', exact: true }),
+  ).toContainText('扫描 SCAN-RUN-1');
+  await expectClipboardCopy(
+    overview.getByRole('button', { name: '在概览中复制进行中的扫描编号', exact: true }),
+    'SCAN-RUN-1',
   );
-  await overview.getByRole('button', { name: '在概览中复制进行中的扫描编号', exact: true }).click();
-  expect(await application.evaluate(({ clipboard }) => clipboard.readText())).toBe('SCAN-RUN-1');
   await expect(overview).toBeVisible();
   const after = await snapshot();
   expect(after.runs).toHaveLength(1);

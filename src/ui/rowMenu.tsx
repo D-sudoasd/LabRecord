@@ -67,6 +67,8 @@ function listed(names: string[], unit: string) {
   return `${names.slice(0, 3).join('、')} 等 ${names.length} ${unit}`;
 }
 
+const MANUAL_FOLDER_DELETE_NOTE = '已手工创建的文件夹不会删除，编号之后可能再次使用。';
+
 export function groupsDeleteReason(snapshot: Snapshot, ids: string[]) {
   const blocked = ids.some((id) => {
     const group = snapshot.groups.find((entry) => entry.id === id);
@@ -88,8 +90,8 @@ export function groupDeleteRequest(groups: Group[]): DeleteRequest {
   return {
     title: one ? '删除样品组' : '删除所选样品组',
     body: one
-      ? `删除「${names[0]}」。这一组里还没开始的样品和测量会一起去掉，准备数量也不保留。`
-      : `删除 ${listed(names, '组')}。这些组里还没开始的样品和测量会一起去掉。`,
+      ? `删除「${names[0]}」。这一组里还没开始的样品和测量会一起去掉，准备数量也不保留。${MANUAL_FOLDER_DELETE_NOTE}`
+      : `删除 ${listed(names, '组')}。这些组里还没开始的样品和测量会一起去掉。${MANUAL_FOLDER_DELETE_NOTE}`,
     confirmLabel: one ? '删除样品组' : '删除所选样品组',
     done: one ? '样品组已删除。' : '所选样品组已删除。',
     command: { type: 'deleteGroups', ids: groups.map((group) => group.id) },
@@ -105,7 +107,7 @@ export function sampleDeleteReason(snapshot: Snapshot, sample: Sample) {
 export function sampleDeleteRequest(sample: Sample): DeleteRequest {
   return {
     title: '移出计划',
-    body: `把 ${sample.code} 移出计划。它还没开始的测量会去掉，样品组的准备数量不变，这件回到备样。`,
+    body: `把 ${sample.code} 移出计划。它还没开始的测量会去掉，样品组的准备数量不变，这件回到备样。${MANUAL_FOLDER_DELETE_NOTE}`,
     confirmLabel: '移出计划',
     done: '样品已移出计划。',
     command: { type: 'deleteSamples', ids: [sample.id] },
@@ -143,8 +145,8 @@ export function itemsDeleteRequest(snapshot: Snapshot, ids: string[]): DeleteReq
   return {
     title: '删除测量',
     body: one
-      ? `删除 ${codes[0] || '这项'} 还没开始的测量。如果这件样品没有其他测量，它会回到备样；准备数量不变。其余文件夹名保持原样。`
-      : `删除 ${ids.length} 项还没开始的测量（${listed(codes, '件')}）。如果某件样品因此不再有测量，它会回到备样；准备数量不变。其余文件夹名保持原样。`,
+      ? `删除 ${codes[0] || '这项'} 还没开始的测量。如果这件样品没有其他测量，它会回到备样；准备数量不变。其余文件夹名保持原样。${MANUAL_FOLDER_DELETE_NOTE}`
+      : `删除 ${ids.length} 项还没开始的测量（${listed(codes, '件')}）。如果某件样品因此不再有测量，它会回到备样；准备数量不变。其余文件夹名保持原样。${MANUAL_FOLDER_DELETE_NOTE}`,
     confirmLabel: '删除测量',
     done: '未开始的测量已删除。',
     command: { type: 'deleteItems', ids },
@@ -188,7 +190,14 @@ function ContextMenu({
     const node = ref.current;
     if (!node) return;
     const rect = node.getBoundingClientRect();
-    const placed = menuPosition(x, y, rect.width, rect.height, window.innerWidth, window.innerHeight);
+    const placed = menuPosition(
+      x,
+      y,
+      rect.width,
+      rect.height,
+      window.innerWidth,
+      window.innerHeight,
+    );
     const left = placed.left;
     const top = placed.top;
     node.style.left = `${left}px`;

@@ -15,18 +15,28 @@ import type {
 import { STATUS_LABEL, effectiveProtocol, sampleOverrideLabel } from '../shared/model.js';
 import { followUpRoster } from '../shared/followUps.js';
 import { formatRecordedDuration, recordedDuration, runDurationLabel } from '../shared/duration.js';
-import { eventEarlierText, eventTimeLabel, issueEarlierText, operationStatusReason } from '../shared/history.js';
+import {
+  eventEarlierText,
+  eventTimeLabel,
+  issueEarlierText,
+  operationStatusReason,
+} from '../shared/history.js';
 import { repeatSourceLabel } from '../shared/repeats.js';
-import { operationPlanDrift, recordedPlanChangeText } from '../shared/planChanges.js';
+import { operationPlanDrift, recordedPlanChangeText, plannedCustomFieldValue } from '../shared/planChanges.js';
 import { latestEndedMark, runningOperationSummary } from '../shared/library.js';
 import { recordedEndLabel, recordedStartLabel } from '../shared/recordedTime.js';
 import { fieldSchema, validatePatch } from './validation.js';
 import { measurementFor, plannedGroup, regimeLabel } from '../shared/measurement.js';
 import { MATERIAL_FIELDS } from '../shared/materials.js';
+import { FIELD_SHEET_HEADERS, fieldSheetPrintRows, fieldSheetRows } from '../shared/fieldSheet.js';
 
 /** A full CSV unions group, operation, event, and attachment columns.
  *  Each custom field adds three of those columns, and an experiment may have 50. */
 export const IMPORT_COLUMN_LIMIT = 300;
+function isFieldSheetHeaders(headers: readonly string[]) {
+  const present = new Set(headers.map((header) => header.trim()));
+  return FIELD_SHEET_HEADERS.every((header) => present.has(header));
+}
 
 export const IMPORT_FIELDS: { key: ImportKey; label: string; aliases: string[] }[] = [
   { key: 'state', label: '样品状态', aliases: ['样品状态', '状态'] },
@@ -138,23 +148,35 @@ export function previewRows(rows: string[][], name = '粘贴的表格'): TablePr
   if (headers.includes('用时'))
     warnings.push('“用时”由已记录的起止时间计算，导入时不写入样品，也不补齐未知时间。');
   if (headers.includes('已记录用时') || headers.includes('未计入次数'))
-    warnings.push('“已记录用时”和“未计入次数”由已有记录的起止时间汇总，导入时不写入样品，也不生成实际记录或补齐未知时间。');
+    warnings.push(
+      '“已记录用时”和“未计入次数”由已有记录的起止时间汇总，导入时不写入样品，也不生成实际记录或补齐未知时间。',
+    );
   if (headers.includes('样品差异'))
     warnings.push('“样品差异”列出当前与样品组不同的样品参数，导入时不写入样品，也不改已有记录。');
   if (headers.includes('当前计划差异'))
-    warnings.push('“当前计划差异”比较开始后的当前计划与开始时快照，导入时不写入样品，也不改已有记录。');
+    warnings.push(
+      '“当前计划差异”比较开始后的当前计划与开始时快照，导入时不写入样品，也不改已有记录。',
+    );
   if (headers.includes('实际与开始时不同'))
-    warnings.push('“实际与开始时不同”列出实际记录与开始时快照的差异，导入时不写入样品，也不改已有记录。');
+    warnings.push(
+      '“实际与开始时不同”列出实际记录与开始时快照的差异，导入时不写入样品，也不改已有记录。',
+    );
   if (headers.includes('最近结束'))
     warnings.push('“最近结束”标出最近一条已结束的操作，导入时不写入样品，也不改已有记录。');
   if (headers.includes('开始钟点') || headers.includes('结束钟点'))
-    warnings.push('“开始钟点”和“结束钟点”是记录时区里已经写下的钟点，导入时不写入样品，也不改已有记录或补齐未知时间。');
+    warnings.push(
+      '“开始钟点”和“结束钟点”是记录时区里已经写下的钟点，导入时不写入样品，也不改已有记录或补齐未知时间。',
+    );
   if (headers.includes('进行中说明'))
-    warnings.push('“进行中说明”标出仍在进行的操作，导入时不写入样品，也不改已有记录或补齐未知时间。');
+    warnings.push(
+      '“进行中说明”标出仍在进行的操作，导入时不写入样品，也不改已有记录或补齐未知时间。',
+    );
   if (headers.includes('状态原因'))
     warnings.push('“状态原因”是跳过或中断时写下的原因，导入时不写入样品，也不生成实际记录。');
   if (headers.includes('记录时区时间'))
-    warnings.push('“记录时区时间”由事件关联的实际记录偏移生成，导入时不写入样品，也不补造没有实际记录的事件时区。');
+    warnings.push(
+      '“记录时区时间”由事件关联的实际记录偏移生成，导入时不写入样品，也不补造没有实际记录的事件时区。',
+    );
   if (headers.includes('改前文字'))
     warnings.push('“改前文字”是问题或时间线备注改正前的文字，导入时不写入样品，也不改已有记录。');
   if (headers.includes('问题记录'))
@@ -163,6 +185,10 @@ export function previewRows(rows: string[][], name = '粘贴的表格'): TablePr
     warnings.push('“重测来源”由原操作的样品编号、扫描编号和文件夹名生成，导入时不写入样品。');
   if (headers.includes('记录类型'))
     warnings.push('只导入记录类型为样品组的行；操作、事件和附件行不生成样品或实际记录。');
+  if (isFieldSheetHeaders(headers))
+    warnings.push(
+      '“简写编号”“尺寸”“原位参数”“实际样品信息”是现场规划表，导入时不写入样品，也不生成操作记录。',
+    );
   return { name, headers, rows: clean.slice(1), mapping, warnings };
 }
 export async function previewFile(path: string): Promise<TablePreview> {
@@ -233,6 +259,8 @@ export function importTable(store: Store, request: ImportRequest): Snapshot {
     )
   )
     throw new Error('导入内容超过限制或格式不正确。');
+  if (isFieldSheetHeaders(table.headers))
+    throw new Error('现场规划表只用于打印对照，不会导入为样品，也不会生成操作记录。');
   const validKeys = new Set(IMPORT_FIELDS.map((f) => f.key));
   for (const [key, column] of Object.entries(mapping))
     if (
@@ -242,8 +270,9 @@ export function importTable(store: Store, request: ImportRequest): Snapshot {
       column! >= table.headers.length
     )
       throw new Error('字段映射无效。');
-  if (mapping.state === undefined && mapping.name === undefined)
+  if (mapping.state === undefined && mapping.name === undefined) {
     throw new Error('请选择“样品名称”或“样品状态”对应的列。');
+  }
   const mapped = Object.values(mapping);
   if (new Set(mapped).size !== mapped.length) throw new Error('一列不能同时映射到两个字段。');
   const typeColumn = table.headers.indexOf('记录类型');
@@ -597,7 +626,7 @@ export function operationRows(
         ...MATERIAL_FIELDS.map(({ key }) => group[key] ?? null),
         ...fields.flatMap((f) =>
           definition.some((d) => sameField(d, f))
-            ? [sample.values[f.id] ?? group.values[f.id] ?? null, run?.actual[f.id] ?? null]
+            ? [plannedCustomFieldValue(sample.values, group.values, f.id) ?? null, run?.actual[f.id] ?? null]
             : [null, null],
         ),
       ];
@@ -618,10 +647,13 @@ function addSheet(workbook: ExcelJS.Workbook, name: string, rows: (string | numb
     cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF176B62' } };
   });
   sheet.columns.forEach((column, index) => {
-    column.width = /备注|问题|文件引用|制度|差异|不同|改前|钟点|说明/.test(String(rows[0][index]))
-      ? 36
-      : /时间|编号|样品状态/.test(String(rows[0][index]))
-        ? 24
+    const header = String(rows[0][index]);
+    column.width = /原位参数|实际样品信息|备注|问题|文件引用|制度|差异|不同|改前|钟点|说明/.test(
+      header,
+    )
+      ? 42
+      : /简写编号|时间|编号|样品状态/.test(header)
+        ? 22
         : 18;
   });
   sheet.eachRow((row, index) => {
@@ -634,6 +666,80 @@ function addSheet(workbook: ExcelJS.Workbook, name: string, rows: (string | numb
   });
   if (rows.length > 1)
     sheet.autoFilter = { from: 'A1', to: { row: rows.length, column: rows[0].length } };
+}
+function fieldSheetRowHeight(values: (string | number | null)[]) {
+  const widths = [18, 24, 44, 48];
+  return Math.max(
+    38,
+    ...values.map((value, index) => {
+      const code = String(value ?? '');
+      const width = Math.max(8, (widths[index] ?? 36) - 6);
+      const smallCodeFont = index === 0 && code.length > 70;
+      const characterWidth = (character: string) => {
+        const codePoint = character.codePointAt(0) ?? 0;
+        let units = 0.72;
+        if (codePoint > 0xff) units = 2.5;
+        else if (character === 'W' || character === 'M') units = 1.6;
+        else if (character === 'w' || character === 'm') units = 1.15;
+        else if (/[A-Z]/.test(character)) units = 0.95;
+        else if (/[0-9]/.test(character)) units = 0.85;
+        else if (/[ilI.,:;!'|` ]/.test(character)) units = 0.45;
+        return smallCodeFont ? units * 0.65 : units;
+      };
+      const lines = code.split('\n').reduce<number>((total, line) => {
+        const units = Array.from(line).reduce(
+          (sum, character) => sum + characterWidth(character),
+          0,
+        );
+        return total + Math.max(1, Math.ceil(units / width));
+      }, 0);
+      const lineHeight = smallCodeFont ? 13 : 16;
+      return lines * lineHeight + 8;
+    }),
+  );
+}
+function configureFieldSheet(
+  sheet: ExcelJS.Worksheet,
+  printRows: readonly { continuation: boolean; continued: boolean }[],
+) {
+  const widths = [18, 24, 44, 48];
+  sheet.columns.forEach((column, index) => {
+    column.width = widths[index] ?? 36;
+  });
+  sheet.views = [{ state: 'frozen', ySplit: 1, showGridLines: false }];
+  sheet.pageSetup = {
+    paperSize: 9,
+    orientation: 'landscape',
+    fitToPage: true,
+    fitToWidth: 1,
+    fitToHeight: 0,
+    margins: { left: 0.25, right: 0.25, top: 0.45, bottom: 0.45, header: 0.2, footer: 0.2 },
+    printTitlesRow: '1:1',
+  };
+  sheet.eachRow((row, index) => {
+    if (index > 1) {
+      const values = Array.from({ length: 4 }, (_, column) => row.getCell(column + 1).text);
+      const printRow = printRows[index - 2];
+      row.height = Math.min(
+        380,
+        Math.max(printRow?.continued ? 250 : 38, fieldSheetRowHeight(values)),
+      );
+      if (values[0].length > 70) {
+        const codeCell = row.getCell(1);
+        codeCell.font = { ...codeCell.font, size: 7 };
+      }
+      if (printRow?.continuation) {
+        // The cell value stays the exact folder name; only its printed Excel display adds a label.
+        row.getCell(1).numFmt = '@"（续）"';
+      }
+    }
+  });
+}
+function addFieldSheet(workbook: ExcelJS.Workbook, snapshot: Snapshot, experimentId: string) {
+  const rows = fieldSheetPrintRows(fieldSheetRows(snapshot, experimentId));
+  addSheet(workbook, '现场规划表', [[...FIELD_SHEET_HEADERS], ...rows.map((row) => row.cells)]);
+  const sheet = workbook.getWorksheet('现场规划表');
+  if (sheet) configureFieldSheet(sheet, rows);
 }
 export function groupOverrideExport(snapshot: Snapshot, group: Group) {
   return snapshot.samples
@@ -795,6 +901,7 @@ export async function exportFile(
   const workbook = new ExcelJS.Workbook();
   workbook.creator = 'LabRecord';
   addSheet(workbook, '实验规划', planningRows(snapshot, experimentId));
+  addFieldSheet(workbook, snapshot, experimentId);
   addSheet(workbook, '操作记录', operations);
   addSheet(workbook, '时间线与修改历史', historyRows(snapshot, experimentId));
   addSheet(workbook, '附件清单', attachmentRows(snapshot, experimentId));
@@ -805,5 +912,17 @@ export async function exportFile(
     ...experiment.fields.map((f) => [f.id, JSON.stringify(f)]),
   ]);
   definitions.columns = [{ width: 38 }, { width: 100 }];
+  await workbook.xlsx.writeFile(path);
+}
+export async function writeFieldSheetWorkbook(
+  snapshot: Snapshot,
+  experimentId: string,
+  path: string,
+) {
+  if (!snapshot.experiments.some((experiment) => experiment.id === experimentId))
+    throw new Error('实验不存在。');
+  const workbook = new ExcelJS.Workbook();
+  workbook.creator = 'LabRecord';
+  addFieldSheet(workbook, snapshot, experimentId);
   await workbook.xlsx.writeFile(path);
 }

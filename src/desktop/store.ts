@@ -3,11 +3,12 @@ import { randomUUID, createHash } from 'node:crypto';
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import {
-  DEFAULT_PATTERN,
-  LEGACY_PATTERN,
+  FIELD_PATTERN,
+  CODE_PATTERN_HYPHEN,
   effectiveProtocol,
+  assignSpecimenCodes,
+  codePatternError,
   filenameFor,
-  planSpecimens,
   specimenParameters,
 } from '../shared/model.js';
 import type {
@@ -29,6 +30,8 @@ import {
   measurementFor,
   plannedGroup,
   reserveMeasurementNames,
+  previewSampleCodeChange,
+  validateFieldSampleCodes,
   regimeLabel,
 } from '../shared/measurement.js';
 
@@ -96,7 +99,6 @@ export class Store {
       CREATE TABLE IF NOT EXISTS attachments(id TEXT PRIMARY KEY, experiment_id TEXT NOT NULL REFERENCES experiments(id), run_id TEXT NOT NULL REFERENCES runs(id), json TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS requests(id TEXT PRIMARY KEY, fingerprint TEXT NOT NULL, result TEXT NOT NULL);
       PRAGMA user_version=1;`);
-    this.adoptPlainFolderNames();
   }
   close() {
     this.db.close();
@@ -283,11 +285,19 @@ export class Store {
     if (group.preparedCount !== null && planned + count > group.preparedCount)
       throw new Error(`准备 ${group.preparedCount} 个，已安排 ${planned} 个；请先核对准备数量。`);
     if (specimens && specimens.length !== count) throw new Error('名单要和本次安排的件数一致。');
-    const assigned = planSpecimens(
+    const experiment = this.get('experiments', group.experimentId);
+    const assigned = assignSpecimenCodes(
       samples.filter((s) => s.experimentId === group.experimentId).map((s) => s.code),
       count,
-      prefix ?? '',
+      prefix?.trim() || (experiment.sampleCodePattern === CODE_PATTERN_HYPHEN ? 'G' : 'S'),
       group,
+      experiment.sampleCodePattern,
+      specimens,
+    );
+    validateFieldSampleCodes(
+      this.snapshot(),
+      group.experimentId,
+      assigned.map((entry) => entry.code),
     );
     let order =
       Math.max(
@@ -330,44 +340,6 @@ export class Store {
     this.refreshNames(group.experimentId, itemIds);
     this.event(group.experimentId, 'plan', `安排 ${count} 个样品进行测试`);
     return { experimentId: group.experimentId, itemId: firstId };
-  }
-  private adoptPlainFolderNames() {
-    const pending = this.list('experiments').filter(
-      (experiment) =>
-        experiment.namingPattern === LEGACY_PATTERN && !this.folderRuleWasChosen(experiment.id),
-    );
-    if (!pending.length) return;
-    this.transaction(() => {
-      for (const experiment of pending) {
-        this.put('experiments', { ...experiment, namingPattern: DEFAULT_PATTERN });
-        this.clearAutomaticFolderNames(experiment.id);
-        this.refreshNames(experiment.id);
-        this.event(experiment.id, 'plan', '文件夹名改为按样品编号', null, null, {
-          previous: LEGACY_PATTERN,
-          namingPattern: DEFAULT_PATTERN,
-          automatic: true,
-        });
-      }
-    });
-  }
-  private folderRuleWasChosen(experimentId: string) {
-    return this.list('events').some(
-      (event) =>
-        event.experimentId === experimentId &&
-        (event.data.explicit === true ||
-          (event.text === '修改自动命名规则' && event.data.namingPattern === LEGACY_PATTERN)),
-    );
-  }
-  private clearAutomaticFolderNames(experimentId: string) {
-    const recorded = new Set(this.list('runs').map((run) => run.itemId));
-    for (const item of this.list('items')) {
-      if (item.experimentId !== experimentId || recorded.has(item.id)) continue;
-      if (!['pending', 'skipped'].includes(item.status)) continue;
-      if (item.measurement?.customName?.trim() || !item.plannedName) continue;
-      const next = { ...item };
-      delete next.plannedName;
-      this.put('items', next);
-    }
   }
   private refreshNames(experimentId: string, ids?: string[]) {
     const snapshot = this.snapshot();
@@ -429,6 +401,7 @@ export class Store {
       offsetMinutes: -this.clock().getTimezoneOffset(),
       snapshot: {
         group: structuredClone(group),
+        sampleGroupName: stored.name ?? null,
         sample: structuredClone(sample),
         operation: item.operation,
         fields: structuredClone(experiment.fields),
@@ -497,9 +470,16 @@ export class Store {
           name: command.name,
           description: command.description || '',
           fields: command.fields ?? [],
-          namingPattern: command.namingPattern ?? DEFAULT_PATTERN,
+          namingPattern: command.namingPattern ?? FIELD_PATTERN,
           createdAt: this.now(),
         };
+        const samplePattern =
+          command.sampleCodePattern === undefined
+            ? command.namingPattern === undefined
+              ? CODE_PATTERN_HYPHEN
+              : ''
+            : command.sampleCodePattern.trim();
+        if (samplePattern) experiment.sampleCodePattern = samplePattern;
         this.checkPattern(experiment.namingPattern, experiment.code);
         this.checkFields(experiment.fields);
         this.put('experiments', experiment);
@@ -518,18 +498,22 @@ export class Store {
         if (command.namingPattern !== undefined)
           this.checkPattern(command.namingPattern, experiment.code);
         if (command.fields) this.checkFields(command.fields);
-        const { type: _type, id: _id, ...patch } = command;
-        const leavingRunSerial =
-          command.namingPattern !== undefined &&
-          /\{run(?::0[1-9])?\}/.test(experiment.namingPattern) &&
-          !/\{run(?::0[1-9])?\}/.test(command.namingPattern);
-        this.put('experiments', { ...experiment, ...patch });
-        if (leavingRunSerial) this.clearAutomaticFolderNames(experiment.id);
+        const { type: _type, id: _id, sampleCodePattern, ...patch } = command;
+        const next: Experiment = { ...experiment, ...patch };
+        if (sampleCodePattern !== undefined) {
+          const pattern = sampleCodePattern.trim();
+          if (!pattern) delete next.sampleCodePattern;
+          else {
+            const error = codePatternError(pattern);
+            if (error) throw new Error(error);
+            next.sampleCodePattern = pattern;
+          }
+        }
+        this.put('experiments', next);
         if (
           command.namingPattern !== undefined &&
           command.namingPattern !== experiment.namingPattern
         ) {
-          this.refreshNames(experiment.id);
           this.event(experiment.id, 'plan', '修改自动命名规则', null, null, {
             previous: experiment.namingPattern,
             namingPattern: command.namingPattern,
@@ -547,7 +531,7 @@ export class Store {
           ? this.arrange(
               group.id,
               command.count,
-              command.prefix || 'S',
+              command.prefix,
               command.specimens,
               command.measurement,
             )
@@ -708,6 +692,9 @@ export class Store {
         if (command.code && command.ids.length !== 1)
           throw new Error('样品编号只能逐个修改，批量编号请在安排测试时设置前缀。');
         const experimentIds = new Set<string>();
+        const renamed = command.code
+          ? previewSampleCodeChange(this.snapshot(), command.ids[0], command.code)
+          : [];
         for (const id of command.ids) {
           const sample = this.get('samples', id);
           const next = {
@@ -719,6 +706,10 @@ export class Store {
           this.checkValues(this.get('experiments', sample.experimentId).fields, next.values);
           this.put('samples', next);
           experimentIds.add(sample.experimentId);
+        }
+        for (const change of renamed) {
+          const item = this.get('items', change.itemId);
+          this.put('items', { ...item, plannedName: change.newName });
         }
         const ids = this.list('items')
           .filter((item) => command.ids.includes(item.sampleId))
@@ -750,8 +741,12 @@ export class Store {
             throw new Error('已有实际记录的制度与名称已固定；请为同一样品追加新制度。');
           if (reserveOnly && item.plannedName) continue;
           const measurement = { ...item.measurement, ...command.measurement };
+          const renamed =
+            command.measurement.customName !== undefined &&
+            command.measurement.customName.trim() !== (item.measurement?.customName ?? '').trim();
           this.put('items', {
             ...item,
+            ...(renamed ? { plannedName: undefined } : {}),
             measurement,
             operation:
               command.measurement.regime !== undefined
@@ -877,7 +872,11 @@ export class Store {
         this.event(
           item.experimentId,
           'plan',
-          command.type === 'skip' ? (reason ? `跳过操作：${reason}` : '跳过操作') : '恢复到待测队列',
+          command.type === 'skip'
+            ? reason
+              ? `跳过操作：${reason}`
+              : '跳过操作'
+            : '恢复到待测队列',
           item.id,
         );
         return {};
@@ -1028,7 +1027,9 @@ export class Store {
         return { experimentId: item.experimentId, itemId: item.id };
       }
       case 'demo': {
-        const taken = new Set(this.list('experiments').map((experiment) => experiment.code.toLowerCase()));
+        const taken = new Set(
+          this.list('experiments').map((experiment) => experiment.code.toLowerCase()),
+        );
         let number = 1;
         while (taken.has(`demo-${number}`)) number += 1;
         const code = `DEMO-${number}`;
@@ -1036,6 +1037,8 @@ export class Store {
           type: 'createExperiment',
           name: '同步辐射实验 · 演示',
           code,
+          namingPattern: FIELD_PATTERN,
+          sampleCodePattern: '',
           description:
             '这是演示数据，可用于练习规划、现场记录与导出。示例状态和数值不代表真实实验。',
         });

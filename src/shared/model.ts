@@ -21,24 +21,106 @@ export function effectiveProtocol(
   if (typeof own === 'string' && own.trim()) return own;
   return group.protocol ?? '';
 }
+/** Two digits after the prefix: G + this pattern is G01. */
+export const CODE_PATTERN_PAD = '{prefix}{n:02}';
+/** Hyphen and an unpadded number: G + this pattern is G-1. */
+export const CODE_PATTERN_HYPHEN = '{prefix}-{n}';
+const CODE_NUMBER = /\{n(?::0([2-9]))?\}/;
+export function codePatternError(pattern: string) {
+  if (pattern.length > 80) return '编号样式请控制在 80 个字符内。';
+  if ((pattern.match(/\{prefix\}/g) || []).length !== 1) return '编号样式需要恰好一个 {prefix}。';
+  const numbers = pattern.match(/\{n(?::0[2-9])?\}/g) || [];
+  if (numbers.length !== 1) return '编号样式需要恰好一个 {n} 或 {n:02}。';
+  const rest = pattern.replaceAll('{prefix}', '').replace(CODE_NUMBER, '');
+  if (/[{}]/.test(rest)) return '编号样式只支持 {prefix}、{n} 和 {n:02} 到 {n:09}。';
+  if (/[\u0000-\u001f]/.test(pattern)) return '编号样式不能包含控制字符。';
+  return '';
+}
+export function formatSampleCode(prefix: string, number: number, pattern: string) {
+  const stem = prefix.trim() || (pattern === CODE_PATTERN_HYPHEN ? 'G' : 'S');
+  const width = pattern.match(CODE_NUMBER)?.[1];
+  const digits = width ? String(number).padStart(Number(width), '0') : String(number);
+  const token = '\u0001';
+  return pattern.replace(CODE_NUMBER, token).replaceAll('{prefix}', stem).replaceAll(token, digits);
+}
 export function planSpecimens(
   existing: Iterable<string>,
   count: number,
   prefix: string,
   _group: { state: string },
+  pattern?: string,
 ) {
   const taken = new Set(Array.from(existing, (code) => code.toLowerCase()));
-  const stem = prefix.trim() || 'S';
+  const stem = prefix.trim() || (pattern === CODE_PATTERN_HYPHEN ? 'G' : 'S');
+  if (pattern) {
+    const error = codePatternError(pattern);
+    if (error) throw new Error(error);
+  }
+  const width = pattern?.match(CODE_NUMBER)?.[1];
   const rows: { code: string; ordinal: string }[] = [];
   let number = 1;
   while (rows.length < count) {
-    const ordinal = String(number++).padStart(2, '0');
-    const code = stem + ordinal;
+    if (number > 100000) throw new Error('无法分配不重复的样品编号。');
+    const ordinal = pattern
+      ? width
+        ? String(number).padStart(Number(width), '0')
+        : String(number)
+      : String(number).padStart(2, '0');
+    const code = pattern ? formatSampleCode(stem, number, pattern) : stem + ordinal;
+    number += 1;
+    if (!code.trim() || code.length > 300 || /[\u0000-\u001f]/.test(code))
+      throw new Error('这种编号样式生成的编号无效。');
     if (taken.has(code.toLowerCase())) continue;
     taken.add(code.toLowerCase());
     rows.push({ code, ordinal });
   }
   return rows;
+}
+/** Hand-written codes are reserved first. The rest keep the active pattern and skip taken numbers. */
+export function assignSpecimenCodes(
+  existing: Iterable<string>,
+  count: number,
+  prefix: string,
+  group: { state: string },
+  pattern: string | undefined,
+  specimens?: readonly { code?: string }[],
+) {
+  const taken = new Set(Array.from(existing, (code) => code.toLowerCase()));
+  const chosen: (string | undefined)[] = [];
+  for (let index = 0; index < count; index += 1) {
+    const raw = specimens?.[index]?.code?.trim() ?? '';
+    if (!raw) {
+      chosen.push(undefined);
+      continue;
+    }
+    if (raw.length > 300 || /[\u0000-\u001f]/.test(raw))
+      throw new Error('样品编号需为 1–300 个字符，且不能包含控制字符。');
+    if (taken.has(raw.toLowerCase())) throw new Error(`样品编号“${raw}”在本实验中已存在。`);
+    taken.add(raw.toLowerCase());
+    chosen.push(raw);
+  }
+  const generated = planSpecimens(
+    taken,
+    chosen.filter((code) => !code).length,
+    prefix,
+    group,
+    pattern,
+  );
+  let cursor = 0;
+  return chosen.map((code) => (code ? { code, ordinal: code } : generated[cursor++]));
+}
+/** Prefix shared by every code when read back through the active pattern. Empty when they differ. */
+export function prefixFromCodes(codes: readonly string[], pattern: string) {
+  if (!codes.length || codePatternError(pattern)) return '';
+  let body = pattern.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace('\\{prefix\\}', '([\\s\\S]*?)');
+  const width = pattern.match(CODE_NUMBER)?.[1];
+  body = width
+    ? body.replace(/\\\{n:0[2-9]\\\}/, `\\d{${width},}`)
+    : body.replace('\\{n\\}', '\\d+');
+  const expression = new RegExp(`^${body}$`);
+  const prefixes = codes.map((code) => expression.exec(code)?.[1]);
+  if (prefixes.some((prefix) => prefix === undefined || prefix !== prefixes[0])) return '';
+  return prefixes[0] || '';
 }
 export function sharedSamplePrefix(codes: readonly string[]) {
   const stems = codes.map((code) => code.replace(/\d+$/, ''));
@@ -50,6 +132,7 @@ export function suggestedSpecimenName(group: { name?: string; state: string }, o
   return `${(group.name?.trim() || group.state).trim()}-${ordinal}`;
 }
 export type SpecimenInput = {
+  code?: string;
   name?: string;
   protocol?: string;
   state?: string;
@@ -103,6 +186,8 @@ export interface Experiment {
   description: string;
   fields: Field[];
   namingPattern: string;
+  /** Absent means prefix plus two digits, the same as {prefix}{n:02}. */
+  sampleCodePattern?: string;
   createdAt: string;
 }
 export interface Group {
@@ -174,6 +259,8 @@ export interface Run {
   filename: string;
   snapshot: {
     group: Group;
+    /** Original sample-group label, separate from the per-specimen name merged into group. */
+    sampleGroupName?: string | null;
     sample: Sample;
     operation: string;
     fields: Field[];
@@ -250,6 +337,7 @@ export type Command =
       code: string;
       description?: string;
       namingPattern?: string;
+      sampleCodePattern?: string;
       fields?: Field[];
     }
   | {
@@ -259,6 +347,7 @@ export type Command =
       description?: string;
       fields?: Field[];
       namingPattern?: string;
+      sampleCodePattern?: string;
     }
   | { type: 'createGroup'; experimentId: string; patch: GroupPatch }
   | {
@@ -385,6 +474,7 @@ export interface DesktopApi {
   previewText(text: string): Promise<Reply<TablePreview>>;
   importTable(request: ImportRequest): Promise<Reply<Snapshot>>;
   exportFile(experimentId: string, format: 'xlsx' | 'csv' | 'json'): Promise<Reply<string | null>>;
+  exportFieldSheet(experimentId: string, format: 'xlsx' | 'pdf'): Promise<Reply<string | null>>;
   addAttachment(runId: string): Promise<Reply<Snapshot | null>>;
   removeAttachment(attachmentId: string): Promise<Reply<Snapshot>>;
   chooseReference(): Promise<Reply<string[]>>;
@@ -556,6 +646,8 @@ export const STATUS_LABEL: Record<Status, string> = {
 };
 export const LEGACY_PATTERN = '{experiment}_{sample}_{run:03}';
 export const DEFAULT_PATTERN = '{experiment}_{sample}';
+/** One measurement folder uses its short specimen code, without an experiment prefix. */
+export const FIELD_PATTERN = '{sample}';
 export const DETAILED_PATTERN = '{experiment}_{material}_{state}_{sample}_{mode}_{regime}_{batch}';
 export function filenameFor(
   pattern: string,

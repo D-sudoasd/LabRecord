@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { filledSize, sampleOverrideLabel, type Snapshot } from '../src/shared/model.js';
+import { CODE_PATTERN_PAD, filledSize, sampleOverrideLabel, type Snapshot } from '../src/shared/model.js';
 import {
   boardActions,
   knownQuantity,
@@ -24,6 +24,15 @@ function itemByCode(snapshot: Snapshot, code: string) {
   return { sample, item };
 }
 
+function keepHistoricalSampleCodes(store: ReturnType<typeof fixture>['store'], experimentId: string) {
+  store.command({
+    type: 'updateExperiment',
+    id: experimentId,
+    namingPattern: '{experiment}_{sample}',
+    sampleCodePattern: CODE_PATTERN_PAD,
+  });
+}
+
 test('known preparation stays numeric until every group in view is unknown', () => {
   assert.equal(knownQuantity(6, 0, 1), '6');
   assert.equal(knownQuantity(6, 1, 2), '6');
@@ -39,6 +48,7 @@ test('library keeps preparation, samples, operations and spare separate', (t) =>
     name: '工作台实验',
     description: '说明里的隐藏词ZZZ',
   }).experimentId!;
+  keepHistoricalSampleCodes(store, experimentId);
   store.command({
     type: 'addSamples',
     experimentId,
@@ -152,6 +162,7 @@ test('next operation brief follows the full order and leaves the running record 
     code: 'NX-1',
     name: '下一件',
   }).experimentId!;
+  keepHistoricalSampleCodes(store, experimentId);
   store.command({
     type: 'addSamples',
     experimentId,
@@ -208,6 +219,7 @@ test('latest recorded run is the most recently ended record', (t) => {
     code: 'LAST-1',
     name: '最近记录',
   }).experimentId!;
+  keepHistoricalSampleCodes(store, experimentId);
   store.command({
     type: 'addSamples',
     experimentId,
@@ -331,6 +343,7 @@ test('group export names sample overrides and does not import them as fields', a
     code: 'OV-1',
     name: '样品差异',
   }).experimentId!;
+  keepHistoricalSampleCodes(store, experimentId);
   store.command({
     type: 'addSamples',
     experimentId,
@@ -409,6 +422,7 @@ test('only the latest ended operation is marked in review data and exports', asy
     code: 'END-1',
     name: '最近结束',
   }).experimentId!;
+  keepHistoricalSampleCodes(store, experimentId);
   store.command({
     type: 'addSamples',
     experimentId,
@@ -493,6 +507,7 @@ test('only the latest ended operation is marked in review data and exports', asy
     code: 'END-3',
     name: '中断标记',
   }).experimentId!;
+  keepHistoricalSampleCodes(store, otherId);
   store.command({
     type: 'addSamples',
     experimentId: otherId,
@@ -524,6 +539,7 @@ test('a running report names the open operation without estimating its duration'
     code: 'RUN-1',
     name: '进行中报告',
   }).experimentId!;
+  keepHistoricalSampleCodes(store, experimentId);
   store.command({
     type: 'addSamples',
     experimentId,

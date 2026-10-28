@@ -26,6 +26,7 @@ import type {
   MeasurementPlan,
 } from '../shared/model';
 import {
+  CODE_PATTERN_HYPHEN,
   groupCounts,
   sampleName,
   sampleOverrideLabel,
@@ -34,15 +35,20 @@ import {
   filledSize,
   MODE_OPTIONS,
   PROTOCOL_PLACEHOLDER,
+  assignSpecimenCodes,
   planSpecimens,
+  prefixFromCodes,
   sharedSamplePrefix,
-  suggestedSpecimenName,
 } from '../shared/model';
 import { reportInsights } from '../shared/summary';
 import { emptySpecimenSize, SpecimenSizeFields, type SpecimenSize } from './specimenSize';
 import { operationStatusReason } from '../shared/history';
 import { operationPlanDrift } from '../shared/planChanges';
-import { operationProtocolLabel } from '../shared/measurement';
+import {
+  operationProtocolLabel,
+  previewSampleCodeChange,
+  validateFieldSampleCodes,
+} from '../shared/measurement';
 import { formatRecordedDuration, recordedDuration, runDurationLabel } from '../shared/duration';
 import { recordedEndLabel, recordedStartLabel } from '../shared/recordedTime';
 import { actualFilenameLabel } from './reviewFilters';
@@ -66,7 +72,8 @@ import {
 } from './components';
 import { ImportDialog } from './importDialog';
 import { QuickAdd } from './QuickAdd';
-import { MeasurementPlanner, MeasurementFields } from './MeasurementPlanner';
+import { MeasurementPlanner, MeasurementFields, MeasurementDialog } from './MeasurementPlanner';
+import { FieldSheetCard } from './FieldSheetCard';
 import { MaterialPreparationFields, MaterialPreparationSummary } from './MaterialPreparation';
 import { MATERIAL_FIELDS, materialSummary } from '../shared/materials';
 import {
@@ -375,7 +382,12 @@ export function ArrangeDialog({
   } | null>(null);
   const cap = Math.min(1000, counts.spare ?? 1000);
   const [count, setCount] = useState('1'),
-    [prefix, setPrefix] = useState('S'),
+    [prefix, setPrefix] = useState(() =>
+      snapshot.experiments.find((entry) => entry.id === group.experimentId)?.sampleCodePattern ===
+      CODE_PATTERN_HYPHEN
+        ? 'G'
+        : 'S',
+    ),
     [rows, setRows] = useState<
       ({
         name: string;
@@ -386,6 +398,8 @@ export function ArrangeDialog({
         stateEdited: boolean;
         notes: string;
         notesEdited: boolean;
+        code: string;
+        codeEdited: boolean;
         sizeEdited: boolean;
       } & SpecimenSize)[]
     >([]),
@@ -403,30 +417,67 @@ export function ArrangeDialog({
     .filter((sample) => sample.experimentId === group.experimentId)
     .map((sample) => sample.code)
     .join('\n');
-  const groupPrefix = sharedSamplePrefix(
-    snapshot.samples.filter((sample) => sample.groupId === group.id).map((sample) => sample.code),
-  );
+  const pattern = snapshot.experiments.find(
+    (entry) => entry.id === group.experimentId,
+  )?.sampleCodePattern;
+  const groupPrefix = pattern
+    ? prefixFromCodes(
+        snapshot.samples
+          .filter((sample) => sample.groupId === group.id)
+          .map((sample) => sample.code),
+        pattern,
+      )
+    : sharedSamplePrefix(
+        snapshot.samples
+          .filter((sample) => sample.groupId === group.id)
+          .map((sample) => sample.code),
+      );
   const offerPrefix = groupPrefix && groupPrefix !== prefix ? groupPrefix : '';
   const numeric = count.trim() === '' ? Number.NaN : Number(count);
   const overCap = Number.isInteger(numeric) && numeric > cap;
   const planned = Number.isInteger(numeric) && numeric >= 1 && numeric <= cap ? numeric : 0;
-  const preview = planSpecimens(
-    existingCodes ? existingCodes.split('\n') : [],
-    planned,
-    prefix,
-    group,
-  );
-  const showProtocol = group.mode !== '未定' || !!group.protocol?.trim();
+  let codeError = '';
+  let preview: { code: string; ordinal: string }[] = [];
+  if (planned) {
+    try {
+      preview = assignSpecimenCodes(
+        existingCodes ? existingCodes.split('\n') : [],
+        planned,
+        prefix,
+        group,
+        pattern,
+        rows.map((row) => ({ code: row?.codeEdited ? row.code : undefined })),
+      );
+      validateFieldSampleCodes(
+        snapshot,
+        group.experimentId,
+        preview.map((row) => row.code),
+      );
+    } catch (failure) {
+      codeError = failure instanceof Error ? failure.message : '样品编号无效。';
+      try {
+        preview = planSpecimens(
+          existingCodes ? existingCodes.split('\n') : [],
+          planned,
+          prefix,
+          group,
+          pattern,
+        );
+      } catch (inner) {
+        codeError = inner instanceof Error ? inner.message : codeError;
+      }
+    }
+  }
   useEffect(() => {
-    setRows((current) =>
-      preview.map((item, index) => {
+    setRows((current) => [
+      ...preview.map((_, index) => {
         const previous = current[index];
-        const size = previous?.sizeEdited ? previous : { ...emptySpecimenSize(group), sizeEdited: false };
+        const size = previous?.sizeEdited
+          ? previous
+          : { ...emptySpecimenSize(group), sizeEdited: false };
         const state = previous?.stateEdited ? previous.state : group.state;
         return {
-          name: previous?.nameEdited
-            ? previous.name
-            : suggestedSpecimenName({ ...group, state: state.trim() || group.state }, item.ordinal),
+          name: previous?.name ?? '',
           nameEdited: previous?.nameEdited ?? false,
           protocol: previous?.protocol ?? '',
           protocolEdited: previous?.protocolEdited ?? false,
@@ -434,6 +485,8 @@ export function ArrangeDialog({
           stateEdited: previous?.stateEdited ?? false,
           notes: previous?.notesEdited ? previous.notes : '',
           notesEdited: previous?.notesEdited ?? false,
+          code: previous?.codeEdited ? previous.code : '',
+          codeEdited: previous?.codeEdited ?? false,
           thickness: size.thickness,
           thicknessUnit: size.thicknessUnit,
           width: size.width,
@@ -442,8 +495,18 @@ export function ArrangeDialog({
           sizeEdited: size.sizeEdited,
         };
       }),
-    );
-  }, [planned, prefix, group.name, group.state, group.thicknessUnit, group.dimensionUnit, existingCodes]);
+      ...current.slice(preview.length),
+    ]);
+  }, [
+    planned,
+    prefix,
+    pattern,
+    group.name,
+    group.state,
+    group.thicknessUnit,
+    group.dimensionUnit,
+    existingCodes,
+  ]);
   function fillNames() {
     const lines = paste
       .split(/\r?\n/)
@@ -457,21 +520,26 @@ export function ArrangeDialog({
       next,
       prefix,
       group,
+      pattern,
     );
     setCount(String(next));
-    setRows(
-      assigned.map((item, index) => {
-        const size = rows[index]?.sizeEdited ? rows[index] : { ...emptySpecimenSize(group), sizeEdited: false };
-        const state = rows[index]?.stateEdited ? rows[index].state : group.state;
+    setRows((current) => [
+      ...assigned.map((_, index) => {
+        const size = current[index]?.sizeEdited
+          ? current[index]
+          : { ...emptySpecimenSize(group), sizeEdited: false };
+        const state = current[index]?.stateEdited ? current[index].state : group.state;
         return {
-          name: lines[index] ?? suggestedSpecimenName({ ...group, state: state.trim() || group.state }, item.ordinal),
-          nameEdited: lines[index] !== undefined,
-          protocol: rows[index]?.protocol ?? '',
-          protocolEdited: rows[index]?.protocolEdited ?? false,
+          name: lines[index] ?? current[index]?.name ?? '',
+          nameEdited: lines[index] !== undefined || (current[index]?.nameEdited ?? false),
+          protocol: current[index]?.protocol ?? '',
+          protocolEdited: current[index]?.protocolEdited ?? false,
           state,
-          stateEdited: rows[index]?.stateEdited ?? false,
-          notes: rows[index]?.notesEdited ? rows[index].notes : '',
-          notesEdited: rows[index]?.notesEdited ?? false,
+          stateEdited: current[index]?.stateEdited ?? false,
+          notes: current[index]?.notesEdited ? current[index].notes : '',
+          notesEdited: current[index]?.notesEdited ?? false,
+          code: current[index]?.codeEdited ? current[index].code : '',
+          codeEdited: current[index]?.codeEdited ?? false,
           thickness: size.thickness,
           thicknessUnit: size.thicknessUnit,
           width: size.width,
@@ -480,11 +548,12 @@ export function ArrangeDialog({
           sizeEdited: size.sizeEdited,
         };
       }),
-    );
+      ...current.slice(assigned.length),
+    ]);
     setPasteNote(skipped > 0 ? `${skipped} 行超出还能安排的数量，没有写入。` : '');
   }
   async function submit() {
-    if (submitting.current || closing || planned < 1 || rows.length !== planned) return;
+    if (submitting.current || closing || planned < 1 || rows.length < planned || codeError) return;
     submitting.current = true;
     setBusy(true);
     try {
@@ -494,7 +563,7 @@ export function ArrangeDialog({
           groupId: group.id,
           count: planned,
           prefix,
-          specimens: rows.map((row) => ({
+          specimens: rows.slice(0, planned).map((row) => ({
             name: row.name,
             protocol: row.protocol,
             state: row.state,
@@ -504,6 +573,7 @@ export function ArrangeDialog({
             width: row.width,
             height: row.height,
             dimensionUnit: row.dimensionUnit,
+            ...(row.code.trim() ? { code: row.code.trim() } : {}),
           })),
           measurement,
         },
@@ -581,22 +651,46 @@ export function ArrangeDialog({
             </button>
           )}
           <p className="hint">
-            编号按安排顺序接着编，下一组也顺着来。每一件的名字可以改，清空后显示编号。重测仍用这件的编号。
+            编号按安排顺序接着编，下一组也顺着来。每一件的原始编号或名称可按实际填写，留空则保留空值。重测仍用这件的编号。
             每一件单独写样品状态和备注。状态留空则记下本组现在的状态。备注留空则沿用样品组。
             每一件单独写尺寸。留空表示这一件还没量，不会套用别人的尺寸。
+            某一件要换成别的编号，填写自定编号；留空则按当前样式接着编。
           </p>
+          {codeError && (
+            <p id="arrange-code-error" role="alert" className="error-text">
+              {codeError}
+            </p>
+          )}
           {preview.length > 0 && (
             <ol className="specimen-plan">
               {preview.map((item, index) => {
                 const row = rows[index];
                 return (
-                  <li key={item.code}>
+                  <li key={index}>
                     <code>{item.code}</code>
+                    <label className="field">
+                      <span>{preview[index]?.code || item.code} 自定编号</span>
+                      <input
+                        aria-label={`${preview[index]?.code || item.code} 自定编号`}
+                        value={row?.code ?? ''}
+                        placeholder="留空则使用当前编号"
+                        onChange={(event) =>
+                          setRows((current) =>
+                            current.map((entry, entryIndex) =>
+                              entryIndex === index
+                                ? { ...entry, code: event.target.value, codeEdited: true }
+                                : entry,
+                            ),
+                          )
+                        }
+                      />
+                    </label>
                     <label className="field">
                       <span>{item.code} 样品名</span>
                       <input
                         aria-label={`${item.code} 样品名`}
                         value={row?.name ?? ''}
+                        placeholder="原始编号或名称，可留空"
                         onChange={(event) =>
                           setRows((current) =>
                             current.map((entry, entryIndex) =>
@@ -625,23 +719,26 @@ export function ArrangeDialog({
                         }
                       />
                     </label>
-                    {!!row?.stateEdited && rows.slice(index + 1).some((entry) => !entry.stateEdited) && (
-                      <button
-                        type="button"
-                        className="text-button"
-                        onClick={() =>
-                          setRows((current) =>
-                            current.map((entry, entryIndex) =>
-                              entryIndex > index && !entry.stateEdited
-                                ? { ...entry, state: row.state, stateEdited: true }
-                                : entry,
-                            ),
-                          )
-                        }
-                      >
-                        后面也用这个状态
-                      </button>
-                    )}
+                    {!!row?.stateEdited &&
+                      rows.slice(index + 1, preview.length).some((entry) => !entry.stateEdited) && (
+                        <button
+                          type="button"
+                          className="text-button"
+                          onClick={() =>
+                            setRows((current) =>
+                              current.map((entry, entryIndex) =>
+                                entryIndex > index &&
+                                entryIndex < preview.length &&
+                                !entry.stateEdited
+                                  ? { ...entry, state: row.state, stateEdited: true }
+                                  : entry,
+                              ),
+                            )
+                          }
+                        >
+                          后面也用这个状态
+                        </button>
+                      )}
                     <label className="field">
                       <span>{item.code} 备注</span>
                       <textarea
@@ -662,14 +759,16 @@ export function ArrangeDialog({
                     </label>
                     {!!row?.notes.trim() &&
                       !!row.notesEdited &&
-                      rows.slice(index + 1).some((entry) => !entry.notesEdited) && (
+                      rows.slice(index + 1, preview.length).some((entry) => !entry.notesEdited) && (
                         <button
                           type="button"
                           className="text-button"
                           onClick={() =>
                             setRows((current) =>
                               current.map((entry, entryIndex) =>
-                                entryIndex > index && !entry.notesEdited
+                                entryIndex > index &&
+                                entryIndex < preview.length &&
+                                !entry.notesEdited
                                   ? { ...entry, notes: row.notes, notesEdited: true }
                                   : entry,
                               ),
@@ -679,40 +778,41 @@ export function ArrangeDialog({
                           后面也用这个备注
                         </button>
                       )}
-                    {showProtocol && (
-                      <label className="field">
-                        <span>{item.code} 实验制度</span>
-                        <textarea
-                          aria-label={`${item.code} 实验制度`}
-                          rows={2}
-                          value={row?.protocol ?? ''}
-                          placeholder={group.protocol?.trim() || '留空则沿用样品组'}
-                          onChange={(event) =>
-                            setRows((current) =>
-                              current.map((entry, entryIndex) =>
-                                entryIndex === index
-                                  ? {
-                                      ...entry,
-                                      protocol: event.target.value,
-                                      protocolEdited: true,
-                                    }
-                                  : entry,
-                              ),
-                            )
-                          }
-                        />
-                      </label>
-                    )}
-                    {showProtocol &&
-                      !!row?.protocol.trim() &&
-                      rows.slice(index + 1).some((entry) => !entry.protocolEdited) && (
+                    <label className="field">
+                      <span>{item.code} 实验制度</span>
+                      <textarea
+                        aria-label={`${item.code} 实验制度`}
+                        rows={2}
+                        value={row?.protocol ?? ''}
+                        placeholder={group.protocol?.trim() || '留空则沿用样品组'}
+                        onChange={(event) =>
+                          setRows((current) =>
+                            current.map((entry, entryIndex) =>
+                              entryIndex === index
+                                ? {
+                                    ...entry,
+                                    protocol: event.target.value,
+                                    protocolEdited: true,
+                                  }
+                                : entry,
+                            ),
+                          )
+                        }
+                      />
+                    </label>
+                    {!!row?.protocol.trim() &&
+                      rows
+                        .slice(index + 1, preview.length)
+                        .some((entry) => !entry.protocolEdited) && (
                         <button
                           type="button"
                           className="text-button"
                           onClick={() =>
                             setRows((current) =>
                               current.map((entry, entryIndex) =>
-                                entryIndex > index && !entry.protocolEdited
+                                entryIndex > index &&
+                                entryIndex < preview.length &&
+                                !entry.protocolEdited
                                   ? { ...entry, protocol: row.protocol, protocolEdited: true }
                                   : entry,
                               ),
@@ -729,37 +829,42 @@ export function ArrangeDialog({
                         onChange={(next) =>
                           setRows((current) =>
                             current.map((entry, entryIndex) =>
-                              entryIndex === index ? { ...entry, ...next, sizeEdited: true } : entry,
+                              entryIndex === index
+                                ? { ...entry, ...next, sizeEdited: true }
+                                : entry,
                             ),
                           )
                         }
                       />
                     )}
-                    {row?.sizeEdited && rows.slice(index + 1).some((entry) => !entry.sizeEdited) && (
-                      <button
-                        type="button"
-                        className="text-button"
-                        onClick={() =>
-                          setRows((current) =>
-                            current.map((entry, entryIndex) =>
-                              entryIndex > index && !entry.sizeEdited
-                                ? {
-                                    ...entry,
-                                    thickness: row.thickness,
-                                    thicknessUnit: row.thicknessUnit,
-                                    width: row.width,
-                                    height: row.height,
-                                    dimensionUnit: row.dimensionUnit,
-                                    sizeEdited: true,
-                                  }
-                                : entry,
-                            ),
-                          )
-                        }
-                      >
-                        后面也用这个尺寸
-                      </button>
-                    )}
+                    {row?.sizeEdited &&
+                      rows.slice(index + 1, preview.length).some((entry) => !entry.sizeEdited) && (
+                        <button
+                          type="button"
+                          className="text-button"
+                          onClick={() =>
+                            setRows((current) =>
+                              current.map((entry, entryIndex) =>
+                                entryIndex > index &&
+                                entryIndex < preview.length &&
+                                !entry.sizeEdited
+                                  ? {
+                                      ...entry,
+                                      thickness: row.thickness,
+                                      thicknessUnit: row.thicknessUnit,
+                                      width: row.width,
+                                      height: row.height,
+                                      dimensionUnit: row.dimensionUnit,
+                                      sizeEdited: true,
+                                    }
+                                  : entry,
+                              ),
+                            )
+                          }
+                        >
+                          后面也用这个尺寸
+                        </button>
+                      )}
                   </li>
                 );
               })}
@@ -784,11 +889,9 @@ export function ArrangeDialog({
             </p>
           )}
           {pasteNote && <p className="hint">{pasteNote}</p>}
-          {showProtocol && (
-            <p className="hint">
-              制度留空，或写成和样品组一样，都表示沿用样品组。不同的工艺写在对应的那一件上。
-            </p>
-          )}
+          <p className="hint">
+            制度留空，或写成和样品组一样，都表示沿用样品组。不同的工艺写在对应的那一件上。
+          </p>
         </fieldset>
         {error && (
           <p role="alert" className="error-text">
@@ -803,7 +906,8 @@ export function ArrangeDialog({
           <button
             type="button"
             className="button primary"
-            disabled={busy || closing || planned < 1}
+            disabled={busy || closing || planned < 1 || !!codeError}
+            aria-describedby={codeError ? 'arrange-code-error' : undefined}
             onClick={() => {
               void submit();
             }}
@@ -836,6 +940,18 @@ function SampleEditor({ sample, onClose }: { sample: Sample; onClose: () => void
   const [values, setValues] = useState({ ...group.values, ...sample.values }),
     [error, setError] = useState(''),
     [busy, setBusy] = useState(false);
+  const shortNameRule = experiment.namingPattern === '{sample}';
+  const hasStartedMeasurement = snapshot.runs.some((run) => run.sampleId === sample.id);
+  const motherCodeLocked = shortNameRule && hasStartedMeasurement;
+  let codePreview: ReturnType<typeof previewSampleCodeChange> = [];
+  let codePreviewError = '';
+  if (code.trim() && code.trim() !== sample.code && !motherCodeLocked) {
+    try {
+      codePreview = previewSampleCodeChange(snapshot, sample.id, code);
+    } catch (failure) {
+      codePreviewError = failure instanceof Error ? failure.message : '无法预览编号变化。';
+    }
+  }
   async function submit(event: React.FormEvent) {
     event.preventDefault();
     setBusy(true);
@@ -843,7 +959,7 @@ function SampleEditor({ sample, onClose }: { sample: Sample; onClose: () => void
       await execute({
         type: 'updateSamples',
         ids: [sample.id],
-        code,
+        ...(!motherCodeLocked ? { code } : {}),
         parameters: {
           name: name.trim(),
           state: state.trim() || group.state,
@@ -873,12 +989,12 @@ function SampleEditor({ sample, onClose }: { sample: Sample; onClose: () => void
   return (
     <Modal title="具体样品参数" onClose={onClose}>
       <form onSubmit={submit} className="form-stack">
-        <label className="field">
-          <span>这一件的样品名</span>
+        <label className="field sample-name-input">
+          <span>原始编号或名称</span>
           <input
             value={name}
             onChange={(event) => setName(event.target.value)}
-            placeholder={`不填则显示编号 ${sample.code}`}
+            placeholder="例如原表中的样品号；可留空"
           />
         </label>
         <label className="field">
@@ -915,8 +1031,34 @@ function SampleEditor({ sample, onClose }: { sample: Sample; onClose: () => void
           }}
         />
         <label className="field">
-          <span>样品编号 *</span>
-          <input required value={code} onChange={(event) => setCode(event.target.value)} />
+          <span>{shortNameRule ? '实物样品母码 *' : '样品编号 *'}</span>
+          <input
+            required
+            aria-label={shortNameRule ? '实物样品母码' : '样品编号'}
+            value={code}
+            readOnly={motherCodeLocked}
+            onChange={(event) => setCode(event.target.value)}
+          />
+          {motherCodeLocked ? (
+            <small>这件样品已有开始记录的测量，母码已固定；本窗口仍可修改其他样品信息。</small>
+          ) : codePreviewError ? (
+            <p className="error-text" role="alert">
+              {codePreviewError}
+            </p>
+          ) : codePreview.length > 0 ? (
+            <div className="sample-code-preview" aria-label="受影响的文件夹名预览">
+              <strong>保存后会更新这些尚未开始的测量文件夹名</strong>
+              <ul>
+                {codePreview.map((change) => (
+                  <li key={change.itemId}>
+                    <code>{change.oldName || '尚未预留'}</code>
+                    <span aria-hidden="true"> → </span>
+                    <code>{change.newName || '尚未预留'}</code>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
         </label>
         <div className="form-grid">
           <label className="field">
@@ -1024,6 +1166,7 @@ export function Plan() {
   const [editing, setEditing] = useState<Group | 'new' | 'bulk' | null>(null),
     [arranging, setArranging] = useState<Group | null>(null),
     [sample, setSample] = useState<Sample | null>(null);
+  const [fieldMeasurementItem, setFieldMeasurementItem] = useState<string | null>(null);
   const [paste, setPaste] = useState(false),
     [text, setText] = useState(''),
     [preview, setPreview] = useState<TablePreview | null>(null);
@@ -1067,12 +1210,55 @@ export function Plan() {
     next.has(id) ? next.delete(id) : next.add(id);
     set(next);
   }
+  function editFieldSheetSample(sampleId: string) {
+    void workspace
+      .flush()
+      .then(() => {
+        const current = workspace.getSnapshot().samples.find((entry) => entry.id === sampleId);
+        if (!current) throw new Error('样品计划已变化，请刷新后重试。');
+        setSample(current);
+      })
+      .catch((failure) =>
+        notify(failure instanceof Error ? failure.message : '无法打开样品编辑。', true),
+      );
+  }
+  function editFieldSheetMeasurement(itemId: string) {
+    void workspace
+      .flush()
+      .then(() => {
+        const current = workspace.getSnapshot().items.find((entry) => entry.id === itemId);
+        if (!current) throw new Error('测量计划已变化，请刷新后重试。');
+        if (
+          current.status === 'running' ||
+          current.status === 'completed' ||
+          current.status === 'interrupted'
+        )
+          throw new Error('这项测量已有记录，不能修改开始时计划。');
+        setFieldMeasurementItem(current.id);
+      })
+      .catch((failure) =>
+        notify(failure instanceof Error ? failure.message : '无法打开测量编辑。', true),
+      );
+  }
+  function viewFieldSheetOperation(itemId: string, status: string) {
+    void workspace
+      .flush()
+      .then(() => {
+        const current = workspace.getSnapshot().items.find((entry) => entry.id === itemId);
+        if (!current) throw new Error('测量计划已变化，请刷新后重试。');
+        setItemId(current.id);
+        setPage(status === 'running' ? 'live' : 'review');
+      })
+      .catch((failure) =>
+        notify(failure instanceof Error ? failure.message : '无法打开测量记录。', true),
+      );
+  }
   return (
     <div className="page plan-page">
       <div className="page-heading">
         <div>
           <h1>实验规划</h1>
-          <p>安排样品组，并把要测的样品放进队列。</p>
+          <p>填写样品和测量条件，核对后打印带到现场。</p>
         </div>
         <button
           className="button"
@@ -1086,6 +1272,13 @@ export function Plan() {
           进入现场记录 <ArrowRight size={17} />
         </button>
       </div>
+      <FieldSheetCard
+        onAddSample={() => setQuickAdd(true)}
+        addSampleButtonRef={quickAddTrigger}
+        onEditSample={editFieldSheetSample}
+        onEditMeasurement={editFieldSheetMeasurement}
+        onViewOperation={viewFieldSheetOperation}
+      />
       <div className="stats-row plan-stats">
         <div className="stat">
           <Layers size={20} />
@@ -1423,14 +1616,6 @@ export function Plan() {
               <ClipboardPaste size={16} />
               粘贴多行
             </button>
-            <button
-              ref={quickAddTrigger}
-              className="button primary"
-              onClick={() => setQuickAdd(true)}
-            >
-              <Plus size={17} />
-              新增样品
-            </button>
           </div>
         </div>
         {selected.size > 0 && (
@@ -1463,12 +1648,10 @@ export function Plan() {
           </div>
         )}
         {groups.length === 0 ? (
-          <Empty title="添加第一份实验样品" description="填写样品统称，或导入已有表格。">
-            <button className="button primary" onClick={() => setQuickAdd(true)}>
-              <Plus size={16} />
-              新增样品
-            </button>
-          </Empty>
+          <Empty
+            title="添加第一份实验样品"
+            description="使用上方现场规划表中的“新增样品”按钮，或导入已有表格。"
+          />
         ) : (
           <div className="table-wrap">
             <table className="plan-table">
@@ -1591,6 +1774,12 @@ export function Plan() {
       )}
       {arranging && <ArrangeDialog group={arranging} onClose={() => setArranging(null)} />}
       {sample && <SampleEditor sample={sample} onClose={() => setSample(null)} />}
+      {fieldMeasurementItem && (
+        <MeasurementDialog
+          items={workspace.getSnapshot().items.filter((entry) => entry.id === fieldMeasurementItem)}
+          onClose={() => setFieldMeasurementItem(null)}
+        />
+      )}
       {paste && (
         <Modal title="从 Excel / 飞书粘贴多行" onClose={() => setPaste(false)} wide>
           <div className="form-stack">

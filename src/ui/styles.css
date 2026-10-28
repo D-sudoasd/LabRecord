@@ -893,6 +893,12 @@ a {
   font-size: 12px;
   font-weight: 650;
 }
+.specimen-identity-field {
+  max-width: 560px;
+}
+.specimen-identity-hint {
+  margin-top: 8px;
+}
 .specimen-plan textarea {
   width: 100%;
   min-height: 2.6em;
@@ -901,6 +907,228 @@ a {
   flex: 1;
   color: var(--muted);
   font-size: 11px;
+}
+.sample-code-preview {
+  background: var(--tint);
+  border-left: 3px solid var(--primary);
+  border-radius: 0 var(--radius-control) var(--radius-control) 0;
+  margin-top: 8px;
+  padding: 9px 11px;
+}
+.sample-code-preview > strong {
+  color: var(--ink);
+  font-size: 12px;
+}
+.sample-code-preview ul {
+  display: grid;
+  gap: 5px;
+  list-style: none;
+  margin: 7px 0 0;
+  max-height: 180px;
+  overflow: auto;
+  padding: 0;
+}
+.sample-code-preview li {
+  color: var(--muted);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.sample-code-preview code {
+  color: var(--ink);
+}
+.field-sheet-card {
+  margin-top: 16px;
+  max-width: none;
+}
+.field-sheet-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+.field-sheet-card h2 {
+  font-size: 18px;
+  font-weight: 650;
+  margin: 0;
+}
+.field-sheet-heading .hint {
+  margin: 5px 0 0;
+}
+.field-sheet-primary-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 12px 0;
+}
+.field-sheet-export-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.field-sheet-numbering {
+  margin-top: 10px;
+}
+.field-sheet-numbering > summary {
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 12px;
+  width: fit-content;
+}
+.field-sheet-numbering-body {
+  margin-top: 8px;
+}
+.field-sheet-custom {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  align-items: end;
+  margin-top: 8px;
+}
+.field-sheet-custom .field {
+  flex: 1 1 220px;
+}
+.field-sheet {
+  width: 100%;
+  min-width: 740px;
+  border-collapse: collapse;
+  margin-top: 12px;
+  table-layout: fixed;
+}
+.field-sheet-table-wrap {
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scroll-padding-left: max(111px, 15%);
+  container-type: inline-size;
+}
+.field-sheet th,
+.field-sheet td {
+  border: 1px solid #d5e2db;
+  padding: 8px 10px;
+  vertical-align: top;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+  text-align: left;
+}
+.field-sheet th {
+  background: #176b62;
+  color: white;
+  font-weight: 650;
+}
+.field-sheet th:first-child,
+.field-sheet td:first-child:not([colspan]) {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  box-shadow: 1px 0 #d5e2db;
+}
+.field-sheet th:first-child {
+  z-index: 2;
+}
+.field-sheet td:first-child:not([colspan]) {
+  background: var(--surface);
+}
+.field-sheet td:first-child {
+  font-weight: 650;
+  width: 15%;
+}
+.field-sheet th:nth-child(1) {
+  width: 15%;
+}
+.field-sheet th:nth-child(2) {
+  width: 19%;
+}
+.field-sheet th:nth-child(3) {
+  width: 31%;
+}
+.field-sheet th:nth-child(4) {
+  width: 35%;
+}
+@container (max-width: 370px) {
+  .field-sheet th:nth-child(1) {
+    width: 10%;
+  }
+  .field-sheet th:nth-child(2) {
+    width: 20%;
+  }
+  .field-sheet th:nth-child(3) {
+    width: 45%;
+  }
+  .field-sheet th:nth-child(4) {
+    width: 25%;
+  }
+  .field-sheet th:first-child,
+  .field-sheet td:first-child:not([colspan]) {
+    padding-left: 6px;
+    padding-right: 6px;
+  }
+}
+@container (max-width: 260px) {
+  .field-sheet th:nth-child(3) {
+    width: 50%;
+  }
+  .field-sheet th:nth-child(4) {
+    width: 20%;
+  }
+}
+.field-sheet td:first-child code {
+  display: inline-block;
+  overflow-wrap: anywhere;
+}
+.field-sheet-text {
+  min-width: 0;
+}
+.field-sheet-text-content {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.field-sheet-text-content-collapsed {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 6;
+  line-clamp: 6;
+}
+.field-sheet-row-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  margin-top: 8px;
+}
+.field-sheet-row-actions .text-button {
+  font-size: 11px;
+  padding: 0;
+}
+.field-sheet-expand {
+  display: inline-block;
+  font-size: 11px;
+  margin-top: 5px;
+  padding: 0;
+  text-align: left;
+}
+.field-sheet-status {
+  background: var(--tint);
+  border-radius: 999px;
+  color: var(--primary);
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 650;
+  margin-bottom: 6px;
+  padding: 2px 8px;
+}
+@media (max-width: 680px) {
+  .field-sheet-heading {
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .field-sheet-primary-actions {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+  .field-sheet-export-actions {
+    width: 100%;
+  }
 }
 .planning-tip {
   display: flex;

@@ -10,6 +10,7 @@ const api: DesktopApi = {
   previewText: (text) => call('preview-text', text),
   importTable: (request) => call('import-table', request),
   exportFile: (experimentId, format) => call('export-file', experimentId, format),
+  exportFieldSheet: (experimentId, format) => call('export-field-sheet', experimentId, format),
   addAttachment: (runId) => call('attachment', runId),
   removeAttachment: (attachmentId) => call('remove-attachment', attachmentId),
   chooseReference: () => call('reference'),

@@ -50,6 +50,7 @@ import {
 import {
   DEFAULT_PATTERN,
   DETAILED_PATTERN,
+  FIELD_PATTERN,
   filenameFor,
   type Field,
   type DesktopInfo,
@@ -111,7 +112,13 @@ function NewExperiment({ onClose }: { onClose: () => void }) {
           name,
           code,
           description,
-          ...(source ? { fields: source.fields, namingPattern: source.namingPattern } : {}),
+          ...(source
+            ? {
+                fields: source.fields,
+                namingPattern: source.namingPattern,
+                sampleCodePattern: source.sampleCodePattern ?? '',
+              }
+            : {}),
         },
         requestId: crypto.randomUUID(),
       };
@@ -193,7 +200,7 @@ function NewExperiment({ onClose }: { onClose: () => void }) {
               <small>
                 {reuseId
                   ? '沿用所选实验的文件夹写法和自定义字段。新实验的样品与记录单独建立。'
-                  : '使用默认文件夹：实验编号加样品编号。不带自定义字段。'}
+                  : '默认用简写编号命名文件夹：G-1；同一件样品追加测量时为 G-1-2。不带自定义字段。'}
               </small>
             </label>
           )}
@@ -227,7 +234,12 @@ function SettingsDialog({
   const experiment = snapshot.experiments.find((e) => e.id === experimentId);
   const historicalPatterns = new Map<string, string>();
   for (const entry of snapshot.experiments)
-    historicalPatterns.set(entry.namingPattern, `${entry.code} · ${entry.namingPattern}`);
+    historicalPatterns.set(
+      entry.namingPattern,
+      entry.namingPattern === FIELD_PATTERN
+        ? `${entry.code} · 简写编号文件夹`
+        : `${entry.code} · ${entry.namingPattern}`,
+    );
   for (const event of snapshot.events) {
     if (typeof event.data.namingPattern !== 'string') continue;
     for (const rule of [event.data.previous, event.data.namingPattern])
@@ -253,14 +265,20 @@ function SettingsDialog({
   }, []);
   let preview: string;
   try {
-    preview = filenameFor(pattern, experiment?.code || 'EXP', 'S01', 1, {
-      material: 'Ti2448',
-      state: '400C-aged',
-      mode: 'IS',
-      technique: 'SXRD',
-      regime: 'cyclic',
-      batch: 'B01',
-    });
+    preview = filenameFor(
+      pattern,
+      experiment?.code || 'EXP',
+      pattern === FIELD_PATTERN ? 'G-1' : 'S01',
+      1,
+      {
+        material: 'Ti2448',
+        state: '400C-aged',
+        mode: 'IS',
+        technique: 'SXRD',
+        regime: 'cyclic',
+        batch: 'B01',
+      },
+    );
   } catch (failure) {
     preview = (failure as Error).message;
   }
@@ -403,16 +421,25 @@ function SettingsDialog({
             </div>
             {preview.startsWith('命名规则') || preview.startsWith('数据文件夹名称') ? null : (
               <p className="hint">
-                {pattern === DEFAULT_PATTERN
-                  ? '实验编号加样品编号。同一件样品再测一次，末尾加 _02。已经开始的记录保持原名。'
-                  : pattern === experiment?.namingPattern
-                    ? '这是以前保存的写法。尚未开始的名称会跟着更新，已经开始的记录保持原名。'
-                    : '保存后才会更新尚未开始的名称。已经开始的记录保持原名。'}
+                {pattern === FIELD_PATTERN
+                  ? '简写编号就是数据文件夹名。同一件实物后续测量为 G-1-2、G-1-3。此规则只用于之后新安排或尚未预留名称的测量；已预留名称保持不变。'
+                  : pattern === DEFAULT_PATTERN
+                    ? '实验编号加样品编号。同一件样品再测一次，末尾加 _02。此规则只用于之后新安排或尚未预留名称的测量；已预留名称保持不变。'
+                    : pattern === experiment?.namingPattern
+                      ? '这是以前保存的写法。此规则只用于之后新安排或尚未预留名称的测量；已预留名称保持不变。'
+                      : '保存后，新规则只用于之后新安排或尚未预留名称的测量；已预留名称保持不变。'}
               </p>
             )}
             <details className="folder-rule">
               <summary>其他写法</summary>
               <div className="measurement-toolbar">
+                <button
+                  type="button"
+                  className="button small"
+                  onClick={() => setPattern(FIELD_PATTERN)}
+                >
+                  简写编号（G-1）
+                </button>
                 <button
                   type="button"
                   className="button small"
@@ -812,9 +839,7 @@ export function App() {
               aria-label={label}
               aria-current={page === id ? 'page' : undefined}
               aria-keyshortcuts={`Control+${index + 1}`}
-              title={
-                experiment ? `${label} · Ctrl + ${index + 1}` : '先从开始页打开或新建一个实验'
-              }
+              title={experiment ? `${label} · Ctrl + ${index + 1}` : '先从开始页打开或新建一个实验'}
               onClick={() => navigate(() => setPage(id))}
             >
               <Icon size={21} />

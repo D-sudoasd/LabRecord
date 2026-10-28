@@ -120,14 +120,14 @@ test('workspace running banner returns across experiments only after saving the 
 
 test('queue status counts and clear filters preserve the full next-item order', async ({}, info) => {
   const upcoming = page.getByRole('region', { name: '下一项待测' });
-  await expect(upcoming).toContainText('TA-01');
+  await expect(upcoming.locator('span').first()).toContainText('TA-01');
   await expect(upcoming).toContainText('原位');
   await expect(upcoming).toContainText('0.8 mm');
   await expect(upcoming).toContainText('375');
-  await expect(upcoming).toContainText('DEMO-1_TA-01');
+  await expect(upcoming).toContainText('TA-01');
   await expect(upcoming).not.toContainText('核对装样方向');
   await upcoming.getByRole('button', { name: '复制下一项文件夹 TA-01', exact: true }).click();
-  expect(await application.evaluate(({ clipboard }) => clipboard.readText())).toBe('DEMO-1_TA-01');
+  expect(await application.evaluate(({ clipboard }) => clipboard.readText())).toBe('TA-01');
   await expect(page.locator('.plan-page')).toBeVisible();
   expect((await snapshot()).runs).toHaveLength(0);
   await page.getByRole('button', { name: '全库搜索', exact: true }).click();
@@ -135,7 +135,7 @@ test('queue status counts and clear filters preserve the full next-item order', 
     .getByRole('dialog', { name: '全库搜索' })
     .getByRole('option', { name: '查看下一项 TA-01', exact: true });
   await expect(libraryNext).toContainText('0.8 mm');
-  await expect(libraryNext).toContainText('DEMO-1_TA-01');
+  await expect(libraryNext).toContainText('TA-01');
   await expect(libraryNext).not.toContainText('核对装样方向');
   await libraryNext.click();
   await expect(page.getByRole('heading', { level: 1 })).toContainText('TA-01');
@@ -327,7 +327,7 @@ test('review gaps distinguish planned names from actual references and remain us
   await filters.getByRole('button', { name: '文件关联未补充，2次' }).click();
   await expect(rows).toHaveCount(2);
   await expect(rows.first().locator('td').nth(4)).toContainText('未关联');
-  await expect(rows.first().locator('td').first()).toContainText('DEMO-1');
+  await expect(rows.first().locator('td').first()).toContainText(initial.items[0].plannedName!);
   await filters.getByRole('button', { name: '时间不完整，1次' }).click();
   await expect(rows).toHaveCount(1);
   await expect(rows).toContainText('TA-02');
@@ -397,11 +397,11 @@ test('experiment library and next pending open the field without starting a run'
   await page.getByRole('button', { name: '开始操作', exact: true }).click();
   await expect(page.getByRole('button', { name: '完成并切换下一项' })).toBeVisible();
   const upcoming = page.getByRole('region', { name: '现场下一项' });
-  await expect(upcoming).toContainText('TA-02');
+  await expect(upcoming.locator('span').last()).toHaveText('TA-02');
   await expect(upcoming).toContainText('原位');
   await expect(upcoming).toContainText('0.8 mm');
   await expect(upcoming).toContainText('375');
-  await expect(upcoming).toContainText('DEMO-1_TA-02');
+  await expect(upcoming).toContainText('TA-02');
   await expect(upcoming).not.toContainText('核对装样方向');
   expect((await snapshot()).runs).toHaveLength(1);
   await page.getByRole('button', { name: '待核对', exact: true }).click();

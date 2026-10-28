@@ -44,7 +44,7 @@ test('quick addition atomically creates named samples and queue; dimensions reta
   assert.equal(snapshot.samples.length, 4);
   assert.deepEqual(
     snapshot.samples.map((s) => s.code),
-    ['S01', 'S02', 'S03', 'S04'],
+    ['S-1', 'S-2', 'S-3', 'S-4'],
   );
   assert.equal(groupCounts(snapshot, snapshot.groups[0]).spare, 2);
   assert.throws(() => store.command({ ...input, count: 7 }), /准备/);
@@ -170,6 +170,8 @@ test('report bundle includes escaped HTML, full JSON, optional dimensions, origi
     type: 'createExperiment',
     code: 'X004',
     name: '合金实验 <script>',
+    namingPattern: '{experiment}_{sample}',
+    sampleCodePattern: '',
   }).experimentId!;
   const itemId = store.command({
     type: 'addSamples',

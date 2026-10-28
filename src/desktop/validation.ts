@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import type { Command, GroupPatch } from '../shared/model.js';
+import { codePatternError, type Command, type GroupPatch } from '../shared/model.js';
 const text = z.string().max(50000);
 const id = z.string().min(1).max(200);
 const values = z.record(z.string().max(200), z.union([text, z.number().finite(), z.null()]));
@@ -13,8 +13,22 @@ export const measurementSchema = z
     customName: z.string().max(200).optional(),
   })
   .strict();
+const specimenCode = z
+  .string()
+  .trim()
+  .min(1)
+  .max(300)
+  .refine((value) => !/[\u0000-\u001f]/.test(value), '样品编号不能包含控制字符。');
+const sampleCodePattern = z
+  .string()
+  .max(80)
+  .refine(
+    (value) => value.trim() === '' || codePatternError(value.trim()) === '',
+    '编号样式需要恰好一个 {prefix}，以及一个 {n} 或 {n:02} 到 {n:09}。',
+  );
 const specimenInput = z
   .object({
+    code: specimenCode.optional(),
     name: z.string().max(300).optional(),
     protocol: text.optional(),
     state: z.string().max(300).optional(),
@@ -87,6 +101,7 @@ const schemas: Record<string, z.ZodType> = {
       code: z.string().trim().min(1).max(80),
       description: text.optional(),
       namingPattern: z.string().max(240).optional(),
+      sampleCodePattern: sampleCodePattern.optional(),
       fields: z.array(fieldSchema).max(50).optional(),
     })
     .strict(),
@@ -98,6 +113,7 @@ const schemas: Record<string, z.ZodType> = {
       description: text.optional(),
       fields: z.array(fieldSchema).max(50).optional(),
       namingPattern: z.string().max(240).optional(),
+      sampleCodePattern: sampleCodePattern.optional(),
     })
     .strict(),
   createGroup: z.object({ type: z.literal('createGroup'), experimentId: id, patch }).strict(),
@@ -166,9 +182,7 @@ const schemas: Record<string, z.ZodType> = {
     .strict(),
   start: itemCommand('start'),
   finish: itemCommand('finish'),
-  interrupt: z
-    .object({ type: z.literal('interrupt'), itemId: id, reason: statusReason })
-    .strict(),
+  interrupt: z.object({ type: z.literal('interrupt'), itemId: id, reason: statusReason }).strict(),
   skip: z.object({ type: z.literal('skip'), itemId: id, reason: statusReason }).strict(),
   unskip: itemCommand('unskip'),
   repeat: itemCommand('repeat'),

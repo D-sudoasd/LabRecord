@@ -181,7 +181,7 @@ test('an appended regime keeps inheriting a group protocol that was still blank'
   assert.equal(extra.measurement?.protocol, undefined);
   assert.equal(measurementFor(snapshot, source).protocol, '室温静置 10 min');
   assert.equal(measurementFor(snapshot, extra).protocol, '室温静置 10 min');
-  assert.equal(source.plannedName, extra.plannedName?.replace(/_\d{2,}$/, ''));
+  assert.equal(extra.plannedName, `${source.plannedName}-2`);
 });
 
 test('per-operation parameters and historical names stay frozen; true repeat reuses the source snapshot', (t) => {
@@ -238,10 +238,11 @@ test('UI preview and transaction reserve identical names; rule changes preserve 
     measurement: { customName: 'Ti2448_现场临时-01' },
   });
   const appended = store.command({ type: 'scheduleMeasurements', itemIds: [itemId] }).itemId!;
+  const reservedAppend = store.get('items', appended).plannedName;
   assert.notEqual(store.get('items', appended).plannedName, 'Ti2448_现场临时-01');
   store.command({ type: 'updateExperiment', id: experimentId, namingPattern: '{regime}' });
   assert.equal(store.get('items', itemId).plannedName, 'Ti2448_现场临时-01');
-  assert.equal(store.get('items', appended).plannedName, 'step');
+  assert.equal(store.get('items', appended).plannedName, reservedAppend);
   store.command({ type: 'start', itemId });
   const original = structuredClone(store.snapshot().runs[0]);
   store.command({
@@ -588,7 +589,7 @@ test('operation count limit rejects a further append before writing any operatio
   assert.deepEqual(store.snapshot(), before);
 });
 
-test('backup rejects new cross-experiment name collisions while preserving old v1 duplicate run names', async (t) => {
+test('backup permits the same folder name in different experiments and rejects collisions within one experiment', async (t) => {
   const { store, experimentId, itemId, directory } = setup(t);
   const otherId = store.command({
     type: 'createExperiment',
@@ -602,13 +603,16 @@ test('backup rejects new cross-experiment name collisions while preserving old v
     count: 1,
     prefix: 'S',
   }).itemId!;
-  const original = store.get('items', otherItemId);
-  store.put('items', {
-    ...original,
-    plannedName: store.get('items', itemId).plannedName!.toUpperCase(),
-  });
+  const other = store.get('items', otherItemId);
+  const sharedName = store.get('items', itemId).plannedName!;
+  store.put('items', { ...other, plannedName: sharedName });
+  assert.equal(inspectDatabase(join(store.root, 'records.sqlite')).items.length, 2);
+  const sameExperiment = store.command({ type: 'scheduleMeasurements', itemIds: [itemId] }).itemId!;
+  const duplicate = store.get('items', sameExperiment);
+  store.put('items', { ...duplicate, plannedName: sharedName });
   assert.throws(() => inspectDatabase(join(store.root, 'records.sqlite')), /计划名称重复/);
-  store.put('items', original);
+  store.put('items', duplicate);
+  store.put('items', other);
   store.command({ type: 'start', itemId });
   store.command({ type: 'finish', itemId });
   store.command({ type: 'start', itemId: otherItemId });
