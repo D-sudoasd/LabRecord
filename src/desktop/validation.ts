@@ -33,6 +33,7 @@ const specimenInput = z
     protocol: text.optional(),
     state: z.string().max(300).optional(),
     notes: text.optional(),
+    fieldNote: text.optional(),
     thickness: text.optional(),
     thicknessUnit: z.string().max(40).optional(),
     width: text.optional(),
@@ -172,6 +173,31 @@ const schemas: Record<string, z.ZodType> = {
       measurement: measurementSchema,
     })
     .strict(),
+  updateFieldRow: z
+    .object({
+      type: z.literal('updateFieldRow'),
+      itemId: id,
+      sample: z
+        .object({
+          name: z.string().max(300).optional(),
+          state: z.string().max(300).optional(),
+          thickness: text.optional(),
+          thicknessUnit: z.string().max(40).optional(),
+          width: text.optional(),
+          height: text.optional(),
+          dimensionUnit: z.string().max(40).optional(),
+        })
+        .strict()
+        .optional(),
+      protocol: text.optional(),
+      fieldNote: text.optional(),
+    })
+    .strict()
+    .refine(
+      (value) =>
+        value.sample !== undefined || value.protocol !== undefined || value.fieldNote !== undefined,
+      '没有可保存的内容。',
+    ),
   scheduleMeasurements: z
     .object({
       type: z.literal('scheduleMeasurements'),
@@ -195,6 +221,8 @@ const schemas: Record<string, z.ZodType> = {
       actualSample: z
         .object({
           name: z.string().max(300).optional(),
+          state: z.string().max(300).optional(),
+          specimenName: z.string().max(300).optional(),
           width: text.optional(),
           height: text.optional(),
           dimensionUnit: z.string().max(40).optional(),
@@ -240,6 +268,19 @@ const schemas: Record<string, z.ZodType> = {
     .strict(),
   demo: z.object({ type: z.literal('demo') }).strict(),
 };
+/** Optional fields sent over IPC can explicitly contain undefined. Treat these
+ * as absent, so spreading a patch cannot erase an existing saved value. */
+function withoutUndefined(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(withoutUndefined);
+  if (value && typeof value === 'object')
+    return Object.fromEntries(
+      Object.entries(value)
+        .filter(([, entry]) => entry !== undefined)
+        .map(([key, entry]) => [key, withoutUndefined(entry)]),
+    );
+  return value;
+}
+
 export function validateCommand(input: unknown): Command {
   if (
     !input ||
@@ -258,8 +299,8 @@ export function validateCommand(input: unknown): Command {
           .slice(0, 3)
           .join('；'),
     );
-  return result.data as Command;
+  return withoutUndefined(result.data) as Command;
 }
 export function validatePatch(input: unknown): GroupPatch {
-  return patch.parse(input);
+  return withoutUndefined(patch.parse(input)) as GroupPatch;
 }

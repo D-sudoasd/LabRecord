@@ -5,6 +5,8 @@ import { join } from 'node:path';
 import {
   FIELD_PATTERN,
   CODE_PATTERN_HYPHEN,
+  ACTUAL_SAMPLE_KEYS,
+  ACTUAL_VALUE_KEYS,
   effectiveProtocol,
   assignSpecimenCodes,
   codePatternError,
@@ -24,6 +26,7 @@ import type {
   Values,
   Field,
   SpecimenInput,
+  ActualSources,
 } from '../shared/model.js';
 import { validateCommand } from './validation.js';
 import {
@@ -59,11 +62,42 @@ function plainReason(reason: string | undefined) {
     throw new Error('原因请写成一行，不超过 80 个字。');
   return text;
 }
+/** Preserve only information that was actually present in an older record. */
+function legacyActualSources(run: Run): ActualSources {
+  const sources: ActualSources = {};
+  for (const key of ACTUAL_SAMPLE_KEYS) {
+    if (run.actualSample && Object.hasOwn(run.actualSample, key))
+      sources[`actualSample.${key}`] = 'legacy';
+  }
+  for (const key of ACTUAL_VALUE_KEYS) {
+    if (Object.hasOwn(run.actual, key)) sources[`actual.${key}`] = 'legacy';
+  }
+  return sources;
+}
+function editedActualSources(
+  existing: ActualSources | undefined,
+  actual: Values | undefined,
+  sample: Run['actualSample'] | undefined,
+): ActualSources {
+  const sources = { ...existing };
+  for (const key of ACTUAL_VALUE_KEYS) {
+    if (actual && Object.hasOwn(actual, key)) sources[`actual.${key}`] = 'edited';
+  }
+  for (const key of ACTUAL_SAMPLE_KEYS) {
+    if (sample && Object.hasOwn(sample, key)) sources[`actualSample.${key}`] = 'edited';
+  }
+  return sources;
+}
 const columns: Record<Table, Record<string, string>> = {
   experiments: {},
   groups: { experiment_id: 'experimentId' },
   samples: { experiment_id: 'experimentId', group_id: 'groupId', code: 'code' },
-  items: { experiment_id: 'experimentId', sample_id: 'sampleId', status: 'status' },
+  items: {
+    experiment_id: 'experimentId',
+    sample_id: 'sampleId',
+    status: 'status',
+    field_note: 'fieldNote',
+  },
   runs: {
     experiment_id: 'experimentId',
     sample_id: 'sampleId',
@@ -84,11 +118,25 @@ export class Store {
     this.db = new DatabaseSync(join(root, 'records.sqlite'), { timeout: 5000 });
     const version = (this.db.prepare('PRAGMA user_version').get() as { user_version: number })
       .user_version;
-    if (version > 1) {
+    if (![0, 1, 2, 3].includes(version)) {
       this.db.close();
-      throw new Error('此数据由更新版本创建，请使用更新的 LabRecord。');
+      throw new Error(
+        version > 3
+          ? '此数据由更新版本创建，请使用更新的 LabRecord。'
+          : '数据格式版本无效或不受支持，未执行升级。',
+      );
     }
-    this.db.exec(`PRAGMA foreign_keys=ON; PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL;
+    if (version === 0 && this.db.prepare(
+      "SELECT 1 FROM sqlite_master WHERE type IN ('table','view') AND name NOT LIKE 'sqlite_%' LIMIT 1",
+    ).get()) {
+      this.db.close();
+      throw new Error('数据目录中已有记录但缺少受支持的格式版本，未执行升级。');
+    }
+    this.db.exec('PRAGMA foreign_keys=ON; PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL;');
+    try {
+      this.db.exec('BEGIN IMMEDIATE');
+      try {
+        this.db.exec(`
       CREATE TABLE IF NOT EXISTS experiments(id TEXT PRIMARY KEY, json TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS groups(id TEXT PRIMARY KEY, experiment_id TEXT NOT NULL REFERENCES experiments(id), json TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS samples(id TEXT PRIMARY KEY, experiment_id TEXT NOT NULL REFERENCES experiments(id), group_id TEXT NOT NULL REFERENCES groups(id), code TEXT NOT NULL COLLATE NOCASE, json TEXT NOT NULL, UNIQUE(experiment_id, code));
@@ -97,8 +145,47 @@ export class Store {
       CREATE TABLE IF NOT EXISTS runs(id TEXT PRIMARY KEY, experiment_id TEXT NOT NULL REFERENCES experiments(id), sample_id TEXT NOT NULL REFERENCES samples(id), item_id TEXT UNIQUE NOT NULL REFERENCES items(id), filename TEXT NOT NULL COLLATE NOCASE, json TEXT NOT NULL, UNIQUE(experiment_id, filename));
       CREATE TABLE IF NOT EXISTS events(id TEXT PRIMARY KEY, experiment_id TEXT NOT NULL REFERENCES experiments(id), item_id TEXT REFERENCES items(id), run_id TEXT REFERENCES runs(id), json TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS attachments(id TEXT PRIMARY KEY, experiment_id TEXT NOT NULL REFERENCES experiments(id), run_id TEXT NOT NULL REFERENCES runs(id), json TEXT NOT NULL);
-      CREATE TABLE IF NOT EXISTS requests(id TEXT PRIMARY KEY, fingerprint TEXT NOT NULL, result TEXT NOT NULL);
-      PRAGMA user_version=1;`);
+      CREATE TABLE IF NOT EXISTS requests(id TEXT PRIMARY KEY, fingerprint TEXT NOT NULL, result TEXT NOT NULL);`);
+        if (version < 2) {
+          // Keep an absent legacy note absent; NULL in the index is not a new note.
+          this.db.exec('ALTER TABLE items ADD COLUMN field_note TEXT');
+          const invalid = this.db
+            .prepare(
+              "SELECT COUNT(*) AS count FROM items WHERE json_type(json, '$.fieldNote') IS NOT NULL AND json_type(json, '$.fieldNote') != 'text'",
+            )
+            .get() as { count: number };
+          if (invalid.count) throw new Error('旧数据中的现场备注格式无效，未执行升级。');
+          this.db.exec(
+            "UPDATE items SET field_note=json_extract(json, '$.fieldNote') WHERE json_type(json, '$.fieldNote')='text';",
+          );
+        } else {
+          this.db.prepare('SELECT field_note FROM items LIMIT 0').all();
+        }
+        if (version < 3) {
+          const rows = this.db.prepare('SELECT id, json FROM runs ORDER BY rowid').all();
+          const update = this.db.prepare('UPDATE runs SET json=? WHERE id=?');
+          for (const row of rows) {
+            const run = JSON.parse(String(row.json)) as Run;
+            if (!run || typeof run !== 'object' || Array.isArray(run) || Object.hasOwn(run, 'actualSources'))
+              throw new Error('旧数据中的实际值来源格式无效，未执行升级。');
+            if (!run.actual || typeof run.actual !== 'object' || Array.isArray(run.actual))
+              throw new Error('旧数据中的实际值格式无效，未执行升级。');
+            if (run.actualSample !== undefined &&
+                (!run.actualSample || typeof run.actualSample !== 'object' || Array.isArray(run.actualSample)))
+              throw new Error('旧数据中的实际样品信息格式无效，未执行升级。');
+            update.run(JSON.stringify({ ...run, actualSources: legacyActualSources(run) }), row.id as string);
+          }
+          this.db.exec('PRAGMA user_version=3');
+        }
+        this.db.exec('COMMIT');
+      } catch (error) {
+        this.db.exec('ROLLBACK');
+        throw error;
+      }
+    } catch (error) {
+      this.db.close();
+      throw error;
+    }
   }
   close() {
     this.db.close();
@@ -157,7 +244,7 @@ export class Store {
   }
   snapshot(): Snapshot {
     return {
-      schemaVersion: 1,
+      schemaVersion: 3,
       experiments: this.list('experiments'),
       groups: this.list('groups'),
       samples: this.list('samples'),
@@ -326,6 +413,9 @@ export class Store {
         operation: '测量',
         order: order++,
         status: 'pending',
+        ...(specimens?.[index]?.fieldNote !== undefined
+          ? { fieldNote: specimens[index].fieldNote }
+          : {}),
         ...(measurement
           ? {
               measurement: structuredClone(measurement),
@@ -421,9 +511,19 @@ export class Store {
       },
       actualSample: {
         name: group.name || '',
+        state: group.state || '',
         width: group.width || '',
         height: group.height || '',
         dimensionUnit: group.dimensionUnit || '',
+      },
+      actualSources: {
+        'actual.thickness': 'planned',
+        'actual.thicknessUnit': 'planned',
+        'actualSample.name': 'planned',
+        'actualSample.state': 'planned',
+        'actualSample.width': 'planned',
+        'actualSample.height': 'planned',
+        'actualSample.dimensionUnit': 'planned',
       },
       notes: '',
     };
@@ -648,6 +748,13 @@ export class Store {
             throw new Error('已经开始或完成的测量保留记录，不能删除。');
         }
         const itemIds = items.map((item) => item.id);
+        const deleted = new Set(itemIds);
+        if (
+          this.list('items').some(
+            (item) => item.repeatOf && deleted.has(item.repeatOf) && !deleted.has(item.id),
+          )
+        )
+          throw new Error('此测量已被后续测量引用，请先删除后续测量。');
         const sampleIds = [...new Set(items.map((item) => item.sampleId))];
         this.deleteItemEvents(itemIds);
         this.deleteIds('items', itemIds);
@@ -716,6 +823,88 @@ export class Store {
           .map((item) => item.id);
         for (const experimentId of experimentIds) this.refreshNames(experimentId, ids);
         return {};
+      }
+      case 'updateFieldRow': {
+        const item = this.get('items', command.itemId);
+        const sample = this.get('samples', item.sampleId);
+        const run = this.list('runs').find((entry) => entry.itemId === item.id);
+        if (command.sample) {
+          this.put('samples', {
+            ...sample,
+            parameters: { ...sample.parameters, ...command.sample },
+          });
+        }
+        let nextItem = item;
+        if (command.fieldNote !== undefined) {
+          nextItem = { ...nextItem, fieldNote: command.fieldNote };
+          const previous = item.fieldNote ?? run?.notes ?? '';
+          if (command.fieldNote !== previous)
+            this.event(
+              item.experimentId,
+              'edit',
+              command.fieldNote || '清空测量备注',
+              item.id,
+              run?.id ?? null,
+              {
+                previous,
+                field: 'fieldNote',
+              },
+            );
+        }
+        if (command.protocol !== undefined && !run)
+          nextItem = {
+            ...nextItem,
+            measurement: { ...nextItem.measurement, protocol: command.protocol },
+          };
+        if (nextItem !== item) this.put('items', nextItem);
+        if (run && (command.sample || command.protocol !== undefined)) {
+          const patch = command.sample;
+          const actualPatch: Values = {};
+          if (patch?.thickness !== undefined) actualPatch.thickness = patch.thickness;
+          if (patch?.thicknessUnit !== undefined) actualPatch.thicknessUnit = patch.thicknessUnit;
+          if (command.protocol !== undefined) actualPatch.protocol = command.protocol;
+          const actual = { ...run.actual, ...actualPatch };
+          const samplePatch = {
+            ...(patch?.name !== undefined ? { specimenName: patch.name } : {}),
+            ...(patch?.state !== undefined ? { state: patch.state } : {}),
+            ...(patch?.width !== undefined ? { width: patch.width } : {}),
+            ...(patch?.height !== undefined ? { height: patch.height } : {}),
+            ...(patch?.dimensionUnit !== undefined ? { dimensionUnit: patch.dimensionUnit } : {}),
+          };
+          const actualSample = Object.keys(samplePatch).length
+            ? { ...run.actualSample, ...samplePatch }
+            : run.actualSample;
+          const actualSources = editedActualSources(run.actualSources, actualPatch, samplePatch);
+          const differs = (left: object, right: object) => {
+            const a = left as Record<string, unknown>,
+              b = right as Record<string, unknown>;
+            return [...new Set([...Object.keys(a), ...Object.keys(b)])].some(
+              (key) => a[key] !== b[key],
+            );
+          };
+          if (
+            differs(actual, run.actual) ||
+            differs(actualSample ?? {}, run.actualSample ?? {}) ||
+            differs(actualSources, run.actualSources ?? {})
+          ) {
+            this.put('runs', {
+              ...run,
+              actual,
+              ...(actualSample ? { actualSample } : {}),
+              actualSources,
+            });
+            this.event(item.experimentId, 'actual', '更新现场表实际信息', item.id, run.id, {
+              previous: {
+                actual: run.actual,
+                actualSample: run.actualSample ?? null,
+                actualSources: run.actualSources ?? null,
+              },
+              sample: command.sample ?? null,
+              protocol: command.protocol ?? null,
+            });
+          }
+        }
+        return { experimentId: item.experimentId, itemId: item.id };
       }
       case 'reorder': {
         const existing = this.list('items').filter((i) => i.experimentId === command.experimentId);
@@ -883,12 +1072,16 @@ export class Store {
       }
       case 'repeat': {
         const original = this.get('items', command.itemId);
-        if (!['completed', 'interrupted'].includes(original.status))
-          throw new Error('完成或中断的操作才能安排重测。');
         const pending = this.list('items').find(
           (i) => i.repeatOf === original.id && ['pending', 'running'].includes(i.status),
         );
         if (pending) return { experimentId: pending.experimentId, itemId: pending.id };
+        const sourceRun = this.list('runs').find((run) => run.itemId === original.id);
+        const measurement = { ...measurementFor(this.snapshot(), original), customName: '' };
+        if (sourceRun && typeof sourceRun.actual.protocol === 'string')
+          measurement.protocol = sourceRun.actual.protocol;
+        if (sourceRun && ['未定', 'In situ', 'Ex situ'].includes(String(sourceRun.actual.mode)))
+          measurement.mode = sourceRun.actual.mode as Group['mode'];
         const item = {
           ...original,
           id: randomUUID(),
@@ -901,7 +1094,8 @@ export class Store {
                 .map((i) => i.order),
             ) + 1,
           status: 'pending' as const,
-          measurement: { ...measurementFor(this.snapshot(), original), customName: '' },
+          fieldNote: '',
+          measurement,
           plannedName: undefined,
           nameNumber: undefined,
         };
@@ -917,17 +1111,18 @@ export class Store {
         const run = this.get('runs', command.runId);
         const actual = { ...run.actual, ...command.actual };
         this.checkValues(run.snapshot.fields, actual);
-        const actualSample = command.actualSample
-          ? {
-              name: run.snapshot.group.name || '',
-              width: run.snapshot.group.width || '',
-              height: run.snapshot.group.height || '',
-              dimensionUnit: run.snapshot.group.dimensionUnit || '',
-              ...run.actualSample,
-              ...command.actualSample,
-            }
+        const samplePatch = command.actualSample;
+        const actualSample = samplePatch && Object.keys(samplePatch).length
+          ? { ...run.actualSample, ...samplePatch }
           : run.actualSample;
-        this.put('runs', { ...run, actual, actualSample, notes: command.notes ?? run.notes });
+        const actualSources = editedActualSources(run.actualSources, command.actual, samplePatch);
+        this.put('runs', {
+          ...run,
+          actual,
+          ...(actualSample ? { actualSample } : {}),
+          actualSources,
+          notes: command.notes ?? run.notes,
+        });
         if (command.notes !== undefined && command.notes !== run.notes)
           this.event(
             run.experimentId,
@@ -937,14 +1132,16 @@ export class Store {
             run.id,
             { previous: run.notes },
           );
-        if (command.actual)
+        if (command.actual && Object.keys(command.actual).length)
           this.event(run.experimentId, 'actual', '更新实际操作参数', run.itemId, run.id, {
             previous: run.actual,
+            previousSources: run.actualSources ?? null,
             changes: command.actual,
           });
-        if (command.actualSample)
+        if (command.actualSample && Object.keys(command.actualSample).length)
           this.event(run.experimentId, 'actual', '更新实际样品名称与尺寸', run.itemId, run.id, {
             previous: run.actualSample || null,
+            previousSources: run.actualSources ?? null,
             changes: command.actualSample,
           });
         return {};

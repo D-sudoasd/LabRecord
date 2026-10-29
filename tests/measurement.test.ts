@@ -345,7 +345,7 @@ test('manual conflicts, invalid metadata, mixed experiments and excess batch siz
   );
 });
 
-test('new measurement metadata, planned names and frozen snapshots survive v1 backup without format migration', async (t) => {
+test('new measurement metadata, planned names and frozen snapshots survive a v2 backup', async (t) => {
   const { store, itemId, directory } = setup(t);
   store.command({
     type: 'scheduleMeasurements',
@@ -358,7 +358,7 @@ test('new measurement metadata, planned names and frozen snapshots survive v1 ba
   await createBackup(store, file);
   const restored = await unpackBackup(file, join(directory, 'restored'));
   assert.deepEqual(restored, before);
-  assert.equal(restored.schemaVersion, 1);
+  assert.equal(restored.schemaVersion, 3);
   const item = store.get('items', itemId);
   store.put('items', {
     ...item,
@@ -367,7 +367,7 @@ test('new measurement metadata, planned names and frozen snapshots survive v1 ba
   assert.throws(() => inspectDatabase(join(store.root, 'records.sqlite')), /字段类型/);
 });
 
-test('legacy v1 data remains untouched when read and receives optional naming only when edited', (t) => {
+test('legacy-style records remain untouched when read and receive optional naming only when edited', (t) => {
   const { store, itemId, reopen } = setup(t);
   store.command({ type: 'start', itemId });
   store.command({ type: 'finish', itemId });

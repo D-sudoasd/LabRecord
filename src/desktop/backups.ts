@@ -1,8 +1,8 @@
 import { DatabaseSync, backup } from 'node:sqlite';
 import JSZip from 'jszip';
 import { createHash, randomUUID } from 'node:crypto';
-import { readFile, writeFile, mkdir, rename, stat, readdir, unlink } from 'node:fs/promises';
-import { join, dirname, resolve } from 'node:path';
+import { readFile, writeFile, mkdir, mkdtemp, realpath, rename, rm, stat, readdir, unlink } from 'node:fs/promises';
+import { basename, join, dirname, resolve } from 'node:path';
 import type { Attachment, Snapshot } from '../shared/model.js';
 import { Store } from './store.js';
 import { archiveSchema } from './archive-validation.js';
@@ -21,12 +21,13 @@ export function inspectDatabase(path: string): Snapshot {
   const db = new DatabaseSync(path, { readOnly: true });
   try {
     const version = db.prepare('PRAGMA user_version').get() as { user_version: number };
-    if (version.user_version !== 1) throw new Error('备份的数据格式版本不兼容。');
+    if (version.user_version !== 1 && version.user_version !== 2 && version.user_version !== 3)
+      throw new Error('备份的数据格式版本不兼容，请使用更新的 LabRecord。');
     const check = db.prepare('PRAGMA quick_check').get() as { quick_check: string };
     if (check.quick_check !== 'ok' || db.prepare('PRAGMA foreign_key_check').all().length)
       throw new Error('备份数据库完整性检查失败。');
     const result: Snapshot = {
-      schemaVersion: 1,
+      schemaVersion: version.user_version as 1 | 2 | 3,
       experiments: [],
       groups: [],
       samples: [],
@@ -39,7 +40,12 @@ export function inspectDatabase(path: string): Snapshot {
       experiments: {},
       groups: { experiment_id: 'experimentId' },
       samples: { experiment_id: 'experimentId', group_id: 'groupId', code: 'code' },
-      items: { experiment_id: 'experimentId', sample_id: 'sampleId', status: 'status' },
+      items: {
+        experiment_id: 'experimentId',
+        sample_id: 'sampleId',
+        status: 'status',
+        ...(version.user_version >= 2 ? { field_note: 'fieldNote' } : {}),
+      },
       runs: {
         experiment_id: 'experimentId',
         sample_id: 'sampleId',
@@ -282,7 +288,7 @@ export async function removeAttachment(store: Store, attachmentId: string) {
     throw new Error('移除图片时不应改写原始时间。');
   return store.snapshot();
 }
-export async function createBackup(store: Store, path: string) {
+export async function createBackup(store: Pick<Store, 'db' | 'root'>, path: string) {
   await mkdir(dirname(path), { recursive: true });
   const temporaryDatabase = join(dirname(path), `.backup-${randomUUID()}.sqlite`);
   const temporaryPackage = path + `.${randomUUID()}.tmp`;
@@ -297,7 +303,12 @@ export async function createBackup(store: Store, path: string) {
     };
     add('records.sqlite', await readFile(temporaryDatabase));
     let size = files[0].size;
+    if (size > MAX_PACKAGE_BYTES) throw new Error('完整备份超过 512 MB。');
+    if (snapshot.attachments.length + 1 > 10000) throw new Error('完整备份中的文件数量超过限制。');
+    const names = new Set(['records.sqlite']);
     for (const attachment of snapshot.attachments) {
+      if (names.has(attachment.relativePath)) throw new Error('完整备份中的附件路径重复。');
+      names.add(attachment.relativePath);
       const buffer = await readFile(join(store.root, attachment.relativePath));
       if (buffer.length !== attachment.size || hash(buffer) !== attachment.sha256)
         throw new Error(`附件完整性检查失败：${attachment.name}`);
@@ -312,19 +323,72 @@ export async function createBackup(store: Store, path: string) {
       files,
     };
     zip.file('manifest.json', JSON.stringify(manifest, null, 2));
-    await writeFile(
-      temporaryPackage,
-      await zip.generateAsync({
-        type: 'nodebuffer',
-        compression: 'DEFLATE',
-        compressionOptions: { level: 3 },
-      }),
-      { flag: 'wx' },
-    );
+    const bytes = await zip.generateAsync({
+      type: 'nodebuffer',
+      compression: 'DEFLATE',
+      compressionOptions: { level: 3 },
+    });
+    if (bytes.length > MAX_PACKAGE_BYTES) throw new Error('完整备份包超过 512 MB。');
+    await writeFile(temporaryPackage, bytes, { flag: 'wx' });
     await rename(temporaryPackage, path);
   } finally {
     await unlink(temporaryDatabase).catch(() => {});
+    for (const suffix of ['-wal', '-shm', '-journal'])
+      await unlink(temporaryDatabase + suffix).catch(() => {});
     await unlink(temporaryPackage).catch(() => {});
+  }
+}
+
+export async function removeMigrationValidationDirectory(directory: string, temporary: string) {
+  const root = await realpath(directory);
+  const target = await realpath(temporary);
+  const expectedName = basename(temporary);
+  const samePath = (left: string, right: string) =>
+    process.platform === 'win32' ? left.toLowerCase() === right.toLowerCase() : left === right;
+  if (
+    !expectedName.startsWith('.validate-v3-') ||
+    !samePath(basename(target), expectedName) ||
+    !samePath(dirname(target), root)
+  )
+    throw new Error('备份验证临时目录无效。');
+  await rm(target, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+}
+
+/** Save a complete v1 or v2 backup before opening a workspace in the v3 Store.
+ * The backup includes a consistent SQLite snapshot and verified attachment bytes. */
+export async function backupBeforeV3Migration(root: string, directory: string) {
+  const databasePath = join(root, 'records.sqlite');
+  let db: DatabaseSync | undefined;
+  try {
+    try {
+      await stat(databasePath);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null;
+      throw error;
+    }
+    db = new DatabaseSync(databasePath, { readOnly: true });
+    const version = db.prepare('PRAGMA user_version').get() as { user_version: number };
+    if (version.user_version !== 1 && version.user_version !== 2) return null;
+    const path = join(directory, `before-v3-${Date.now()}-${randomUUID()}.labrecord`);
+    const temporary = path + '.tmp';
+    try {
+      await createBackup({ db, root }, temporary);
+      const validationDirectory = await mkdtemp(join(directory, '.validate-v3-'));
+      try {
+        await unpackBackup(temporary, validationDirectory);
+      } finally {
+        await removeMigrationValidationDirectory(directory, validationDirectory);
+      }
+      await rename(temporary, path);
+      return path;
+    } finally {
+      await unlink(temporary).catch(() => {});
+    }
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    throw new Error(`升级前完整备份失败，数据尚未升级：${detail}`);
+  } finally {
+    db?.close();
   }
 }
 export async function unpackBackup(path: string, target: string): Promise<Snapshot> {

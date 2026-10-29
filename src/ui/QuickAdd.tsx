@@ -22,7 +22,24 @@ import { useWorkspace, DesktopReplyError } from './context';
 import { Modal, FieldInputs, useCommandClose } from './components';
 import { emptySpecimenSize, SpecimenSizeFields, type SpecimenSize } from './specimenSize';
 
-type QuickSpecimen = SpecimenSize & { sizeEdited: boolean; name: string };
+type QuickSpecimen = SpecimenSize & {
+  sizeEdited: boolean;
+  name: string;
+  nameEdited: boolean;
+  fieldNote: string;
+  noteEdited: boolean;
+};
+
+function emptyQuickSpecimen(): QuickSpecimen {
+  return {
+    ...emptySpecimenSize(),
+    sizeEdited: false,
+    name: '',
+    nameEdited: false,
+    fieldNote: '',
+    noteEdited: false,
+  };
+}
 
 function draftSignature(
   patch: GroupPatch,
@@ -32,7 +49,7 @@ function draftSignature(
   sizes: QuickSpecimen[],
 ) {
   const saved = sizes.slice();
-  const empty = JSON.stringify({ ...emptySpecimenSize(), sizeEdited: false, name: '' });
+  const empty = JSON.stringify(emptyQuickSpecimen());
   while (saved.length > 1 && JSON.stringify(saved.at(-1)) === empty) saved.pop();
   return JSON.stringify([patch, count, prefix, measurement, saved]);
 }
@@ -55,9 +72,7 @@ export function QuickAdd({ onClose }: { onClose: () => void }) {
     [prefix, setPrefix] = useState(
       experiment.sampleCodePattern === CODE_PATTERN_HYPHEN ? 'G' : 'S',
     ),
-    [sizeRows, setSizeRows] = useState<QuickSpecimen[]>(() => [
-      { ...emptySpecimenSize(), sizeEdited: false, name: '' },
-    ]);
+    [sizeRows, setSizeRows] = useState<QuickSpecimen[]>(() => [emptyQuickSpecimen()]);
   const [measurement, setMeasurement] = useState<MeasurementPlan>({
     technique: '',
     regime: '',
@@ -70,7 +85,8 @@ export function QuickAdd({ onClose }: { onClose: () => void }) {
     [added, setAdded] = useState(0),
     [addedLine, setAddedLine] = useState(''),
     [copied, setCopied] = useState(false),
-    [confirmDiscard, setConfirmDiscard] = useState(false);
+    [confirmDiscard, setConfirmDiscard] = useState(false),
+    [hiddenConfirm, setHiddenConfirm] = useState<{ continueAdding: boolean } | null>(null);
   const planned = count.trim() ? Number(count) : null;
   const prepared = patch.preparedCount ?? null;
   const validCounts =
@@ -82,6 +98,12 @@ export function QuickAdd({ onClose }: { onClose: () => void }) {
       (Number.isInteger(prepared) && prepared >= 0 && prepared <= 10000 && planned <= prepared));
   const spare = validCounts && prepared !== null ? prepared - planned! : null;
   const arrangedCount = validCounts && planned !== null && planned >= 1 ? planned : 0;
+  const hiddenRows = validCounts ? sizeRows.slice(planned!) : [];
+  const hiddenEditedCount = hiddenRows.filter(
+    (row) => row.nameEdited || row.noteEdited || row.sizeEdited,
+  ).length;
+  const hiddenSignature = JSON.stringify([planned, hiddenRows]);
+  const acceptedHidden = useRef('');
   const codePattern = experiment.sampleCodePattern;
   let sizeCodes = '';
   let codeError = '';
@@ -107,11 +129,7 @@ export function QuickAdd({ onClose }: { onClose: () => void }) {
       if (current.length >= codes.length) return current;
       return [
         ...current,
-        ...Array.from({ length: codes.length - current.length }, () => ({
-          ...emptySpecimenSize(),
-          sizeEdited: false,
-          name: '',
-        })),
+        ...Array.from({ length: codes.length - current.length }, emptyQuickSpecimen),
       ];
     });
   }, [sizeCodes, codeError]);
@@ -129,11 +147,16 @@ export function QuickAdd({ onClose }: { onClose: () => void }) {
     onError: setError,
   });
   const discardButton = useRef<HTMLButtonElement>(null);
+  const hiddenReturnButton = useRef<HTMLButtonElement>(null);
   const returnFocus = useRef<HTMLElement | null>(null);
   const hasChanges =
     draftSignature(patch, count, prefix, measurement, sizeRows) !== cleanDraft.current;
   function requestClose() {
     if (busy || closing) return;
+    if (hiddenConfirm) {
+      setHiddenConfirm(null);
+      return;
+    }
     if (confirmDiscard) {
       setConfirmDiscard(false);
       return;
@@ -147,9 +170,10 @@ export function QuickAdd({ onClose }: { onClose: () => void }) {
     setConfirmDiscard(true);
   }
   useEffect(() => {
-    if (confirmDiscard) discardButton.current?.focus();
+    if (hiddenConfirm) hiddenReturnButton.current?.focus();
+    else if (confirmDiscard) discardButton.current?.focus();
     else returnFocus.current?.focus();
-  }, [confirmDiscard]);
+  }, [confirmDiscard, hiddenConfirm]);
   function keepEditing() {
     setConfirmDiscard(false);
   }
@@ -158,8 +182,17 @@ export function QuickAdd({ onClose }: { onClose: () => void }) {
   }, [added, busy]);
   const set = (key: keyof GroupPatch, value: unknown) =>
     setPatch((old) => ({ ...old, [key]: value }));
-  async function submit(continueAdding: boolean) {
+  async function submit(continueAdding: boolean, acceptHidden = false) {
     if (submitting.current || closing || !validCounts || codeError) return;
+    if (hiddenEditedCount && !intent.current && acceptedHidden.current !== hiddenSignature) {
+      if (!acceptHidden) {
+        returnFocus.current =
+          document.activeElement instanceof HTMLElement ? document.activeElement : null;
+        setHiddenConfirm({ continueAdding });
+        return;
+      }
+      acceptedHidden.current = hiddenSignature;
+    }
     submitting.current = true;
     setBusy(true);
     setError('');
@@ -186,7 +219,7 @@ export function QuickAdd({ onClose }: { onClose: () => void }) {
           prefix,
           specimens:
             plannedCount >= 1
-              ? sizeRows.slice(0, plannedCount).map(({ sizeEdited: _edited, ...size }) => ({
+              ? sizeRows.slice(0, plannedCount).map(({ sizeEdited: _edited, nameEdited: _nameEdited, noteEdited: _noteEdited, ...size }) => ({
                   ...size,
                   ...(size.name.trim() ? { name: size.name.trim() } : {}),
                 }))
@@ -204,6 +237,7 @@ export function QuickAdd({ onClose }: { onClose: () => void }) {
       await execute(intent.current.command, true, intent.current.requestId);
       const keepAdding = intent.current.continueAdding;
       intent.current = null;
+      acceptedHidden.current = '';
       if (!keepAdding) {
         onClose();
         return;
@@ -227,11 +261,7 @@ export function QuickAdd({ onClose }: { onClose: () => void }) {
       setAdded((n) => n + 1);
       const nextPatch = { ...patch, name: '', state: '' };
       setPatch(nextPatch);
-      const clearedSizes = Array.from({ length: Math.max(1, plannedCount) }, () => ({
-        ...emptySpecimenSize(),
-        sizeEdited: false,
-        name: '',
-      }));
+      const clearedSizes = Array.from({ length: Math.max(1, plannedCount) }, emptyQuickSpecimen);
       setSizeRows(clearedSizes);
       cleanDraft.current = draftSignature(nextPatch, count, prefix, measurement, clearedSizes);
     } catch (failure) {
@@ -251,8 +281,8 @@ export function QuickAdd({ onClose }: { onClose: () => void }) {
     >
       <form
         className="form-grid quick-add-form"
-        hidden={confirmDiscard}
-        style={confirmDiscard ? { display: 'none' } : undefined}
+        hidden={confirmDiscard || !!hiddenConfirm}
+        style={confirmDiscard || hiddenConfirm ? { display: 'none' } : undefined}
         onSubmit={(event) => {
           event.preventDefault();
           void submit(false);
@@ -268,7 +298,7 @@ export function QuickAdd({ onClose }: { onClose: () => void }) {
           disabled={busy || closing || !!intent.current}
         >
           <div className="quick-add-intro span-2">
-            <p>名称必填，其余按需补充。样品编号自动生成。</p>
+            <p>先填写名称和本次测量信息，样品编号自动生成。</p>
             {latest && (
               <button
                 type="button"
@@ -345,7 +375,7 @@ export function QuickAdd({ onClose }: { onClose: () => void }) {
                 </p>
               )}
               <label className="field">
-                <span>样品统称 *</span>
+                <span>样品名称或统称 *</span>
                 <input
                   ref={nameInput}
                   autoFocus
@@ -355,7 +385,7 @@ export function QuickAdd({ onClose }: { onClose: () => void }) {
                   onChange={(e) => set('name', e.target.value)}
                   placeholder="例如 Ti2448 拉伸试样 / 合金 A"
                 />
-                <small>这一组的名字。成分和制备写在下面。</small>
+                <small>例如材料名称或这一组样品的统称。</small>
               </label>
               <label className="field">
                 <span>样品状态</span>
@@ -365,53 +395,56 @@ export function QuickAdd({ onClose }: { onClose: () => void }) {
                   onChange={(e) => set('state', e.target.value)}
                   placeholder="已有状态简称或原表文字，可留空"
                 />
-                <small>原始标记原样保留；详细加工与热处理在下方分别填写。</small>
+                <small>原始标记原样保留。</small>
               </label>
             </div>
           </fieldset>
           <fieldset className="form-section span-2">
             <legend>
               <Package size={16} />
-              准备与测试
+              本次测量
             </legend>
-            <div className="form-grid">
-              <label className="field">
-                <span>准备数量</span>
-                <input
-                  type="number"
-                  min="0"
-                  max="10000"
-                  value={patch.preparedCount ?? ''}
-                  onChange={(e) =>
-                    set('preparedCount', e.target.value.trim() ? Number(e.target.value) : null)
-                  }
-                />
-              </label>
-              <label className="field">
-                <span>计划测试数量</span>
-                <input
-                  type="number"
-                  required
-                  min="0"
-                  max="1000"
-                  aria-label="计划测试数量"
-                  value={count}
-                  onChange={(e) => setCount(e.target.value)}
-                />
-                <small>仅准备备样时填 0。</small>
-              </label>
-            </div>
-            <div className="quantity-preview" aria-label="样品数量预览" role="status">
-              <span>
-                <strong>{prepared ?? '—'}</strong>准备
-              </span>
-              <span>
-                <strong>{planned ?? '—'}</strong>计划测试
-              </span>
-              <span>
-                <strong>{spare ?? '—'}</strong>备样
-              </span>
-            </div>
+            <details className="quick-add-extra">
+              <summary>批量添加或设置备样</summary>
+              <div className="form-grid">
+                <label className="field">
+                  <span>准备数量</span>
+                  <input
+                    type="number"
+                    min="0"
+                    max="10000"
+                    value={patch.preparedCount ?? ''}
+                    onChange={(e) =>
+                      set('preparedCount', e.target.value.trim() ? Number(e.target.value) : null)
+                    }
+                  />
+                </label>
+                <label className="field">
+                  <span>计划测试数量</span>
+                  <input
+                    type="number"
+                    required
+                    min="0"
+                    max="1000"
+                    aria-label="计划测试数量"
+                    value={count}
+                    onChange={(e) => setCount(e.target.value)}
+                  />
+                  <small>仅准备备样时填 0。</small>
+                </label>
+              </div>
+              <div className="quantity-preview" aria-label="样品数量预览" role="status">
+                <span>
+                  <strong>{prepared ?? '—'}</strong>准备
+                </span>
+                <span>
+                  <strong>{planned ?? '—'}</strong>计划测试
+                </span>
+                <span>
+                  <strong>{spare ?? '—'}</strong>备样
+                </span>
+              </div>
+            </details>
             {!validCounts && (
               <p className="error-text quantity-hint" role="alert">
                 计划测试数量应为 0–1000 的整数，且不超过准备数量；准备数量未知可留空。
@@ -439,7 +472,7 @@ export function QuickAdd({ onClose }: { onClose: () => void }) {
                             setSizeRows((current) =>
                               current.map((entry, entryIndex) =>
                                 entryIndex === index
-                                  ? { ...entry, name: event.target.value }
+                                  ? { ...entry, name: event.target.value, nameEdited: true }
                                   : entry,
                               ),
                             )
@@ -460,6 +493,24 @@ export function QuickAdd({ onClose }: { onClose: () => void }) {
                           )
                         }
                       />
+                      <label className="field specimen-identity-field">
+                        <span>本次测量备注</span>
+                        <textarea
+                          aria-label={`${code} 本次测量备注`}
+                          value={row.fieldNote}
+                          rows={2}
+                          placeholder="选填，之后也可以在现场表中填写"
+                          onChange={(event) =>
+                            setSizeRows((current) =>
+                              current.map((entry, entryIndex) =>
+                                entryIndex === index
+                                  ? { ...entry, fieldNote: event.target.value, noteEdited: true }
+                                  : entry,
+                              ),
+                            )
+                          }
+                        />
+                      </label>
                       {row.sizeEdited &&
                         sizeRows
                           .slice(index + 1, arrangedCount)
@@ -501,20 +552,6 @@ export function QuickAdd({ onClose }: { onClose: () => void }) {
               这里的原始编号或名称会显示在现场表的“实际样品信息”列。状态、成分和制备信息可在本组填写。
             </p>
             <div className="form-grid">
-              <label className="field">
-                <span>实验方式</span>
-                <select
-                  aria-label="实验方式"
-                  value={patch.mode}
-                  onChange={(e) => set('mode', e.target.value as Mode)}
-                >
-                  {MODE_OPTIONS.map((item) => (
-                    <option key={item.value} value={item.value}>
-                      {item.label}
-                    </option>
-                  ))}
-                </select>
-              </label>
               <label className="field span-2 protocol-card">
                 <span>原位参数 / 实验制度（可选）</span>
                 <textarea
@@ -533,7 +570,21 @@ export function QuickAdd({ onClose }: { onClose: () => void }) {
             open={namingOpen}
             onToggle={(event) => setNamingOpen(event.currentTarget.open)}
           >
-            <summary>测量技术与制度（可选）</summary>
+            <summary>更多测量设置（可选）</summary>
+            <label className="field">
+              <span>实验方式</span>
+              <select
+                aria-label="实验方式"
+                value={patch.mode}
+                onChange={(e) => set('mode', e.target.value as Mode)}
+              >
+                {MODE_OPTIONS.map((item) => (
+                  <option key={item.value} value={item.value}>
+                    {item.label}
+                  </option>
+                ))}
+              </select>
+            </label>
             <MeasurementFields compact value={measurement} onChange={setMeasurement} />
             <label className="field">
               <span>材料牌号</span>
@@ -546,14 +597,6 @@ export function QuickAdd({ onClose }: { onClose: () => void }) {
               />
             </label>
           </details>
-          <div className="span-2">
-            <QuickNamePreview
-              patch={patch}
-              measurement={measurement}
-              prefix={prefix}
-              count={validCounts ? planned! : 0}
-            />
-          </div>
           <MaterialPreparationFields
             collapsible
             value={patch}
@@ -592,13 +635,21 @@ export function QuickAdd({ onClose }: { onClose: () => void }) {
                 />
               </label>
               <label className="field span-2">
-                <span>计划备注</span>
+                <span>样品组备注（共用）</span>
                 <textarea
                   rows={2}
                   value={patch.notes || ''}
                   onChange={(e) => set('notes', e.target.value)}
                 />
               </label>
+              <div className="span-2">
+                <QuickNamePreview
+                  patch={patch}
+                  measurement={measurement}
+                  prefix={prefix}
+                  count={validCounts ? planned! : 0}
+                />
+              </div>
               {!!experiment.fields.length && (
                 <div className="span-2">
                   <FieldInputs
@@ -652,6 +703,31 @@ export function QuickAdd({ onClose }: { onClose: () => void }) {
           </button>
         </footer>
       </form>
+      {hiddenConfirm && (
+        <section
+          className="modal-body"
+          role="alertdialog"
+          aria-labelledby="quick-add-hidden-title"
+          aria-describedby="quick-add-hidden-description"
+        >
+          <h3 id="quick-add-hidden-title">有已填写的样品被数量缩减隐藏</h3>
+          <p id="quick-add-hidden-description">
+            {hiddenEditedCount} 件隐藏样品包含已编辑内容，不会随当前数量保存。返回检查可恢复查看。
+          </p>
+          <footer className="modal-actions">
+            <button ref={hiddenReturnButton} type="button" className="button" onClick={() => setHiddenConfirm(null)}>
+              返回检查
+            </button>
+            <button type="button" className="button danger" onClick={() => {
+              const keepAdding = hiddenConfirm.continueAdding;
+              setHiddenConfirm(null);
+              void submit(keepAdding, true);
+            }}>
+              放弃隐藏内容并保存
+            </button>
+          </footer>
+        </section>
+      )}
       {confirmDiscard && (
         <section
           className="modal-body"

@@ -1,4 +1,4 @@
-import type { PlanItem, Run, Snapshot, Value, Values } from './model.js';
+import type { ActualSourceField, PlanItem, Run, Snapshot, Value, Values } from './model.js';
 import { MODE_LABEL, filledSize } from './model.js';
 import { materialSummary } from './materials.js';
 import { plannedGroup } from './measurement.js';
@@ -14,9 +14,12 @@ export interface PlanChange {
 
 const BUILTIN_CHANGE_LABELS = new Set([
   '样品名',
+  '样品状态',
   '宽度',
   '高度',
   '厚度',
+  '宽高单位',
+  '厚度单位',
   '实验制度',
   '实验方式',
   '制备/试剂',
@@ -51,6 +54,50 @@ function hasOwn(record: object, key: string) {
   return Object.prototype.hasOwnProperty.call(record, key);
 }
 
+/** Preserve the difference between an absent field, a legacy blank and a deliberate edit. */
+export function actualFieldSource(run: Run | undefined | null, field: ActualSourceField | undefined) {
+  if (!run) return '';
+  if (!field) return '未记录';
+  const [section, key] = field.split('.') as ['actual' | 'actualSample', string];
+  const values = section === 'actualSample' ? run.actualSample : run.actual;
+  if (!values || !hasOwn(values, key)) return '未记录';
+  const value = (values as Record<string, unknown>)[key];
+  const source = run.actualSources?.[field];
+  if (source === 'planned') return '开始时按计划初始化';
+  if (source === 'edited') {
+    if (value === null) return '用户更正（明确空值）';
+    return value === '' ? '用户更正（已清空）' : '用户更正';
+  }
+  return value === '' || value === null || value === undefined
+    ? '旧版空值（含义不明）'
+    : '旧版记录（来源不明）';
+}
+
+/** A saved group name is not automatically a per-specimen original identifier. */
+export function actualSpecimenNameField(run: Run | undefined | null): ActualSourceField | undefined {
+  const actual = run?.actualSample;
+  if (!run || !actual) return undefined;
+  if (hasOwn(actual, 'specimenName')) return 'actualSample.specimenName';
+  if (!hasOwn(actual, 'name')) return undefined;
+  if (run.actualSources?.['actualSample.name'] === 'edited') return 'actualSample.name';
+  // An older saved empty name is evidence of an ambiguous blank, even when
+  // the start-time group name is also empty; it is not an absent field.
+  if (run.actualSources?.['actualSample.name'] === 'legacy' && actual.name === '')
+    return 'actualSample.name';
+  if ((actual.name ?? '') !== (run.snapshot.group.name ?? '')) return 'actualSample.name';
+  const specimen = run.snapshot.sample.parameters;
+  return hasOwn(specimen, 'name') && specimen.name === actual.name
+    ? 'actualSample.name'
+    : undefined;
+}
+
+export function actualSpecimenName(run: Run | undefined | null): string | undefined {
+  const field = actualSpecimenNameField(run);
+  if (field === 'actualSample.specimenName') return run?.actualSample?.specimenName ?? '';
+  if (field === 'actualSample.name') return run?.actualSample?.name ?? '';
+  return undefined;
+}
+
 /** An explicitly empty specimen value overrides the group, just as it does at run start. */
 export function plannedCustomFieldValue(
   sampleValues: Values,
@@ -77,33 +124,77 @@ export function startedPlanChanges(run: Run): PlanChange[] {
     plannedValue: string,
     actualValue: string,
     source: PlanChange['source'] = 'builtin',
+    actualField?: ActualSourceField,
   ) => {
     if (plannedValue === actualValue) return;
-    changes.push({ source, key, label, planned: shown(plannedValue), actual: shown(actualValue) });
+    // An old blank records no evidence that a value was intentionally cleared.
+    if (actualField && !actualValue && actualFieldSource(run, actualField) === '旧版空值（含义不明）')
+      return;
+    const actual = shown(actualValue);
+    changes.push({ source, key, label, planned: shown(plannedValue), actual });
+  };
+  const pushSize = (
+    key: string,
+    label: string,
+    plannedValue: unknown,
+    plannedUnit: unknown,
+    actualValue: unknown,
+    actualUnit: unknown,
+    actualField: ActualSourceField,
+  ) => {
+    // A number without either unit cannot be compared to a dimensional value.
+    if (text(plannedValue) && text(actualValue) && (!text(plannedUnit) || !text(actualUnit))) return;
+    push(key, label, measure(plannedValue, plannedUnit), measure(actualValue, actualUnit), 'builtin', actualField);
   };
 
   if (run.actualSample) {
-    push('name', '样品名', text(planned.name), text(run.actualSample.name));
-    push(
-      'width',
-      '宽度',
-      measure(planned.width, planned.dimensionUnit),
-      measure(run.actualSample.width, run.actualSample.dimensionUnit),
-    );
-    push(
-      'height',
-      '高度',
-      measure(planned.height, planned.dimensionUnit),
-      measure(run.actualSample.height, run.actualSample.dimensionUnit),
-    );
+    if (hasOwn(run.actualSample, 'specimenName'))
+      push(
+        'name',
+        '样品名',
+        text(run.snapshot.sample.parameters.name),
+        text(run.actualSample.specimenName),
+        'builtin',
+        'actualSample.specimenName',
+      );
+    else if (hasOwn(run.actualSample, 'name'))
+      push(
+        'name',
+        '样品名',
+        text(planned.name),
+        text(run.actualSample.name),
+        'builtin',
+        'actualSample.name',
+      );
+    if (hasOwn(run.actualSample, 'state'))
+      push('state', '样品状态', text(planned.state), text(run.actualSample.state), 'builtin', 'actualSample.state');
+    if (hasOwn(run.actualSample, 'width'))
+      pushSize('width', '宽度', planned.width, planned.dimensionUnit,
+        run.actualSample.width, run.actualSample.dimensionUnit, 'actualSample.width');
+    if (hasOwn(run.actualSample, 'height'))
+      pushSize('height', '高度', planned.height, planned.dimensionUnit,
+        run.actualSample.height, run.actualSample.dimensionUnit, 'actualSample.height');
+    if (hasOwn(run.actualSample, 'dimensionUnit') &&
+        ((!hasOwn(run.actualSample, 'width') && !hasOwn(run.actualSample, 'height')) ||
+          (!text(run.actualSample.dimensionUnit) &&
+            run.actualSources?.['actualSample.dimensionUnit'] === 'edited')))
+      push('dimensionUnit', '宽高单位', text(planned.dimensionUnit), text(run.actualSample.dimensionUnit),
+        'builtin', 'actualSample.dimensionUnit');
   }
-  if (hasOwn(run.actual, 'thickness') || hasOwn(run.actual, 'thicknessUnit'))
-    push(
+  if (hasOwn(run.actual, 'thickness'))
+    pushSize(
       'thickness',
       '厚度',
-      measure(planned.thickness, planned.thicknessUnit),
-      measure(run.actual.thickness, run.actual.thicknessUnit),
+      planned.thickness,
+      planned.thicknessUnit,
+      run.actual.thickness,
+      run.actual.thicknessUnit,
+      'actual.thickness',
     );
+  if (hasOwn(run.actual, 'thicknessUnit') && (!hasOwn(run.actual, 'thickness') ||
+      (!text(run.actual.thicknessUnit) && run.actualSources?.['actual.thicknessUnit'] === 'edited')))
+    push('thicknessUnit', '厚度单位', text(planned.thicknessUnit), text(run.actual.thicknessUnit),
+      'builtin', 'actual.thicknessUnit');
   if (hasOwn(run.actual, 'protocol'))
     push('protocol', '实验制度', text(planned.protocol), text(run.actual.protocol));
   if (hasOwn(run.actual, 'mode'))
@@ -143,9 +234,9 @@ export function recordedPlanChangeText(run: Run | undefined | null) {
     .join('\n');
 }
 
-const RECORDED_SEARCH_KEYS = new Set(['name', 'mode', 'preparation']);
+const RECORDED_SEARCH_KEYS = new Set(['name', 'state', 'mode', 'preparation']);
 
-/** Search text for recorded name, mode, and preparation. Notes, file references, and custom values stay out. */
+/** Search recorded identity, mode, and preparation without notes, references, or custom values. */
 export function recordedPlanSearchText(run: Run | undefined | null) {
   if (!run) return '';
   return startedPlanChanges(run)
@@ -165,18 +256,39 @@ export function operationSizeLine(group: Parameters<typeof filledSize>[0], run?:
       .filter((change) => change.source === 'builtin' && SIZE_KEYS.has(change.key))
       .map((change) => change.key),
   );
-  if (!changed.size) return planned;
-  const actual = filledSize({
-    thickness: changed.has('thickness') ? text(run.actual.thickness) : group.thickness,
-    thicknessUnit: changed.has('thickness') ? text(run.actual.thicknessUnit) : group.thicknessUnit,
-    width: changed.has('width') ? text(run.actualSample?.width) : group.width,
-    height: changed.has('height') ? text(run.actualSample?.height) : group.height,
-    dimensionUnit:
-      changed.has('width') || changed.has('height')
-        ? text(run.actualSample?.dimensionUnit)
-        : group.dimensionUnit,
+  const sample = run.actualSample ?? {};
+  const actual = [
+    ['厚', run.actual.thickness, run.actual.thicknessUnit],
+    ['宽', sample.width, sample.dimensionUnit],
+    ['高', sample.height, sample.dimensionUnit],
+  ].flatMap(([label, value, unit]) => text(value)
+    ? [`${label} ${text(value)}${text(unit) ? ` ${text(unit)}` : '（单位未记录）'}`]
+    : []).join(' · ');
+  const blanks = ([
+    ['厚', 'actual.thickness'],
+    ['宽', 'actualSample.width'],
+    ['高', 'actualSample.height'],
+  ] as const).flatMap(([label, field]) => {
+    const source = actualFieldSource(run, field);
+    if (source === '旧版空值（含义不明）') return [`${label} ${source}`];
+    if (source === '用户更正（已清空）') return [`${label} 已清空`];
+    if (source === '用户更正（明确空值）') return [`${label} 明确空值`];
+    return [];
   });
-  return `实际 ${actual || '尺寸未填'} · 计划 ${planned || '尺寸未填'}`;
+  const actualDisplay = [actual, ...blanks].filter(Boolean).join(' · ');
+  if (!changed.size) {
+    const missingPlanned = (text(group.thickness) && !hasOwn(run.actual, 'thickness')) ||
+      (text(group.width) && !hasOwn(sample, 'width')) ||
+      (text(group.height) && !hasOwn(sample, 'height'));
+    const missingUnits = (text(group.thickness) && text(run.actual.thickness) &&
+        (!text(group.thicknessUnit) || !text(run.actual.thicknessUnit))) ||
+      ((text(group.width) && text(sample.width) || text(group.height) && text(sample.height)) &&
+        (!text(group.dimensionUnit) || !text(sample.dimensionUnit)));
+    if (actualDisplay && (missingUnits || blanks.length))
+      return `实际 ${actualDisplay} · 开始时 ${planned || '尺寸未填'}`;
+    return missingPlanned && planned ? `开始时 ${planned}` : planned;
+  }
+  return `实际 ${actualDisplay || '尺寸未填'} · 计划 ${planned || '尺寸未填'}`;
 }
 
 /** How the current plan moved after a run started. Notes are ignored. */

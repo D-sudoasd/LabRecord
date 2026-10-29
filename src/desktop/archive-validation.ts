@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { codePatternError } from '../shared/model.js';
+import { ACTUAL_SAMPLE_KEYS, ACTUAL_VALUE_KEYS, codePatternError } from '../shared/model.js';
 import { fieldSchema, measurementSchema } from './validation.js';
 
 const id = z.string().min(1).max(200),
@@ -43,7 +43,7 @@ const sample = z.object({
   groupId: id,
   code: z.string().min(1).max(400),
   values,
-  parameters: z.object(groupFields).partial(),
+  parameters: z.object({ ...groupFields, state: z.string().max(300) }).partial(),
 });
 const item = z.object({
   id,
@@ -56,6 +56,34 @@ const item = z.object({
   measurement: measurementSchema.optional(),
   nameNumber: z.number().int().positive().optional(),
   plannedName: z.string().min(1).max(200).optional(),
+  fieldNote: text.optional(),
+});
+const source = z.enum(['legacy', 'planned', 'edited']);
+const actualSources = z
+  .object({
+    'actualSample.name': source.optional(),
+    'actualSample.state': source.optional(),
+    'actualSample.specimenName': source.optional(),
+    'actualSample.width': source.optional(),
+    'actualSample.height': source.optional(),
+    'actualSample.dimensionUnit': source.optional(),
+    'actual.thickness': source.optional(),
+    'actual.thicknessUnit': source.optional(),
+  })
+  .strict();
+const actualSample = z.object({
+  name: z.string().max(300).optional(),
+  state: z.string().max(300).optional(),
+  specimenName: z.string().max(300).optional(),
+  width: text.optional(),
+  height: text.optional(),
+  dimensionUnit: z.string().max(40).optional(),
+});
+const legacyActualSample = actualSample.extend({
+  name: z.string().max(300),
+  width: text,
+  height: text,
+  dimensionUnit: z.string().max(40),
 });
 const run = z.object({
   id,
@@ -71,7 +99,7 @@ const run = z.object({
   timezone: z.string(),
   offsetMinutes: z.number().int().min(-840).max(840),
   snapshot: z.object({
-    group,
+    group: group.extend({ state: z.string().max(300) }),
     sampleGroupName: z.string().max(300).nullable().optional(),
     sample,
     operation: text,
@@ -79,18 +107,12 @@ const run = z.object({
     measurement: measurementSchema.optional(),
   }),
   actual: values,
-  actualSample: z
-    .object({
-      name: z.string().max(300),
-      width: text,
-      height: text,
-      dimensionUnit: z.string().max(40),
-    })
-    .optional(),
+  actualSample: actualSample.optional(),
+  actualSources: actualSources.optional(),
   notes: text,
 });
 export const archiveSchema = z.object({
-  schemaVersion: z.literal(1),
+  schemaVersion: z.union([z.literal(1), z.literal(2), z.literal(3)]),
   experiments: z.array(
     z.object({
       id,
@@ -135,4 +157,36 @@ export const archiveSchema = z.object({
       size: z.number().int().positive(),
     }),
   ),
+}).superRefine((archive, context) => {
+  archive.runs.forEach((entry, index) => {
+    if (archive.schemaVersion < 3) {
+      if (entry.actualSources !== undefined ||
+          (entry.actualSample !== undefined && !legacyActualSample.safeParse(entry.actualSample).success))
+        context.addIssue({
+          code: 'custom',
+          path: ['runs', index, 'actualSample'],
+          message: '旧版实际样品信息不符合旧数据格式。',
+        });
+      return;
+    }
+    for (const key of ACTUAL_SAMPLE_KEYS) {
+      const field = `actualSample.${key}` as const;
+      if (Boolean(entry.actualSample && Object.hasOwn(entry.actualSample, key)) !==
+          Boolean(entry.actualSources?.[field]))
+        context.addIssue({
+          code: 'custom',
+          path: ['runs', index, 'actualSources', field],
+          message: '实际样品字段与其来源不一致。',
+        });
+    }
+    for (const key of ACTUAL_VALUE_KEYS) {
+      const field = `actual.${key}` as const;
+      if (Object.hasOwn(entry.actual, key) !== Boolean(entry.actualSources?.[field]))
+        context.addIssue({
+          code: 'custom',
+          path: ['runs', index, 'actualSources', field],
+          message: '实际尺寸字段与其来源不一致。',
+        });
+    }
+  });
 });

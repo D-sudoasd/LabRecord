@@ -19,7 +19,8 @@ import {
   startedPlanChanges,
 } from './planChanges.js';
 
-export const FIELD_SHEET_HEADERS = ['简写编号', '尺寸', '原位参数', '实际样品信息'] as const;
+export const LEGACY_FIELD_SHEET_HEADERS = ['简写编号', '尺寸', '原位参数', '实际样品信息'] as const;
+export const FIELD_SHEET_HEADERS = [...LEGACY_FIELD_SHEET_HEADERS, '备注'] as const;
 
 export interface FieldSheetRow {
   itemId: string;
@@ -30,6 +31,11 @@ export interface FieldSheetRow {
   size: string;
   protocol: string;
   identity: string;
+  /** The editable, per-measurement note; legacy run notes are shown as a fallback. */
+  note: string;
+  noteSource: 'field' | 'legacy-run' | 'empty';
+  /** Other preserved notes with their original scope explicitly identified. */
+  legacyNotes: string;
 }
 
 function text(value: unknown) {
@@ -79,9 +85,9 @@ function specimenIdentity(
   const state = ownOrGroup(sample, group, 'state');
   const material = ownOrGroup(sample, group, 'material');
   const parts: string[] = [];
-  if (sampleName) parts.push(sampleName);
-  if (groupName && groupName !== sampleName) parts.push(groupName);
-  if (state && state !== '未指定') parts.push(`状态：${state}`);
+  if (sampleName) parts.push(run ? `开始时样品名：${sampleName}` : sampleName);
+  if (groupName && groupName !== sampleName) parts.push(run ? `开始时样品组：${groupName}` : groupName);
+  if (state) parts.push(`${run ? '开始时状态' : '状态'}：${state}`);
   if (material && material !== sampleName && material !== groupName) parts.push(material);
   for (const field of MATERIAL_FIELDS) {
     const value = ownOrGroup(sample, group, field.key);
@@ -108,11 +114,54 @@ function specimenIdentity(
       if (change.source !== 'builtin') continue;
       if (change.key === 'name')
         parts.push(`实际样品名：${change.actual} · 开始时：${change.planned}`);
+      else if (change.key === 'state')
+        parts.push(`实际样品状态：${change.actual} · 开始时：${change.planned}`);
       else if (change.key === 'preparation')
         parts.push(`实际制备 / 试剂：${change.actual} · 开始时：${change.planned}`);
     }
   }
   return uniqueLines(parts);
+}
+
+export function fieldSheetNote(
+  item: PlanItem,
+  group: Group,
+  sample: Sample,
+  run?: Run,
+  currentGroup?: Group,
+) {
+  const hasFieldNote = Object.prototype.hasOwnProperty.call(item, 'fieldNote');
+  const oldRunNote = typeof run?.notes === 'string' ? run.notes : '';
+  const noteSource: FieldSheetRow['noteSource'] = hasFieldNote
+    ? 'field'
+    : oldRunNote.trim()
+      ? 'legacy-run'
+      : 'empty';
+  const note = hasFieldNote ? (item.fieldNote ?? '') : oldRunNote;
+  const sampleNote = typeof sample.parameters.notes === 'string' ? sample.parameters.notes : '';
+  const groupNote = typeof group.notes === 'string' ? group.notes : '';
+  const currentGroupNote = typeof currentGroup?.notes === 'string' ? currentGroup.notes : '';
+  const legacy = [
+    hasFieldNote && oldRunNote.trim() ? `原现场备注：${oldRunNote}` : '',
+    sampleNote.trim() ? `样品备注：${sampleNote}` : '',
+    groupNote.trim() && groupNote !== sampleNote ? `样品组备注：${groupNote}` : '',
+    run &&
+    currentGroupNote.trim() &&
+    currentGroupNote !== sampleNote &&
+    currentGroupNote !== groupNote
+      ? `当前样品组备注：${currentGroupNote}`
+      : '',
+  ].filter(Boolean);
+  return { note, noteSource, legacyNotes: legacy.join('\n') };
+}
+
+/** The printed cell preserves both the current note and explicitly labelled older notes. */
+export function fieldSheetNoteText(
+  row: Pick<FieldSheetRow, 'note' | 'noteSource' | 'legacyNotes'>,
+) {
+  const main =
+    row.noteSource === 'legacy-run' && row.note.trim() ? `原现场备注：${row.note}` : row.note;
+  return [main, row.legacyNotes].filter((value) => value.length > 0).join('\n');
 }
 
 function protocolLines(
@@ -174,6 +223,7 @@ export function fieldSheetRows(snapshot: Snapshot, experimentId: string): FieldS
       const group = run ? storedGroup : plannedGroup(storedGroup, sample, item);
       const code = run ? run.filename : (item.plannedName ?? '');
       const nameReserved = Boolean(code);
+      const size = operationSizeLine(group, run);
       return [
         {
           itemId: item.id,
@@ -181,7 +231,9 @@ export function fieldSheetRows(snapshot: Snapshot, experimentId: string): FieldS
           status: item.status,
           code,
           nameReserved,
-          size: operationSizeLine(group, run),
+          size: run && size && !size.startsWith('实际 ') && !size.startsWith('开始时 ')
+            ? `开始时 ${size}`
+            : size,
           protocol: protocolLines(snapshot, item, run, nameReserved),
           identity: specimenIdentity(
             group,
@@ -190,6 +242,7 @@ export function fieldSheetRows(snapshot: Snapshot, experimentId: string): FieldS
             run,
             run ? undefined : storedGroup.name,
           ),
+          ...fieldSheetNote(item, storedGroup, sample, run, groups.get(sample.groupId)),
         },
       ];
     });
@@ -203,6 +256,7 @@ export function fieldSheetTable(snapshot: Snapshot, experimentId: string): strin
       row.size,
       row.protocol,
       row.identity,
+      fieldSheetNoteText(row),
     ]),
   ];
 }
@@ -210,7 +264,7 @@ export function fieldSheetTable(snapshot: Snapshot, experimentId: string): strin
 // Logical preview rows stay one-per-measurement. These narrow widths bound their rendered height
 // on A4 landscape when a single protocol or identity paragraph is exceptionally long.
 // Use the narrower of the HTML/PDF and Excel column widths with generous wrap margin.
-const PRINT_COLUMN_WIDTHS = [8, 10, 18, 18] as const;
+const PRINT_COLUMN_WIDTHS = [8, 9, 12, 13, 12] as const;
 const PRINT_MAX_LINES = 12;
 
 function printCharacterUnits(character: string) {
@@ -223,7 +277,7 @@ function printCharacterUnits(character: string) {
 }
 
 export interface FieldSheetPrintRow {
-  cells: [string, string, string, string];
+  cells: [string, string, string, string, string];
   continuation: boolean;
   continued: boolean;
 }
@@ -302,8 +356,8 @@ function printTextSegments(value: string, widthUnits: number) {
 /** Physical print rows may continue a long measurement, always repeating its exact folder name. */
 export function fieldSheetPrintRows(rows: readonly FieldSheetRow[]) {
   return rows.flatMap((row) => {
-    const columns = [row.size, row.protocol, row.identity].map((value, index) =>
-      printTextSegments(value, PRINT_COLUMN_WIDTHS[index + 1]),
+    const columns = [row.size, row.protocol, row.identity, fieldSheetNoteText(row)].map(
+      (value, index) => printTextSegments(value, PRINT_COLUMN_WIDTHS[index + 1]),
     );
     const count = Math.max(...columns.map((segments) => segments.length));
     return Array.from({ length: count }, (_, index) => ({
@@ -312,7 +366,8 @@ export function fieldSheetPrintRows(rows: readonly FieldSheetRow[]) {
         columns[0][index] ?? '',
         columns[1][index] ?? '',
         columns[2][index] ?? '',
-      ] as [string, string, string, string],
+        columns[3][index] ?? '',
+      ] as [string, string, string, string, string],
       continuation: index > 0,
       continued: count > 1,
     }));
@@ -346,10 +401,11 @@ export function fieldSheetHtml(snapshot: Snapshot, experimentId: string) {
 <td><div class="field-sheet-cell">${escapeHtml(row.cells[1])}</div></td>
 <td><div class="field-sheet-cell">${escapeHtml(row.cells[2])}</div></td>
 <td><div class="field-sheet-cell">${escapeHtml(row.cells[3])}</div></td>
+<td><div class="field-sheet-cell field-sheet-note">${escapeHtml(row.cells[4])}</div></td>
 </tr>`,
         )
         .join('')
-    : `<tr><td colspan="4">先安排待测样品，再打印。</td></tr>`;
+    : `<tr><td colspan="5">先安排待测样品，再打印。</td></tr>`;
   const title = experiment ? `${experiment.code} ${experiment.name}` : '现场规划表';
   return `<!doctype html>
 <html lang="zh-CN">
@@ -362,15 +418,18 @@ body { margin: 0; color: #1c2b26; font-family: "Segoe UI", "Microsoft YaHei", sa
 h1 { font-size: 18px; font-weight: 650; margin: 0 0 4px; }
 p { margin: 0 0 12px; color: #526e60; font-size: 12px; }
 table { width: 100%; border-collapse: collapse; table-layout: fixed; }
-col.code { width: 13%; }
-col.size { width: 19%; }
-col.protocol { width: 35%; }
-col.identity { width: 33%; }
+table { font-size: 13px; }
+col.code { width: 12%; }
+col.size { width: 16%; }
+col.protocol { width: 24%; }
+col.identity { width: 25%; }
+col.note { width: 23%; }
 thead { display: table-header-group; }
 tr { break-inside: avoid; page-break-inside: avoid; }
 th, td { border: 1px solid #9eb0a8; padding: 6px 8px; vertical-align: top; }
 th { background: #176b62; color: white; font-weight: 650; text-align: left; }
 .field-sheet-cell { white-space: pre-wrap; overflow-wrap: anywhere; word-break: normal; min-height: 1.5em; padding-bottom: 2mm; }
+.field-sheet-note { min-height: 3em; }
 .field-sheet-code { font-size: 14px; font-weight: 650; }
 .field-sheet-continuation { margin-left: 5px; color: #526e60; font-size: 8pt; font-weight: 400; white-space: nowrap; }
 </style>
@@ -379,8 +438,8 @@ th { background: #176b62; color: white; font-weight: 650; text-align: left; }
 <h1>${escapeHtml(title)}</h1>
 <p>一行一项测量。文件夹名可在两台仪器电脑上使用同一编号；重测使用独立编号并保留对应的样品信息。</p>
 <table>
-<colgroup><col class="code"><col class="size"><col class="protocol"><col class="identity"></colgroup>
-<thead><tr><th>简写编号</th><th>尺寸</th><th>原位参数</th><th>实际样品信息</th></tr></thead>
+<colgroup><col class="code"><col class="size"><col class="protocol"><col class="identity"><col class="note"></colgroup>
+<thead><tr><th>简写编号</th><th>尺寸</th><th>原位参数</th><th>实际样品信息</th><th>备注</th></tr></thead>
 <tbody>${body}</tbody>
 </table>
 </body>

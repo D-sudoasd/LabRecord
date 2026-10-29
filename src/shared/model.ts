@@ -137,6 +137,7 @@ export type SpecimenInput = {
   protocol?: string;
   state?: string;
   notes?: string;
+  fieldNote?: string;
   thickness?: string;
   thicknessUnit?: string;
   width?: string;
@@ -235,6 +236,8 @@ export interface PlanItem {
   measurement?: MeasurementPlan;
   nameNumber?: number;
   plannedName?: string;
+  /** Per-measurement note. Absent preserves the pre-v2 Run.notes fallback. */
+  fieldNote?: string;
 }
 export interface MeasurementPlan {
   mode?: Mode;
@@ -268,13 +271,32 @@ export interface Run {
   };
   actual: Values;
   actualSample?: SampleDetails;
+  /** Source of the relevant actual fields; missing keys mean no provenance was recorded. */
+  actualSources?: ActualSources;
   notes: string;
 }
+export const ACTUAL_SAMPLE_KEYS = [
+  'name',
+  'state',
+  'specimenName',
+  'width',
+  'height',
+  'dimensionUnit',
+] as const;
+export const ACTUAL_VALUE_KEYS = ['thickness', 'thicknessUnit'] as const;
+export type ActualSourceField =
+  | `actualSample.${(typeof ACTUAL_SAMPLE_KEYS)[number]}`
+  | `actual.${(typeof ACTUAL_VALUE_KEYS)[number]}`;
+export type ActualSource = 'legacy' | 'planned' | 'edited';
+export type ActualSources = Partial<Record<ActualSourceField, ActualSource>>;
 export interface SampleDetails {
-  name: string;
-  width: string;
-  height: string;
-  dimensionUnit: string;
+  name?: string;
+  state?: string;
+  /** Actual per-specimen original label; absent in records made by older versions. */
+  specimenName?: string;
+  width?: string;
+  height?: string;
+  dimensionUnit?: string;
 }
 export interface RecordEvent {
   id: string;
@@ -297,7 +319,7 @@ export interface Attachment {
   size: number;
 }
 export interface Snapshot {
-  schemaVersion: 1;
+  schemaVersion: 1 | 2 | 3;
   experiments: Experiment[];
   groups: Group[];
   samples: Sample[];
@@ -383,6 +405,18 @@ export type Command =
     }
   | { type: 'reorder'; experimentId: string; ids: string[] }
   | { type: 'configureMeasurements'; ids: string[]; measurement: MeasurementPlan }
+  | {
+      type: 'updateFieldRow';
+      itemId: string;
+      sample?: Partial<
+        Pick<
+          Group,
+          'name' | 'state' | 'thickness' | 'thicknessUnit' | 'width' | 'height' | 'dimensionUnit'
+        >
+      >;
+      protocol?: string;
+      fieldNote?: string;
+    }
   | {
       type: 'scheduleMeasurements';
       itemIds: string[];

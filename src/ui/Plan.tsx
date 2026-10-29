@@ -406,7 +406,11 @@ export function ArrangeDialog({
     [paste, setPaste] = useState(''),
     [pasteNote, setPasteNote] = useState(''),
     [error, setError] = useState(''),
-    [busy, setBusy] = useState(false);
+    [busy, setBusy] = useState(false),
+    [hiddenConfirm, setHiddenConfirm] = useState(false);
+  const hiddenReturnButton = useRef<HTMLButtonElement>(null);
+  const returnFocus = useRef<HTMLElement | null>(null);
+  const acceptedHidden = useRef('');
   const { close, closing } = useCommandClose({
     pending: !!intent.current,
     busy,
@@ -436,6 +440,16 @@ export function ArrangeDialog({
   const numeric = count.trim() === '' ? Number.NaN : Number(count);
   const overCap = Number.isInteger(numeric) && numeric > cap;
   const planned = Number.isInteger(numeric) && numeric >= 1 && numeric <= cap ? numeric : 0;
+  const hiddenRows = planned ? rows.slice(planned) : [];
+  const hiddenEditedCount = hiddenRows.filter(
+    (row) => row.nameEdited || row.protocolEdited || row.stateEdited || row.notesEdited ||
+      row.codeEdited || row.sizeEdited,
+  ).length;
+  const hiddenSignature = JSON.stringify([planned, hiddenRows]);
+  useEffect(() => {
+    if (hiddenConfirm) hiddenReturnButton.current?.focus();
+    else returnFocus.current?.focus();
+  }, [hiddenConfirm]);
   let codeError = '';
   let preview: { code: string; ordinal: string }[] = [];
   if (planned) {
@@ -552,8 +566,17 @@ export function ArrangeDialog({
     ]);
     setPasteNote(skipped > 0 ? `${skipped} 行超出还能安排的数量，没有写入。` : '');
   }
-  async function submit() {
+  async function submit(acceptHidden = false) {
     if (submitting.current || closing || planned < 1 || rows.length < planned || codeError) return;
+    if (hiddenEditedCount && !intent.current && acceptedHidden.current !== hiddenSignature) {
+      if (!acceptHidden) {
+        returnFocus.current =
+          document.activeElement instanceof HTMLElement ? document.activeElement : null;
+        setHiddenConfirm(true);
+        return;
+      }
+      acceptedHidden.current = hiddenSignature;
+    }
     submitting.current = true;
     setBusy(true);
     try {
@@ -592,11 +615,13 @@ export function ArrangeDialog({
   return (
     <Modal
       title={spare ? '启用备样' : '安排待测样品'}
-      onClose={close}
+      onClose={() => hiddenConfirm ? setHiddenConfirm(false) : close()}
       closeDisabled={busy || closing}
     >
       <form
         className="form-stack"
+        hidden={hiddenConfirm}
+        style={hiddenConfirm ? { display: 'none' } : undefined}
         onSubmit={(event) => {
           event.preventDefault();
         }}
@@ -916,10 +941,42 @@ export function ArrangeDialog({
           </button>
         </footer>
       </form>
+      {hiddenConfirm && (
+        <section
+          className="modal-body"
+          role="alertdialog"
+          aria-labelledby="arrange-hidden-title"
+          aria-describedby="arrange-hidden-description"
+        >
+          <h3 id="arrange-hidden-title">有已填写的样品被数量缩减隐藏</h3>
+          <p id="arrange-hidden-description">
+            {hiddenEditedCount} 件隐藏样品包含已编辑内容，不会随当前数量保存。返回检查可恢复查看。
+          </p>
+          <footer className="modal-actions">
+            <button ref={hiddenReturnButton} type="button" className="button" onClick={() => setHiddenConfirm(false)}>
+              返回检查
+            </button>
+            <button type="button" className="button danger" onClick={() => {
+              setHiddenConfirm(false);
+              void submit(true);
+            }}>
+              放弃隐藏内容并保存
+            </button>
+          </footer>
+        </section>
+      )}
     </Modal>
   );
 }
-function SampleEditor({ sample, onClose }: { sample: Sample; onClose: () => void }) {
+function SampleEditor({
+  sample,
+  onClose,
+  detailsOnly = false,
+}: {
+  sample: Sample;
+  onClose: () => void;
+  detailsOnly?: boolean;
+}) {
   const { snapshot, execute } = useWorkspace();
   const group = snapshot.groups.find((g) => g.id === sample.groupId)!;
   const experiment = snapshot.experiments.find((e) => e.id === sample.experimentId)!;
@@ -937,7 +994,9 @@ function SampleEditor({ sample, onClose }: { sample: Sample; onClose: () => void
     [protocol, setProtocol] = useState(sample.parameters.protocol ?? '');
   const [materials, setMaterials] = useState<GroupPatch>({ ...group, ...sample.parameters });
   const [materialChanges, setMaterialChanges] = useState(new Set<string>());
+  const [notesChanged, setNotesChanged] = useState(false);
   const [values, setValues] = useState({ ...group.values, ...sample.values }),
+    [valueChanges, setValueChanges] = useState<import('../shared/model').Values>({}),
     [error, setError] = useState(''),
     [busy, setBusy] = useState(false);
   const shortNameRule = experiment.namingPattern === '{sample}';
@@ -961,15 +1020,19 @@ function SampleEditor({ sample, onClose }: { sample: Sample; onClose: () => void
         ids: [sample.id],
         ...(!motherCodeLocked ? { code } : {}),
         parameters: {
-          name: name.trim(),
-          state: state.trim() || group.state,
-          width,
-          height,
-          dimensionUnit,
-          thickness,
-          thicknessUnit: unit,
-          notes,
-          protocol: protocol.trim() === (group.protocol ?? '').trim() ? '' : protocol,
+          ...(!detailsOnly
+            ? {
+                name: name.trim(),
+                state: state.trim() || group.state,
+                width,
+                height,
+                dimensionUnit,
+                thickness,
+                thicknessUnit: unit,
+                protocol: protocol.trim() === (group.protocol ?? '').trim() ? '' : protocol,
+              }
+            : {}),
+          ...(!detailsOnly || notesChanged ? { notes } : {}),
           ...Object.fromEntries(
             MATERIAL_FIELDS.filter(({ key }) => materialChanges.has(key)).map(({ key }) => [
               key,
@@ -977,7 +1040,7 @@ function SampleEditor({ sample, onClose }: { sample: Sample; onClose: () => void
             ]),
           ),
         },
-        values,
+        values: detailsOnly ? valueChanges : values,
       });
       onClose();
     } catch (failure) {
@@ -987,42 +1050,46 @@ function SampleEditor({ sample, onClose }: { sample: Sample; onClose: () => void
     }
   }
   return (
-    <Modal title="具体样品参数" onClose={onClose}>
+    <Modal title={detailsOnly ? '更多样品信息' : '具体样品参数'} onClose={onClose}>
       <form onSubmit={submit} className="form-stack">
-        <label className="field sample-name-input">
-          <span>原始编号或名称</span>
-          <input
-            value={name}
-            onChange={(event) => setName(event.target.value)}
-            placeholder="例如原表中的样品号；可留空"
-          />
-        </label>
-        <label className="field">
-          <span>这一件的样品状态</span>
-          <input
-            value={state}
-            onChange={(event) => setState(event.target.value)}
-            placeholder={group.state || '本组状态'}
-          />
-          <small>留空则记下本组现在的状态。</small>
-        </label>
-        <div className="form-grid">
-          <label className="field">
-            <span>宽度</span>
-            <input value={width} onChange={(event) => setWidth(event.target.value)} />
-          </label>
-          <label className="field">
-            <span>高度（可选）</span>
-            <input value={height} onChange={(event) => setHeight(event.target.value)} />
-          </label>
-          <label className="field">
-            <span>宽高单位</span>
-            <input
-              value={dimensionUnit}
-              onChange={(event) => setDimensionUnit(event.target.value)}
-            />
-          </label>
-        </div>
+        {!detailsOnly && (
+          <>
+            <label className="field sample-name-input">
+              <span>原始编号或名称</span>
+              <input
+                value={name}
+                onChange={(event) => setName(event.target.value)}
+                placeholder="例如原表中的样品号；可留空"
+              />
+            </label>
+            <label className="field">
+              <span>这一件的样品状态</span>
+              <input
+                value={state}
+                onChange={(event) => setState(event.target.value)}
+                placeholder={group.state || '本组状态'}
+              />
+              <small>留空则记下本组现在的状态。</small>
+            </label>
+            <div className="form-grid">
+              <label className="field">
+                <span>宽度</span>
+                <input value={width} onChange={(event) => setWidth(event.target.value)} />
+              </label>
+              <label className="field">
+                <span>高度（可选）</span>
+                <input value={height} onChange={(event) => setHeight(event.target.value)} />
+              </label>
+              <label className="field">
+                <span>宽高单位</span>
+                <input
+                  value={dimensionUnit}
+                  onChange={(event) => setDimensionUnit(event.target.value)}
+                />
+              </label>
+            </div>
+          </>
+        )}
         <MaterialPreparationFields
           value={materials}
           onChange={(key, value) => {
@@ -1060,31 +1127,38 @@ function SampleEditor({ sample, onClose }: { sample: Sample; onClose: () => void
             </div>
           ) : null}
         </label>
-        <div className="form-grid">
-          <label className="field">
-            <span>厚度</span>
-            <input value={thickness} onChange={(event) => setThickness(event.target.value)} />
-          </label>
-          <label className="field">
-            <span>单位</span>
-            <input
-              value={unit}
-              onChange={(event) => setUnit(event.target.value)}
-              placeholder="例如 mm"
-            />
-          </label>
-        </div>
+        {!detailsOnly && (
+          <>
+            <div className="form-grid">
+              <label className="field">
+                <span>厚度</span>
+                <input value={thickness} onChange={(event) => setThickness(event.target.value)} />
+              </label>
+              <label className="field">
+                <span>单位</span>
+                <input
+                  value={unit}
+                  onChange={(event) => setUnit(event.target.value)}
+                  placeholder="例如 mm"
+                />
+              </label>
+            </div>
+          </>
+        )}
         <label className="field">
-          <span>这一件的备注</span>
+          <span>{detailsOnly ? '样品备注（同一件样品共用）' : '这一件的备注'}</span>
           <textarea
             value={notes}
-            onChange={(event) => setNotes(event.target.value)}
+            onChange={(event) => {
+              setNotes(event.target.value);
+              setNotesChanged(true);
+            }}
             rows={3}
             placeholder={group.notes?.trim() || '留空则沿用样品组'}
           />
           <small>留空则沿用样品组的计划备注。</small>
         </label>
-        {(group.mode !== '未定' || protocol.trim() || group.protocol?.trim()) && (
+        {!detailsOnly && (group.mode !== '未定' || protocol.trim() || group.protocol?.trim()) && (
           <label className="field protocol-card">
             <span>这一件的实验制度</span>
             <textarea
@@ -1104,7 +1178,10 @@ function SampleEditor({ sample, onClose }: { sample: Sample; onClose: () => void
           immediate
           fields={experiment.fields}
           values={values}
-          save={async (patch) => setValues((old) => ({ ...old, ...patch }))}
+          save={async (patch) => {
+            setValues((old) => ({ ...old, ...patch }));
+            setValueChanges((old) => ({ ...old, ...patch }));
+          }}
         />
         <p className="hint">修改计划会用于后续操作，已有操作保存的计划内容保持原记录。</p>
         {error && (
@@ -1117,7 +1194,7 @@ function SampleEditor({ sample, onClose }: { sample: Sample; onClose: () => void
             取消
           </button>
           <button disabled={busy} className="button primary">
-            保存样品参数
+            {detailsOnly ? '保存更多信息' : '保存样品参数'}
           </button>
         </footer>
       </form>
@@ -1151,6 +1228,8 @@ export function Plan() {
     window.addEventListener('keydown', listener);
     return () => window.removeEventListener('keydown', listener);
   }, []);
+  const [managementOpen, setManagementOpen] = useState(false);
+  const [sampleDetailsOnly, setSampleDetailsOnly] = useState(false);
   const [search, setSearch] = useState(''),
     [expanded, setExpanded] = useState(new Set<string>()),
     [selected, setSelected] = useState(new Set<string>());
@@ -1158,6 +1237,7 @@ export function Plan() {
     const apply = () => {
       const id = consumePendingGroup();
       if (!id) return;
+      setManagementOpen(true);
       setExpanded((old) => new Set(old).add(id));
     };
     window.addEventListener('labrecord-focus-group', apply);
@@ -1216,6 +1296,7 @@ export function Plan() {
       .then(() => {
         const current = workspace.getSnapshot().samples.find((entry) => entry.id === sampleId);
         if (!current) throw new Error('样品计划已变化，请刷新后重试。');
+        setSampleDetailsOnly(true);
         setSample(current);
       })
       .catch((failure) =>
@@ -1279,491 +1360,503 @@ export function Plan() {
         onEditMeasurement={editFieldSheetMeasurement}
         onViewOperation={viewFieldSheetOperation}
       />
-      <div className="stats-row plan-stats">
-        <div className="stat">
-          <Layers size={20} />
-          <div>
-            <strong>
-              {groups.length}
-              <small>组</small>
-            </strong>
-            <span>样品组</span>
-          </div>
-        </div>
-        <div className="stat" title="已知准备数量，含尚未启用的备样">
-          <Package size={20} />
-          <div>
-            <strong>
-              {preparationUnknown ? '未知' : insights.preparedKnown}
-              {!preparationUnknown && <small>个</small>}
-            </strong>
-            <span>准备</span>
-            {insights.unknownPreparation > 0 && (
-              <small className="stat-unknown">{insights.unknownPreparation} 组准备数量未知</small>
-            )}
-          </div>
-        </div>
-        <div className="stat accent" title="不同物理样品，重测不另计">
-          <span className="stat-icon">↗</span>
-          <div>
-            <strong>
-              {insights.plannedSamples}
-              <small>个</small>
-            </strong>
-            <span>计划样品</span>
-          </div>
-        </div>
-        <div className="stat" title="每次测量各计一项，含重测">
-          <TrendingUp size={20} />
-          <div>
-            <strong>
-              {insights.plannedOperations}
-              <small>项</small>
-            </strong>
-            <span>计划操作</span>
-          </div>
-        </div>
-        <div className="stat" title="尚未启用，不计入计划样品">
-          <Boxes size={20} />
-          <div>
-            <strong>
-              {preparationUnknown ? '未知' : insights.spareKnown}
-              {!preparationUnknown && <small>个</small>}
-            </strong>
-            <span>备样</span>
-            {insights.unknownPreparation > 0 && (
-              <small className="stat-unknown">{insights.unknownPreparation} 组备样数量未知</small>
-            )}
-          </div>
-        </div>
-      </div>
-      <section className="plan-progress" aria-label="计划进度">
-        <OperationMix
-          completed={insights.completed}
-          running={insights.running}
-          pending={insights.pending}
-          skipped={insights.skipped}
-          interrupted={insights.interrupted}
-        />
-        {next ? (
-          <div className="next-step" role="region" aria-label="下一项待测">
+      <details
+        className="card plan-management"
+        open={managementOpen}
+        onToggle={(event) => setManagementOpen(event.currentTarget.open)}
+      >
+        <summary>样品准备与批量管理</summary>
+        <div className="stats-row plan-stats">
+          <div className="stat">
+            <Layers size={20} />
             <div>
-              <strong>下一项 {next.sampleCode}</strong>
-              <span>
-                {[
-                  brief?.measurement || next.operation,
-                  brief?.preparation,
-                  brief?.protocol,
-                  brief?.repeat,
-                  brief?.sourceIssue,
-                  brief?.folder || next.plannedName,
-                ]
-                  .filter(Boolean)
-                  .join(' · ')}
-              </span>
+              <strong>
+                {groups.length}
+                <small>组</small>
+              </strong>
+              <span>样品组</span>
             </div>
-            {canCopyName(brief?.folder || next.plannedName) && (
-              <button
-                type="button"
-                className="button small"
-                aria-label={`复制下一项文件夹 ${next.sampleCode}`}
-                onClick={() => {
-                  void workspace
-                    .flush()
-                    .then(async () => {
-                      const fresh = nextOperationBrief(workspace.getSnapshot(), experimentId);
-                      const name = fresh?.folder || '';
-                      if (!canCopyName(name)) throw new Error('还没有可复制的数据文件夹名。');
-                      await unwrap(window.labrecord.copyName(name));
-                      notify('下一项数据文件夹名已复制。');
-                    })
-                    .catch((error) => notify(error.message, true));
-                }}
-              >
-                复制文件夹
-              </button>
-            )}
-            {canCopyProtocol(brief?.protocol) && (
-              <button
-                type="button"
-                className="button small"
-                aria-label={`复制下一项实验制度 ${next.sampleCode}`}
-                onClick={() => {
-                  void workspace
-                    .flush()
-                    .then(async () => {
-                      const fresh = nextOperationBrief(workspace.getSnapshot(), experimentId);
-                      const text = protocolCopyText(fresh?.protocol);
-                      if (!canCopyProtocol(text)) throw new Error('还没有可复制的实验制度。');
-                      await unwrap(window.labrecord.copyText(text));
-                      notify('下一项实验制度已复制。');
-                    })
-                    .catch((error) => notify(error.message, true));
-                }}
-              >
-                复制制度
-              </button>
-            )}
-            {brief?.sourceIssue &&
-              repeatSource(
-                snapshot,
-                snapshot.items.find((item) => item.id === next.itemId)!,
-              ) && (
+          </div>
+          <div className="stat" title="已知准备数量，含尚未启用的备样">
+            <Package size={20} />
+            <div>
+              <strong>
+                {preparationUnknown ? '未知' : insights.preparedKnown}
+                {!preparationUnknown && <small>个</small>}
+              </strong>
+              <span>准备</span>
+              {insights.unknownPreparation > 0 && (
+                <small className="stat-unknown">{insights.unknownPreparation} 组准备数量未知</small>
+              )}
+            </div>
+          </div>
+          <div className="stat accent" title="不同物理样品，重测不另计">
+            <span className="stat-icon">↗</span>
+            <div>
+              <strong>
+                {insights.plannedSamples}
+                <small>个</small>
+              </strong>
+              <span>计划样品</span>
+            </div>
+          </div>
+          <div className="stat" title="每次测量各计一项，含重测">
+            <TrendingUp size={20} />
+            <div>
+              <strong>
+                {insights.plannedOperations}
+                <small>项</small>
+              </strong>
+              <span>计划操作</span>
+            </div>
+          </div>
+          <div className="stat" title="尚未启用，不计入计划样品">
+            <Boxes size={20} />
+            <div>
+              <strong>
+                {preparationUnknown ? '未知' : insights.spareKnown}
+                {!preparationUnknown && <small>个</small>}
+              </strong>
+              <span>备样</span>
+              {insights.unknownPreparation > 0 && (
+                <small className="stat-unknown">{insights.unknownPreparation} 组备样数量未知</small>
+              )}
+            </div>
+          </div>
+        </div>
+        <section className="plan-progress" aria-label="计划进度">
+          <OperationMix
+            completed={insights.completed}
+            running={insights.running}
+            pending={insights.pending}
+            skipped={insights.skipped}
+            interrupted={insights.interrupted}
+          />
+          {next ? (
+            <div className="next-step" role="region" aria-label="下一项待测">
+              <div>
+                <strong>下一项 {next.sampleCode}</strong>
+                <span>
+                  {[
+                    brief?.measurement || next.operation,
+                    brief?.preparation,
+                    brief?.protocol,
+                    brief?.repeat,
+                    brief?.sourceIssue,
+                    brief?.folder || next.plannedName,
+                  ]
+                    .filter(Boolean)
+                    .join(' · ')}
+                </span>
+              </div>
+              {canCopyName(brief?.folder || next.plannedName) && (
                 <button
                   type="button"
                   className="button small"
-                  aria-label={`查看下一项的原操作 ${next.sampleCode}`}
+                  aria-label={`复制下一项文件夹 ${next.sampleCode}`}
                   onClick={() => {
                     void workspace
                       .flush()
-                      .then(() => {
-                        const fresh = workspace.getSnapshot();
-                        const item = fresh.items.find((entry) => entry.id === next.itemId);
-                        const source = item && repeatSource(fresh, item);
-                        if (!source) throw new Error('原操作已不存在。');
-                        setItemId(source.itemId);
-                        setPage('live');
+                      .then(async () => {
+                        const fresh = nextOperationBrief(workspace.getSnapshot(), experimentId);
+                        const name = fresh?.folder || '';
+                        if (!canCopyName(name)) throw new Error('还没有可复制的数据文件夹名。');
+                        await unwrap(window.labrecord.copyName(name));
+                        notify('下一项数据文件夹名已复制。');
                       })
                       .catch((error) => notify(error.message, true));
                   }}
                 >
-                  查看原操作
+                  复制文件夹
                 </button>
               )}
-            <button
-              type="button"
-              className="button small"
-              aria-label={`去现场查看下一项 ${next.sampleCode}`}
-              onClick={() => {
-                void workspace
-                  .flush()
-                  .then(() => {
-                    setItemId(next.itemId);
-                    setPage('live');
-                  })
-                  .catch((error) => notify(error.message, true));
-              }}
-            >
-              去现场查看
-            </button>
-          </div>
-        ) : (
-          insights.plannedOperations > 0 &&
-          insights.pending === 0 &&
-          insights.running === 0 && <p className="hint">没有待测操作。</p>
-        )}
-        {firstGap && (
-          <div className="next-step" role="region" aria-label="先核对">
-            <div>
-              <strong>先核对 {firstGap.sampleCode}</strong>
-              <span>{firstGap.gaps.join('、')}</span>
+              {canCopyProtocol(brief?.protocol) && (
+                <button
+                  type="button"
+                  className="button small"
+                  aria-label={`复制下一项实验制度 ${next.sampleCode}`}
+                  onClick={() => {
+                    void workspace
+                      .flush()
+                      .then(async () => {
+                        const fresh = nextOperationBrief(workspace.getSnapshot(), experimentId);
+                        const text = protocolCopyText(fresh?.protocol);
+                        if (!canCopyProtocol(text)) throw new Error('还没有可复制的实验制度。');
+                        await unwrap(window.labrecord.copyText(text));
+                        notify('下一项实验制度已复制。');
+                      })
+                      .catch((error) => notify(error.message, true));
+                  }}
+                >
+                  复制制度
+                </button>
+              )}
+              {brief?.sourceIssue &&
+                repeatSource(
+                  snapshot,
+                  snapshot.items.find((item) => item.id === next.itemId)!,
+                ) && (
+                  <button
+                    type="button"
+                    className="button small"
+                    aria-label={`查看下一项的原操作 ${next.sampleCode}`}
+                    onClick={() => {
+                      void workspace
+                        .flush()
+                        .then(() => {
+                          const fresh = workspace.getSnapshot();
+                          const item = fresh.items.find((entry) => entry.id === next.itemId);
+                          const source = item && repeatSource(fresh, item);
+                          if (!source) throw new Error('原操作已不存在。');
+                          setItemId(source.itemId);
+                          setPage('live');
+                        })
+                        .catch((error) => notify(error.message, true));
+                    }}
+                  >
+                    查看原操作
+                  </button>
+                )}
+              <button
+                type="button"
+                className="button small"
+                aria-label={`去现场查看下一项 ${next.sampleCode}`}
+                onClick={() => {
+                  void workspace
+                    .flush()
+                    .then(() => {
+                      setItemId(next.itemId);
+                      setPage('live');
+                    })
+                    .catch((error) => notify(error.message, true));
+                }}
+              >
+                去现场查看
+              </button>
             </div>
-            <button
-              type="button"
-              className="button small"
-              aria-label={`去核对 ${firstGap.sampleCode}`}
-              onClick={() => {
-                void workspace
-                  .flush()
-                  .then(() => {
-                    setItemId(firstGap.itemId);
-                    setPage('live');
-                  })
-                  .catch((error) => notify(error.message, true));
-              }}
-            >
-              去核对
-            </button>
-          </div>
-        )}
-        {recent && (
-          <div className="next-step" role="region" aria-label="最近记录">
-            <div>
-              <strong>
-                {recent.status === 'interrupted' ? '最近中断' : '最近完成'} {recent.sampleCode}
-              </strong>
+          ) : (
+            insights.plannedOperations > 0 &&
+            insights.pending === 0 &&
+            insights.running === 0 && <p className="hint">没有待测操作。</p>
+          )}
+          {firstGap && (
+            <div className="next-step" role="region" aria-label="先核对">
+              <div>
+                <strong>先核对 {firstGap.sampleCode}</strong>
+                <span>{firstGap.gaps.join('、')}</span>
+              </div>
+              <button
+                type="button"
+                className="button small"
+                aria-label={`去核对 ${firstGap.sampleCode}`}
+                onClick={() => {
+                  void workspace
+                    .flush()
+                    .then(() => {
+                      setItemId(firstGap.itemId);
+                      setPage('live');
+                    })
+                    .catch((error) => notify(error.message, true));
+                }}
+              >
+                去核对
+              </button>
+            </div>
+          )}
+          {recent && (
+            <div className="next-step" role="region" aria-label="最近记录">
+              <div>
+                <strong>
+                  {recent.status === 'interrupted' ? '最近中断' : '最近完成'} {recent.sampleCode}
+                </strong>
+                <span>
+                  {[
+                    recent.duration ? `用时 ${recent.duration}` : '',
+                    recent.endedClock,
+                    recent.scanId ? `扫描 ${recent.scanId}` : '',
+                    recent.fileLabel,
+                    recent.folder,
+                    recent.openIssue,
+                  ]
+                    .filter(Boolean)
+                    .join(' · ')}
+                </span>
+              </div>
+              {canCopyName(recent.folder) && (
+                <button
+                  type="button"
+                  className="button small"
+                  aria-label={`复制最近记录文件夹 ${recent.sampleCode}`}
+                  onClick={() => {
+                    void workspace
+                      .flush()
+                      .then(async () => {
+                        const fresh = latestRecorded(workspace.getSnapshot(), experimentId);
+                        const name = fresh?.folder || '';
+                        if (!canCopyName(name)) throw new Error('还没有可复制的数据文件夹名。');
+                        await unwrap(window.labrecord.copyName(name));
+                        notify('最近记录的数据文件夹名已复制。');
+                      })
+                      .catch((error) => notify(error.message, true));
+                  }}
+                >
+                  复制文件夹
+                </button>
+              )}
+              {canCopyName(recent.scanId) && (
+                <button
+                  type="button"
+                  className="button small"
+                  aria-label={`复制最近记录扫描编号 ${recent.sampleCode}`}
+                  onClick={() => {
+                    void workspace
+                      .flush()
+                      .then(async () => {
+                        const fresh = latestRecorded(workspace.getSnapshot(), experimentId);
+                        const name = fresh?.scanId || '';
+                        if (!canCopyName(name)) throw new Error('还没有可复制的扫描编号。');
+                        await unwrap(window.labrecord.copyName(name));
+                        notify('最近记录的扫描编号已复制。');
+                      })
+                      .catch((error) => notify(error.message, true));
+                  }}
+                >
+                  复制扫描编号
+                </button>
+              )}
+              {canCopyName(recent.filename) && (
+                <button
+                  type="button"
+                  className="button small"
+                  aria-label={`复制最近记录文件名 ${recent.sampleCode}`}
+                  onClick={() => {
+                    void workspace
+                      .flush()
+                      .then(async () => {
+                        const fresh = latestRecorded(workspace.getSnapshot(), experimentId);
+                        const name = fresh?.filename || '';
+                        if (!canCopyName(name)) throw new Error('还没有可复制的实际文件名。');
+                        await unwrap(window.labrecord.copyName(name));
+                        notify('最近记录的实际文件名已复制。');
+                      })
+                      .catch((error) => notify(error.message, true));
+                  }}
+                >
+                  复制文件名
+                </button>
+              )}
+              <button
+                type="button"
+                className="button small"
+                aria-label={`安排最近记录的重测 ${recent.sampleCode}`}
+                onClick={() => {
+                  if (repeatingRecent.current) return;
+                  repeatingRecent.current = true;
+                  void workspace
+                    .flush()
+                    .then(() => execute({ type: 'repeat', itemId: recent.itemId }, false))
+                    .catch((error) => notify(error.message, true))
+                    .finally(() => {
+                      repeatingRecent.current = false;
+                    });
+                }}
+              >
+                安排重测
+              </button>
+              <button
+                type="button"
+                className="button small"
+                aria-label={`查看最近记录 ${recent.sampleCode}`}
+                onClick={() => {
+                  void workspace
+                    .flush()
+                    .then(() => {
+                      setItemId(recent.itemId);
+                      setPage('live');
+                    })
+                    .catch((error) => notify(error.message, true));
+                }}
+              >
+                查看
+              </button>
+            </div>
+          )}
+        </section>
+        <section className="card planning-card">
+          <div className="card-toolbar">
+            <div className="toolbar-title">
+              <h2>样品准备</h2>
               <span>
-                {[
-                  recent.duration ? `用时 ${recent.duration}` : '',
-                  recent.endedClock,
-                  recent.scanId ? `扫描 ${recent.scanId}` : '',
-                  recent.fileLabel,
-                  recent.folder,
-                  recent.openIssue,
-                ]
-                  .filter(Boolean)
-                  .join(' · ')}
+                {search ? `${visible.length} / ${groups.length}` : groups.length} 个样品组
               </span>
             </div>
-            {canCopyName(recent.folder) && (
+            <div className="toolbar-actions">
+              <SearchField
+                label="搜索样品组"
+                placeholder="材料、样品 ID、工艺或备注"
+                value={search}
+                onChange={setSearch}
+              />
+              <button className="button" onClick={importFile}>
+                <Upload size={16} />
+                导入表格
+              </button>
+              <button className="button" onClick={() => setPaste(true)}>
+                <ClipboardPaste size={16} />
+                粘贴多行
+              </button>
+            </div>
+          </div>
+          {selected.size > 0 && (
+            <div className="selection-bar">
+              <span>已选 {selected.size} 组</span>
+              <button className="button small" onClick={() => setEditing('bulk')}>
+                <SlidersHorizontal size={14} />
+                批量设置参数
+              </button>
               <button
                 type="button"
-                className="button small"
-                aria-label={`复制最近记录文件夹 ${recent.sampleCode}`}
+                className="button small danger"
+                disabled={!!groupsDeleteReason(snapshot, [...selected])}
+                title={groupsDeleteReason(snapshot, [...selected]) || '删除所选样品组'}
                 onClick={() => {
-                  void workspace
-                    .flush()
-                    .then(async () => {
-                      const fresh = latestRecorded(workspace.getSnapshot(), experimentId);
-                      const name = fresh?.folder || '';
-                      if (!canCopyName(name)) throw new Error('还没有可复制的数据文件夹名。');
-                      await unwrap(window.labrecord.copyName(name));
-                      notify('最近记录的数据文件夹名已复制。');
-                    })
-                    .catch((error) => notify(error.message, true));
-                }}
-              >
-                复制文件夹
-              </button>
-            )}
-            {canCopyName(recent.scanId) && (
-              <button
-                type="button"
-                className="button small"
-                aria-label={`复制最近记录扫描编号 ${recent.sampleCode}`}
-                onClick={() => {
-                  void workspace
-                    .flush()
-                    .then(async () => {
-                      const fresh = latestRecorded(workspace.getSnapshot(), experimentId);
-                      const name = fresh?.scanId || '';
-                      if (!canCopyName(name)) throw new Error('还没有可复制的扫描编号。');
-                      await unwrap(window.labrecord.copyName(name));
-                      notify('最近记录的扫描编号已复制。');
-                    })
-                    .catch((error) => notify(error.message, true));
-                }}
-              >
-                复制扫描编号
-              </button>
-            )}
-            {canCopyName(recent.filename) && (
-              <button
-                type="button"
-                className="button small"
-                aria-label={`复制最近记录文件名 ${recent.sampleCode}`}
-                onClick={() => {
-                  void workspace
-                    .flush()
-                    .then(async () => {
-                      const fresh = latestRecorded(workspace.getSnapshot(), experimentId);
-                      const name = fresh?.filename || '';
-                      if (!canCopyName(name)) throw new Error('还没有可复制的实际文件名。');
-                      await unwrap(window.labrecord.copyName(name));
-                      notify('最近记录的实际文件名已复制。');
-                    })
-                    .catch((error) => notify(error.message, true));
-                }}
-              >
-                复制文件名
-              </button>
-            )}
-            <button
-              type="button"
-              className="button small"
-              aria-label={`安排最近记录的重测 ${recent.sampleCode}`}
-              onClick={() => {
-                if (repeatingRecent.current) return;
-                repeatingRecent.current = true;
-                void workspace
-                  .flush()
-                  .then(() => execute({ type: 'repeat', itemId: recent.itemId }, false))
-                  .catch((error) => notify(error.message, true))
-                  .finally(() => {
-                    repeatingRecent.current = false;
-                  });
-              }}
-            >
-              安排重测
-            </button>
-            <button
-              type="button"
-              className="button small"
-              aria-label={`查看最近记录 ${recent.sampleCode}`}
-              onClick={() => {
-                void workspace
-                  .flush()
-                  .then(() => {
-                    setItemId(recent.itemId);
-                    setPage('live');
-                  })
-                  .catch((error) => notify(error.message, true));
-              }}
-            >
-              查看
-            </button>
-          </div>
-        )}
-      </section>
-      <section className="card planning-card">
-        <div className="card-toolbar">
-          <div className="toolbar-title">
-            <h2>样品准备</h2>
-            <span>{search ? `${visible.length} / ${groups.length}` : groups.length} 个样品组</span>
-          </div>
-          <div className="toolbar-actions">
-            <SearchField
-              label="搜索样品组"
-              placeholder="材料、样品 ID、工艺或备注"
-              value={search}
-              onChange={setSearch}
-            />
-            <button className="button" onClick={importFile}>
-              <Upload size={16} />
-              导入表格
-            </button>
-            <button className="button" onClick={() => setPaste(true)}>
-              <ClipboardPaste size={16} />
-              粘贴多行
-            </button>
-          </div>
-        </div>
-        {selected.size > 0 && (
-          <div className="selection-bar">
-            <span>已选 {selected.size} 组</span>
-            <button className="button small" onClick={() => setEditing('bulk')}>
-              <SlidersHorizontal size={14} />
-              批量设置参数
-            </button>
-            <button
-              type="button"
-              className="button small danger"
-              disabled={!!groupsDeleteReason(snapshot, [...selected])}
-              title={groupsDeleteReason(snapshot, [...selected]) || '删除所选样品组'}
-              onClick={() => {
-                const chosen = groups.filter((group) => selected.has(group.id));
-                if (!chosen.length) return;
-                askDelete(
-                  groupDeleteRequest(chosen),
-                  chosen.map((group) => group.id),
-                );
-              }}
-            >
-              <Trash2 size={14} />
-              删除所选样品组
-            </button>
-            <button className="text-button" onClick={() => setSelected(new Set())}>
-              取消选择
-            </button>
-          </div>
-        )}
-        {groups.length === 0 ? (
-          <Empty
-            title="添加第一份实验样品"
-            description="使用上方现场规划表中的“新增样品”按钮，或导入已有表格。"
-          />
-        ) : (
-          <div className="table-wrap">
-            <table className="plan-table">
-              <thead>
-                <tr>
-                  <th className="sticky-cell">
-                    <input
-                      type="checkbox"
-                      aria-label="选择当前全部样品组"
-                      checked={visible.length > 0 && visible.every((g) => selected.has(g.id))}
-                      onChange={(event) =>
-                        setSelected(
-                          event.target.checked ? new Set(visible.map((g) => g.id)) : new Set(),
-                        )
-                      }
-                    />
-                    <span>材料 / 制备状态</span>
-                  </th>
-                  <th>准备 / 计划</th>
-                  <th>尺寸</th>
-                  <th>实验条件</th>
-                  <th>计划备注</th>
-                  <th>安排</th>
-                </tr>
-              </thead>
-              <tbody>
-                {!visible.length && (
-                  <tr>
-                    <td colSpan={6}>
-                      <Empty title="没有找到样品" description="换一个名称、状态或备注。">
-                        <button className="button" onClick={() => setSearch('')}>
-                          清除筛选
-                        </button>
-                      </Empty>
-                    </td>
-                  </tr>
-                )}
-                {visible.map((group) => {
-                  const counts = groupCounts(snapshot, group);
-                  const samples = snapshot.samples.filter((s) => s.groupId === group.id);
-                  const save = (patch: GroupPatch) =>
-                    execute({ type: 'updateGroups', ids: [group.id], patch }, false);
-                  return (
-                    <GroupRows
-                      key={group.id}
-                      group={group}
-                      counts={counts}
-                      expanded={expanded.has(group.id)}
-                      selected={selected.has(group.id)}
-                      toggleExpanded={() => toggle(group.id, setExpanded, expanded)}
-                      toggleSelected={() => toggle(group.id, setSelected, selected)}
-                      save={save}
-                      samples={samples}
-                      fields={experiment.fields}
-                      onArrange={() => setArranging(group)}
-                      onEdit={() => {
-                        void workspace
-                          .flush()
-                          .then(() => setEditing(group))
-                          .catch((error) => notify(error.message, true));
-                      }}
-                      onCopy={() => {
-                        void workspace
-                          .flush()
-                          .then(() => execute({ type: 'copyGroup', id: group.id }))
-                          .catch((error) => notify(error.message, true));
-                      }}
-                      onSample={setSample}
-                      openMenu={openMenu}
-                      askDelete={askDelete}
-                      selectedIds={selected.has(group.id) ? [...selected] : [group.id]}
-                      onLive={(sampleId, itemId) => {
-                        void workspace
-                          .flush()
-                          .then(() => {
-                            const sampleItems = workspace
-                              .getSnapshot()
-                              .items.filter((item) => item.sampleId === sampleId)
-                              .sort((a, b) => a.order - b.order);
-                            const item =
-                              sampleItems.find((entry) => entry.id === itemId) ||
-                              sampleItems.find((entry) => entry.status === 'running') ||
-                              sampleItems.find((entry) => entry.status === 'pending') ||
-                              sampleItems.at(-1);
-                            if (item) setItemId(item.id);
-                            setPage('live');
-                          })
-                          .catch((error) => notify(error.message, true));
-                      }}
-                    />
+                  const chosen = groups.filter((group) => selected.has(group.id));
+                  if (!chosen.length) return;
+                  askDelete(
+                    groupDeleteRequest(chosen),
+                    chosen.map((group) => group.id),
                   );
-                })}
-              </tbody>
-            </table>
+                }}
+              >
+                <Trash2 size={14} />
+                删除所选样品组
+              </button>
+              <button className="text-button" onClick={() => setSelected(new Set())}>
+                取消选择
+              </button>
+            </div>
+          )}
+          {groups.length === 0 ? (
+            <Empty
+              title="添加第一份实验样品"
+              description="使用上方现场规划表中的“新增样品”按钮，或导入已有表格。"
+            />
+          ) : (
+            <div className="table-wrap">
+              <table className="plan-table">
+                <thead>
+                  <tr>
+                    <th className="sticky-cell">
+                      <input
+                        type="checkbox"
+                        aria-label="选择当前全部样品组"
+                        checked={visible.length > 0 && visible.every((g) => selected.has(g.id))}
+                        onChange={(event) =>
+                          setSelected(
+                            event.target.checked ? new Set(visible.map((g) => g.id)) : new Set(),
+                          )
+                        }
+                      />
+                      <span>材料 / 制备状态</span>
+                    </th>
+                    <th>准备 / 计划</th>
+                    <th>尺寸</th>
+                    <th>实验条件</th>
+                    <th>计划备注</th>
+                    <th>安排</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {!visible.length && (
+                    <tr>
+                      <td colSpan={6}>
+                        <Empty title="没有找到样品" description="换一个名称、状态或备注。">
+                          <button className="button" onClick={() => setSearch('')}>
+                            清除筛选
+                          </button>
+                        </Empty>
+                      </td>
+                    </tr>
+                  )}
+                  {visible.map((group) => {
+                    const counts = groupCounts(snapshot, group);
+                    const samples = snapshot.samples.filter((s) => s.groupId === group.id);
+                    const save = (patch: GroupPatch) =>
+                      execute({ type: 'updateGroups', ids: [group.id], patch }, false);
+                    return (
+                      <GroupRows
+                        key={group.id}
+                        group={group}
+                        counts={counts}
+                        expanded={expanded.has(group.id)}
+                        selected={selected.has(group.id)}
+                        toggleExpanded={() => toggle(group.id, setExpanded, expanded)}
+                        toggleSelected={() => toggle(group.id, setSelected, selected)}
+                        save={save}
+                        samples={samples}
+                        fields={experiment.fields}
+                        onArrange={() => setArranging(group)}
+                        onEdit={() => {
+                          void workspace
+                            .flush()
+                            .then(() => setEditing(group))
+                            .catch((error) => notify(error.message, true));
+                        }}
+                        onCopy={() => {
+                          void workspace
+                            .flush()
+                            .then(() => execute({ type: 'copyGroup', id: group.id }))
+                            .catch((error) => notify(error.message, true));
+                        }}
+                        onSample={(current) => {
+                          setSampleDetailsOnly(false);
+                          setSample(current);
+                        }}
+                        openMenu={openMenu}
+                        askDelete={askDelete}
+                        selectedIds={selected.has(group.id) ? [...selected] : [group.id]}
+                        onLive={(sampleId, itemId) => {
+                          void workspace
+                            .flush()
+                            .then(() => {
+                              const sampleItems = workspace
+                                .getSnapshot()
+                                .items.filter((item) => item.sampleId === sampleId)
+                                .sort((a, b) => a.order - b.order);
+                              const item =
+                                sampleItems.find((entry) => entry.id === itemId) ||
+                                sampleItems.find((entry) => entry.status === 'running') ||
+                                sampleItems.find((entry) => entry.status === 'pending') ||
+                                sampleItems.at(-1);
+                              if (item) setItemId(item.id);
+                              setPage('live');
+                            })
+                            .catch((error) => notify(error.message, true));
+                        }}
+                      />
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+          <div className="table-footer">
+            <span>修改自动保存 · 数量未知时可以留空</span>
+            <span>右键可编辑、复制、安排或删除 · Alt + N 添加样品</span>
           </div>
-        )}
-        <div className="table-footer">
-          <span>修改自动保存 · 数量未知时可以留空</span>
-          <span>右键可编辑、复制、安排或删除 · Alt + N 添加样品</span>
+        </section>
+        <MeasurementPlanner />
+        <div className="planning-tip">
+          <span className="tip-number">01</span>
+          <div>
+            <strong>准备数量和测试计划分开记录</strong>
+            <p>
+              例如准备 6 个、安排 4 个，另外 2
+              个保留为备样。现场启用备样时再加入计划；同一样品重测会新增操作记录。
+            </p>
+          </div>
         </div>
-      </section>
-      <MeasurementPlanner />
-      <div className="planning-tip">
-        <span className="tip-number">01</span>
-        <div>
-          <strong>准备数量和测试计划分开记录</strong>
-          <p>
-            例如准备 6 个、安排 4 个，另外 2
-            个保留为备样。现场启用备样时再加入计划；同一样品重测会新增操作记录。
-          </p>
-        </div>
-      </div>
+      </details>
       {quickAdd && <QuickAdd onClose={() => setQuickAdd(false)} />}
       {editing && (
         <GroupForm
@@ -1773,7 +1866,13 @@ export function Plan() {
         />
       )}
       {arranging && <ArrangeDialog group={arranging} onClose={() => setArranging(null)} />}
-      {sample && <SampleEditor sample={sample} onClose={() => setSample(null)} />}
+      {sample && (
+        <SampleEditor
+          sample={sample}
+          detailsOnly={sampleDetailsOnly}
+          onClose={() => setSample(null)}
+        />
+      )}
       {fieldMeasurementItem && (
         <MeasurementDialog
           items={workspace.getSnapshot().items.filter((entry) => entry.id === fieldMeasurementItem)}

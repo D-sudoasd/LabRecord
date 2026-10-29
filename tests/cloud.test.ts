@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFile, writeFile, copyFile } from 'node:fs/promises';
+import { readFile, writeFile, copyFile, readdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import { createHash } from 'node:crypto';
 import { fixture, PNG } from './helpers.js';
@@ -10,8 +10,8 @@ import {
   syncDirection,
   snapshotDigest,
 } from '../src/desktop/github-sync.js';
-import { addAttachment, inspectDatabase } from '../src/desktop/backups.js';
-import type { Store } from '../src/desktop/store.js';
+import { addAttachment, backupBeforeV3Migration, inspectDatabase, unpackBackup } from '../src/desktop/backups.js';
+import { Store } from '../src/desktop/store.js';
 
 class Server {
   privateRepo = true;
@@ -61,7 +61,12 @@ function syncFor(store: Store, directory: string, server: Server, chunkBytes?: n
     chunkBytes,
     getStore: () => store,
     install: async (staging) => {
-      const snapshot = inspectDatabase(join(staging, 'records.sqlite'));
+      const checked = inspectDatabase(join(staging, 'records.sqlite'));
+      if (checked.schemaVersion < 3)
+        assert.ok(await backupBeforeV3Migration(staging, join(directory, 'migration-backups')));
+      const staged = checked.schemaVersion < 3 ? new Store(staging) : null;
+      const snapshot = staged ? staged.snapshot() : checked;
+      staged?.close();
       // Tests install validated records into an empty destination. Production switches directories after backup.
       store.transaction(() => {
         for (const table of [
@@ -98,6 +103,228 @@ test('sync uses content baselines rather than clocks and hashes independently of
   b.samples.reverse();
   b.items.reverse();
   assert.equal(snapshotDigest(a), snapshotDigest(b));
+});
+
+test('a v1 cloud baseline survives v3 migration without hiding later independent edits', async (t) => {
+  const old = fixture(t),
+    local = fixture(t),
+    server = new Server();
+  old.store.command({ type: 'demo' });
+  const item = old.store.snapshot().items[0];
+  old.store.command({ type: 'start', itemId: item.id });
+  old.store.command({ type: 'finish', itemId: item.id });
+  const run = old.store.snapshot().runs[0];
+  if (run.actualSample) {
+    const { state: _state, specimenName: _specimenName, ...v1Sample } = run.actualSample;
+    const { actualSources: _actualSources, ...v1Run } = run;
+    old.store.put('runs', { ...v1Run, actualSample: v1Sample });
+  }
+
+  // Build a genuine schema-v1 database and retain the exact old snapshot hash.
+  old.store.db.exec('ALTER TABLE items DROP COLUMN field_note; PRAGMA user_version=1;');
+  const currentSnapshot = old.store.snapshot.bind(old.store);
+  old.store.snapshot = () => ({ ...currentSnapshot(), schemaVersion: 1 });
+  const oldSync = syncFor(old.store, old.directory, server);
+  const localSync = syncFor(local.store, local.directory, server);
+  assert.equal((await oldSync.sync()).action, 'uploaded');
+  const originalPointer = JSON.parse(server.files.get('labrecord/latest.json')!.bytes.toString());
+
+  // A v3 install of a verified v1 backup has the same content, not a local edit.
+  assert.equal((await localSync.sync()).action, 'downloaded');
+  assert.equal(local.store.snapshot().schemaVersion, 3);
+  assert.equal((await localSync.sync()).action, 'unchanged');
+  assert.equal((await localSync.state())!.digest, originalPointer.digest);
+
+  // The old computer changes the cloud after the new one has upgraded.
+  const group = old.store.snapshot().groups[0];
+  old.store.put('groups', { ...group, notes: '旧版电脑修改' });
+  assert.equal((await oldSync.sync()).action, 'uploaded');
+  assert.equal((await localSync.sync()).action, 'downloaded');
+  assert.equal(local.store.snapshot().groups[0].notes, '旧版电脑修改');
+  assert.equal((await localSync.sync()).action, 'unchanged');
+
+  // An explicit empty v2 note is a real change and must not be ignored.
+  const nextItem = local.store.snapshot().items[0];
+  local.store.put('items', { ...nextItem, fieldNote: '' });
+  old.store.put('groups', { ...old.store.snapshot().groups[0], notes: '旧版再修改' });
+  assert.equal((await oldSync.sync()).action, 'uploaded');
+  assert.equal((await localSync.sync()).action, 'conflict');
+  assert.equal(local.store.snapshot().items[0].fieldNote, '');
+  assert.equal(local.store.snapshot().groups[0].notes, '旧版电脑修改');
+});
+
+test('v1 optional JSON fields survive a pure v3 migration and real edits still conflict', async (t) => {
+  const old = fixture(t), local = fixture(t), server = new Server();
+  old.store.command({ type: 'demo' });
+  const item = old.store.snapshot().items[0];
+  old.store.command({ type: 'start', itemId: item.id });
+  old.store.command({ type: 'finish', itemId: item.id });
+  const run = old.store.snapshot().runs[0];
+  const { actualSources: _actualSources, ...v1Run } = run;
+  old.store.put('runs', {
+    ...v1Run,
+    actualSample: { ...run.actualSample, state: '旧版状态', specimenName: '' },
+  });
+  old.store.put('items', { ...old.store.snapshot().items[0], fieldNote: '旧版测量备注' });
+  old.store.db.exec('ALTER TABLE items DROP COLUMN field_note; PRAGMA user_version=1;');
+  const currentSnapshot = old.store.snapshot.bind(old.store);
+  old.store.snapshot = () => ({ ...currentSnapshot(), schemaVersion: 1 });
+  const oldSync = syncFor(old.store, old.directory, server);
+  const localSync = syncFor(local.store, local.directory, server);
+  assert.equal((await oldSync.sync()).action, 'uploaded');
+  const oldPointer = JSON.parse(server.files.get('labrecord/latest.json')!.bytes.toString());
+  assert.equal((await localSync.sync()).action, 'downloaded');
+  assert.equal(local.store.snapshot().items[0].fieldNote, '旧版测量备注');
+  assert.equal(local.store.snapshot().runs[0].actualSample?.state, '旧版状态');
+  assert.equal(local.store.snapshot().runs[0].actualSample?.specimenName, '');
+  assert.equal((await localSync.sync()).action, 'unchanged');
+  assert.equal((await localSync.state())!.digest, oldPointer.digest);
+  assert.equal(JSON.parse(server.files.get('labrecord/latest.json')!.bytes.toString()).digest, oldPointer.digest);
+
+  local.store.command({ type: 'updateFieldRow', itemId: item.id, fieldNote: '本机修改' });
+  old.store.put('groups', { ...old.store.snapshot().groups[0], notes: '云端修改' });
+  assert.equal((await oldSync.sync()).action, 'uploaded');
+  assert.equal((await localSync.sync()).action, 'conflict');
+  assert.equal(local.store.snapshot().items[0].fieldNote, '本机修改');
+  assert.notEqual(local.store.snapshot().groups[0].notes, '云端修改');
+});
+
+test('an in-place v1 database upgrade keeps its old cloud baseline until content changes', async (t) => {
+  const device = fixture(t),
+    remote = fixture(t),
+    server = new Server();
+  device.store.command({ type: 'demo' });
+  device.store.db.exec('ALTER TABLE items DROP COLUMN field_note; PRAGMA user_version=1;');
+  const originalSnapshot = device.store.snapshot.bind(device.store);
+  device.store.snapshot = () => ({ ...originalSnapshot(), schemaVersion: 1 });
+  assert.equal((await syncFor(device.store, device.directory, server).sync()).action, 'uploaded');
+  const v1Digest = JSON.parse(server.files.get('labrecord/latest.json')!.bytes.toString()).digest;
+
+  // Opening the real v1 database performs the SQLite migration without touching record JSON.
+  device.reopen();
+  assert.equal(device.store.snapshot().schemaVersion, 3);
+  const upgraded = syncFor(device.store, device.directory, server);
+  assert.equal((await upgraded.sync()).action, 'unchanged');
+  assert.equal((await upgraded.state())!.digest, v1Digest);
+
+  // A different upgraded computer modifies and uploads a genuine v2 backup.
+  const remoteSync = syncFor(remote.store, remote.directory, server);
+  assert.equal((await remoteSync.sync()).action, 'downloaded');
+  assert.equal((await remoteSync.sync('upload')).action, 'uploaded');
+  assert.equal((await upgraded.sync()).action, 'unchanged');
+  assert.equal((await upgraded.state())!.digest, snapshotDigest(device.store.snapshot()));
+  const remoteGroup = remote.store.snapshot().groups[0];
+  remote.store.put('groups', { ...remoteGroup, notes: '远端已更新' });
+  assert.equal((await remoteSync.sync()).action, 'uploaded');
+  assert.equal((await upgraded.sync()).action, 'downloaded');
+  assert.equal(device.store.snapshot().groups[0].notes, '远端已更新');
+  assert.equal((await upgraded.sync()).action, 'unchanged');
+});
+
+test('new actual-sample fields cannot be treated as a schema-only migration', async (t) => {
+  const old = fixture(t),
+    local = fixture(t),
+    server = new Server();
+  old.store.command({ type: 'demo' });
+  const item = old.store.snapshot().items[0];
+  old.store.command({ type: 'start', itemId: item.id });
+  old.store.command({ type: 'finish', itemId: item.id });
+  const run = old.store.snapshot().runs[0];
+  if (run.actualSample) {
+    const { state: _state, specimenName: _specimenName, ...v1Sample } = run.actualSample;
+    const { actualSources: _actualSources, ...v1Run } = run;
+    old.store.put('runs', { ...v1Run, actualSample: v1Sample });
+  }
+  old.store.db.exec('ALTER TABLE items DROP COLUMN field_note; PRAGMA user_version=1;');
+  const currentSnapshot = old.store.snapshot.bind(old.store);
+  old.store.snapshot = () => ({ ...currentSnapshot(), schemaVersion: 1 });
+  const oldSync = syncFor(old.store, old.directory, server);
+  const localSync = syncFor(local.store, local.directory, server);
+  assert.equal((await oldSync.sync()).action, 'uploaded');
+  assert.equal((await localSync.sync()).action, 'downloaded');
+  const localRun = local.store.snapshot().runs[0];
+  assert.ok(localRun.actualSample);
+  old.store.put('groups', { ...old.store.snapshot().groups[0], notes: '远端变化' });
+  assert.equal((await oldSync.sync()).action, 'uploaded');
+  for (const field of ['state', 'specimenName'] as const) {
+    local.store.put('runs', {
+      ...localRun,
+      actualSample: { ...localRun.actualSample, [field]: '' },
+      actualSources: { ...localRun.actualSources, [`actualSample.${field}`]: 'edited' },
+    });
+    assert.equal((await localSync.sync()).action, 'conflict', `${field} is a real v2 edit`);
+  }
+});
+
+test('v2 sync baseline survives v3 migration but provenance and partial edits remain changes', async (t) => {
+  const old = fixture(t), local = fixture(t), server = new Server();
+  old.store.command({ type: 'demo' });
+  const item = old.store.snapshot().items[0];
+  old.store.command({ type: 'start', itemId: item.id });
+  old.store.command({ type: 'finish', itemId: item.id });
+  const run = old.store.snapshot().runs[0];
+  const image = join(old.directory, 'v2-image.png');
+  await writeFile(image, PNG);
+  const attachment = await addAttachment(old.store, run.id, image);
+  const { actualSources: _actualSources, ...v2Run } = run;
+  old.store.put('runs', v2Run);
+  old.store.db.exec('PRAGMA user_version=2;');
+  const currentSnapshot = old.store.snapshot.bind(old.store);
+  old.store.snapshot = () => ({ ...currentSnapshot(), schemaVersion: 2 });
+  const oldSync = syncFor(old.store, old.directory, server);
+  const localSync = syncFor(local.store, local.directory, server);
+  assert.equal((await oldSync.sync()).action, 'uploaded');
+  const oldDigest = JSON.parse(server.files.get('labrecord/latest.json')!.bytes.toString()).digest;
+  assert.equal((await localSync.sync()).action, 'downloaded');
+  const migrated = local.store.snapshot().runs[0];
+  assert.ok(migrated.actualSample);
+  assert.equal(migrated.actualSources?.['actualSample.width'], 'legacy');
+  assert.equal((await localSync.sync()).action, 'unchanged');
+  assert.equal((await localSync.state())!.digest, oldDigest);
+  const backupNames = await readdir(join(local.directory, 'migration-backups'));
+  assert.equal(backupNames.length, 1);
+  const backupRoot = join(local.directory, 'verified-v2-backup');
+  const backedUp = await unpackBackup(join(local.directory, 'migration-backups', backupNames[0]), backupRoot);
+  assert.equal(backedUp.schemaVersion, 2);
+  assert.deepEqual(await readFile(join(backupRoot, attachment.relativePath)), PNG);
+
+  old.store.put('groups', { ...old.store.snapshot().groups[0], notes: '远端独立修改' });
+  assert.equal((await oldSync.sync()).action, 'uploaded');
+  for (const source of ['edited', 'planned'] as const) {
+    local.store.put('runs', {
+      ...migrated,
+      actualSources: { ...migrated.actualSources, 'actualSample.width': source },
+    });
+    assert.equal((await localSync.sync()).action, 'conflict', `${source} provenance is a change`);
+  }
+  const { width: _width, ...partialSample } = migrated.actualSample;
+  const { 'actualSample.width': _widthSource, ...partialSources } = migrated.actualSources!;
+  local.store.put('runs', { ...migrated, actualSample: partialSample, actualSources: partialSources });
+  assert.equal((await localSync.sync()).action, 'conflict', 'partial v3 detail is not a v2 record');
+  local.store.put('runs', {
+    ...migrated,
+    actualSample: { ...migrated.actualSample, width: '' },
+    actualSources: { ...migrated.actualSources, 'actualSample.width': 'edited' },
+  });
+  assert.equal((await localSync.sync()).action, 'conflict', 'explicitly cleared width is a change');
+});
+
+test('a remote pointer digest is verified against the exact backup schema', async (t) => {
+  const one = fixture(t),
+    two = fixture(t),
+    server = new Server();
+  one.store.command({ type: 'demo' });
+  await syncFor(one.store, one.directory, server).sync();
+  const entry = server.files.get('labrecord/latest.json')!;
+  const pointer = JSON.parse(entry.bytes.toString());
+  pointer.digest = '0'.repeat(64);
+  const bytes = Buffer.from(JSON.stringify(pointer));
+  server.files.set('labrecord/latest.json', {
+    bytes,
+    sha: createHash('sha1').update(bytes).digest('hex'),
+  });
+  await assert.rejects(syncFor(two.store, two.directory, server).sync(), /同步索引不一致/);
+  assert.equal(two.store.snapshot().experiments.length, 0);
 });
 
 test('multipart backups reassemble records and images; a damaged segment cannot replace local records', async (t) => {
