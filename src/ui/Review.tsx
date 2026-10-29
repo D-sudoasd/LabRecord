@@ -19,6 +19,9 @@ import { formatRecordedDuration, recordedDuration, runDurationLabel } from '../s
 import { measurementFor, measurementSummary, operationProtocolLabel, plannedGroup } from '../shared/measurement';
 import { materialSummary } from '../shared/materials';
 import {
+  actualFieldSource,
+  actualSpecimenName,
+  actualSpecimenNameField,
   actualProtocolLabel,
   operationPlanDrift,
   operationSizeLine,
@@ -42,6 +45,7 @@ import {
 import { canCopyName } from '../shared/copyText';
 import { pictureLabel } from './queueSearch';
 import { recordedClock } from '../shared/recordedTime';
+import { fieldSheetNoteText, fieldSheetRows } from '../shared/fieldSheet';
 import {
   DeleteConfirm,
   itemsDeleteReason,
@@ -139,20 +143,27 @@ function FileLinkDialog({ runId, onClose }: { runId: string; onClose: () => void
   );
 }
 
-function NoteDialog({ runId, onClose }: { runId: string; onClose: () => void }) {
+function NoteDialog({ itemId, onClose }: { itemId: string; onClose: () => void }) {
   const { snapshot, execute } = useWorkspace();
-  const run = snapshot.runs.find((entry) => entry.id === runId);
-  const code = run?.snapshot.sample.code || '';
-  const [notes, setNotes] = useState(run?.notes || '');
+  const item = snapshot.items.find((entry) => entry.id === itemId);
+  const row = item
+    ? fieldSheetRows(snapshot, item.experimentId).find((entry) => entry.itemId === itemId)
+    : undefined;
+  const [notes, setNotes] = useState(row?.note ?? '');
+  const initialNotes = useRef(row?.note ?? '');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
 
   async function submit(event: FormEvent) {
     event.preventDefault();
-    if (!run || busy) return;
+    if (!item || busy) return;
+    if (notes === initialNotes.current) {
+      onClose();
+      return;
+    }
     setBusy(true);
     try {
-      await execute({ type: 'saveRun', runId: run.id, notes }, false);
+      await execute({ type: 'updateFieldRow', itemId: item.id, fieldNote: notes }, false);
       onClose();
     } catch (failure) {
       setError((failure as Error).message);
@@ -164,10 +175,10 @@ function NoteDialog({ runId, onClose }: { runId: string; onClose: () => void }) 
     <Modal title="修改现场备注" onClose={onClose} closeDisabled={busy}>
       <form onSubmit={submit} className="form-stack">
         <p className="dialog-target">
-          记录目标：<strong>{code}</strong>
+          记录目标：<strong>{row?.code || '尚未预留'}</strong>
         </p>
-        <p className="hint">只改这条已有记录的现场备注。不修改起止时间，也不改开始时的计划。</p>
-        {!run && (
+        <p className="hint">只修改本次测量的备注，不修改时间或开始时的计划。</p>
+        {!item && (
           <p className="error-text" role="alert">
             这条记录已不存在，请关闭后重新打开。
           </p>
@@ -182,7 +193,7 @@ function NoteDialog({ runId, onClose }: { runId: string; onClose: () => void }) 
           <textarea
             aria-label="现场备注"
             value={notes}
-            disabled={busy || !run}
+            disabled={busy || !item}
             onChange={(event) => setNotes(event.target.value)}
           />
         </label>
@@ -190,13 +201,27 @@ function NoteDialog({ runId, onClose }: { runId: string; onClose: () => void }) 
           <button type="button" className="button" disabled={busy} onClick={onClose}>
             取消
           </button>
-          <button type="submit" className="button primary" disabled={busy || !run}>
+          <button type="submit" className="button primary" disabled={busy || !item}>
             保存备注
           </button>
         </footer>
       </form>
     </Modal>
   );
+}
+
+function editedField(
+  touched: ReadonlySet<string>,
+  key: string,
+  value: string,
+  original: object | undefined,
+) {
+  if (!touched.has(key)) return false;
+  const previous = original as Record<string, unknown> | undefined;
+  if (!previous || !Object.prototype.hasOwnProperty.call(previous, key) || previous[key] == null)
+    return true;
+  if (previous[key] === '' && value === '') return true;
+  return String(previous[key]) !== value;
 }
 
 function ThicknessDialog({ runId, onClose }: { runId: string; onClose: () => void }) {
@@ -210,20 +235,41 @@ function ThicknessDialog({ runId, onClose }: { runId: string; onClose: () => voi
   const [dimensionUnit, setDimensionUnit] = useState(
     String(run?.actualSample?.dimensionUnit ?? ''),
   );
+  const initialActual = useRef(run?.actual);
+  const initialSample = useRef(run?.actualSample);
+  const [touched, setTouched] = useState<Set<string>>(() => new Set());
+  const mark = (key: string) => setTouched((old) => new Set(old).add(key));
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
 
   async function submit(event: FormEvent) {
     event.preventDefault();
     if (!run || busy) return;
+    const actual = {
+      ...(editedField(touched, 'thickness', thickness, initialActual.current) ? { thickness } : {}),
+      ...(editedField(touched, 'thicknessUnit', unit, initialActual.current)
+        ? { thicknessUnit: unit }
+        : {}),
+    };
+    const actualSample = {
+      ...(editedField(touched, 'width', width, initialSample.current) ? { width } : {}),
+      ...(editedField(touched, 'height', height, initialSample.current) ? { height } : {}),
+      ...(editedField(touched, 'dimensionUnit', dimensionUnit, initialSample.current)
+        ? { dimensionUnit }
+        : {}),
+    };
+    if (!Object.keys(actual).length && !Object.keys(actualSample).length) {
+      onClose();
+      return;
+    }
     setBusy(true);
     try {
       await execute(
         {
           type: 'saveRun',
           runId: run.id,
-          actual: { thickness, thicknessUnit: unit },
-          actualSample: { width, height, dimensionUnit },
+          ...(Object.keys(actual).length ? { actual } : {}),
+          ...(Object.keys(actualSample).length ? { actualSample } : {}),
         },
         false,
       );
@@ -259,7 +305,7 @@ function ThicknessDialog({ runId, onClose }: { runId: string; onClose: () => voi
             aria-label="实际厚度"
             value={thickness}
             disabled={busy || !run}
-            onChange={(event) => setThickness(event.target.value)}
+            onChange={(event) => { setThickness(event.target.value); mark('thickness'); }}
           />
         </label>
         <label className="field">
@@ -268,7 +314,7 @@ function ThicknessDialog({ runId, onClose }: { runId: string; onClose: () => voi
             aria-label="厚度单位"
             value={unit}
             disabled={busy || !run}
-            onChange={(event) => setUnit(event.target.value)}
+            onChange={(event) => { setUnit(event.target.value); mark('thicknessUnit'); }}
           />
         </label>
         <label className="field">
@@ -277,7 +323,7 @@ function ThicknessDialog({ runId, onClose }: { runId: string; onClose: () => voi
             aria-label="实际宽度"
             value={width}
             disabled={busy || !run}
-            onChange={(event) => setWidth(event.target.value)}
+            onChange={(event) => { setWidth(event.target.value); mark('width'); }}
           />
         </label>
         <label className="field">
@@ -286,7 +332,7 @@ function ThicknessDialog({ runId, onClose }: { runId: string; onClose: () => voi
             aria-label="实际高度"
             value={height}
             disabled={busy || !run}
-            onChange={(event) => setHeight(event.target.value)}
+            onChange={(event) => { setHeight(event.target.value); mark('height'); }}
           />
         </label>
         <label className="field">
@@ -295,7 +341,7 @@ function ThicknessDialog({ runId, onClose }: { runId: string; onClose: () => voi
             aria-label="宽高单位"
             value={dimensionUnit}
             disabled={busy || !run}
-            onChange={(event) => setDimensionUnit(event.target.value)}
+            onChange={(event) => { setDimensionUnit(event.target.value); mark('dimensionUnit'); }}
           />
         </label>
         <footer className="modal-actions">
@@ -315,23 +361,40 @@ function PreparationDialog({ runId, onClose }: { runId: string; onClose: () => v
   const { snapshot, execute } = useWorkspace();
   const run = snapshot.runs.find((entry) => entry.id === runId);
   const code = run?.snapshot.sample.code || '';
-  const [name, setName] = useState(String(run?.actualSample?.name ?? ''));
+  const initialName = useRef(actualSpecimenName(run));
+  const [name, setName] = useState(initialName.current ?? '');
   const [mode, setMode] = useState(String(run?.actual.mode ?? '未定'));
   const [preparation, setPreparation] = useState(String(run?.actual.preparation ?? ''));
+  const initialActual = useRef(run?.actual);
+  const [touched, setTouched] = useState<Set<string>>(() => new Set());
+  const mark = (key: string) => setTouched((old) => new Set(old).add(key));
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
 
   async function submit(event: FormEvent) {
     event.preventDefault();
     if (!run || busy) return;
+    const actual = {
+      ...(editedField(touched, 'mode', mode, initialActual.current) ? { mode } : {}),
+      ...(editedField(touched, 'preparation', preparation, initialActual.current)
+        ? { preparation }
+        : {}),
+    };
+    const nameChanged = touched.has('name') &&
+      (initialName.current === undefined || initialName.current !== name || name === '');
+    const actualSample = nameChanged ? { specimenName: name } : {};
+    if (!Object.keys(actual).length && !Object.keys(actualSample).length) {
+      onClose();
+      return;
+    }
     setBusy(true);
     try {
       await execute(
         {
           type: 'saveRun',
           runId: run.id,
-          actual: { preparation, mode },
-          actualSample: { name },
+          ...(Object.keys(actual).length ? { actual } : {}),
+          ...(Object.keys(actualSample).length ? { actualSample } : {}),
         },
         false,
       );
@@ -366,9 +429,16 @@ function PreparationDialog({ runId, onClose }: { runId: string; onClose: () => v
           <input
             aria-label="实际样品名"
             value={name}
+            placeholder={initialName.current === undefined ? '未记录' : undefined}
             disabled={busy || !run}
-            onChange={(event) => setName(event.target.value)}
+            onChange={(event) => { setName(event.target.value); mark('name'); }}
           />
+          {run && (
+            <small>
+              来源：{actualFieldSource(run, actualSpecimenNameField(run))}
+              {initialName.current === undefined && `；开始时参考：${run.snapshot.sample.parameters.name || run.snapshot.group.name || '未填写'}`}
+            </small>
+          )}
         </label>
         <label className="field">
           <span>实际实验方式</span>
@@ -376,7 +446,7 @@ function PreparationDialog({ runId, onClose }: { runId: string; onClose: () => v
             aria-label="实际实验方式"
             value={mode}
             disabled={busy || !run}
-            onChange={(event) => setMode(event.target.value)}
+            onChange={(event) => { setMode(event.target.value); mark('mode'); }}
           >
             {MODE_OPTIONS.map((option) => (
               <option key={option.value} value={option.value}>
@@ -391,7 +461,7 @@ function PreparationDialog({ runId, onClose }: { runId: string; onClose: () => v
             aria-label="实际制备或试剂"
             value={preparation}
             disabled={busy || !run}
-            onChange={(event) => setPreparation(event.target.value)}
+            onChange={(event) => { setPreparation(event.target.value); mark('preparation'); }}
           />
         </label>
         <footer className="modal-actions">
@@ -442,6 +512,7 @@ export function Review() {
   const items = snapshot.items
     .filter((i) => i.experimentId === experimentId)
     .sort((a, b) => a.order - b.order);
+  const fieldRows = new Map(fieldSheetRows(snapshot, experimentId).map((row) => [row.itemId, row]));
   const [search, setSearch] = useState(''),
     [problemsOnly, setProblemsOnly] = useState(false),
     [actualOnly, setActualOnly] = useState(false),
@@ -450,7 +521,7 @@ export function Review() {
     [history, setHistory] = useState<string | null>(null),
     [times, setTimes] = useState<EventTarget | null>(null),
     [fileRunId, setFileRunId] = useState<string | null>(null),
-    [noteRunId, setNoteRunId] = useState<string | null>(null),
+    [noteItemId, setNoteItemId] = useState<string | null>(null),
     [thicknessRunId, setThicknessRunId] = useState<string | null>(null),
     [preparationRunId, setPreparationRunId] = useState<string | null>(null),
     [pictureItemId, setPictureItemId] = useState<string | null>(null),
@@ -470,7 +541,8 @@ export function Review() {
     const run = snapshot.runs.find((r) => r.itemId === item.id);
     const storedGroup = snapshot.groups.find((g) => g.id === sample.groupId)!;
     const group = run?.snapshot.group || plannedGroup(storedGroup, sample, item);
-    const text = `${sampleName(group)} ${group.state} ${materialSummary(group)} ${run?.actualSample?.name || ''} ${run?.snapshot.sample.code || sample.code} ${run?.notes || ''} ${run?.actual.filename || ''} ${run?.actual.scanId || ''} ${run?.actual.files || ''} ${measurementSummary(measurementFor(snapshot, item))} ${operationProtocolLabel(snapshot, item)} ${run?.filename || item.plannedName || ''} ${operationSizeLine(group, run)} ${operationPlanDrift(snapshot, item) ? `当前计划已不同：${operationPlanDrift(snapshot, item)}` : ''} ${actualProtocolLabel(run)} ${recordedPlanSearchText(run)} ${pictureLabel(snapshot, run?.id)} ${repeatSourceLabel(snapshot, item)} ${latestEndedMark(snapshot, item.id)}`;
+    const note = fieldRows.get(item.id);
+    const text = `${sampleName(group)} ${group.state} ${materialSummary(group)} ${run?.actualSample?.name || ''} ${run?.snapshot.sample.code || sample.code} ${run?.notes || ''} ${note ? fieldSheetNoteText(note) : ''} ${run?.actual.filename || ''} ${run?.actual.scanId || ''} ${run?.actual.files || ''} ${measurementSummary(measurementFor(snapshot, item))} ${operationProtocolLabel(snapshot, item)} ${run?.filename || item.plannedName || ''} ${operationSizeLine(group, run)} ${operationPlanDrift(snapshot, item) ? `当前计划已不同：${operationPlanDrift(snapshot, item)}` : ''} ${actualProtocolLabel(run)} ${recordedPlanSearchText(run)} ${pictureLabel(snapshot, run?.id)} ${repeatSourceLabel(snapshot, item)} ${latestEndedMark(snapshot, item.id)}`;
     return (
       (textIncludes(text, search) || matchesOperationIdentity(snapshot, item, search)) &&
       (!problemsOnly || issues.some((e) => e.itemId === item.id)) &&
@@ -1211,17 +1283,19 @@ export function Review() {
                         )}
                       </td>
                       <td>
-                        <p className="review-note">{run?.notes || '—'}</p>
-                        {run && (
-                          <button
-                            type="button"
-                            className="text-button"
-                            aria-label={`修改备注 ${sample.code} 操作 ${item.order + 1}`}
-                            onClick={() => setNoteRunId(run.id)}
-                          >
-                            修改
-                          </button>
-                        )}
+                        <p className="review-note">
+                          {fieldRows.has(item.id)
+                            ? fieldSheetNoteText(fieldRows.get(item.id)!) || '—'
+                            : '—'}
+                        </p>
+                        <button
+                          type="button"
+                          className="text-button"
+                          aria-label={`修改备注 ${sample.code} 操作 ${item.order + 1}`}
+                          onClick={() => setNoteItemId(item.id)}
+                        >
+                          修改
+                        </button>
                       </td>
                       <td>
                         <div className="review-actions">
@@ -1353,7 +1427,7 @@ export function Review() {
       )}
       {times && <TimesDialog {...times} onClose={() => setTimes(null)} />}
       {fileRunId && <FileLinkDialog runId={fileRunId} onClose={() => setFileRunId(null)} />}
-      {noteRunId && <NoteDialog runId={noteRunId} onClose={() => setNoteRunId(null)} />}
+      {noteItemId && <NoteDialog itemId={noteItemId} onClose={() => setNoteItemId(null)} />}
       {thicknessRunId && (
         <ThicknessDialog runId={thicknessRunId} onClose={() => setThicknessRunId(null)} />
       )}

@@ -297,7 +297,8 @@ test('queue and library search find a recorded preparation and sample name, not 
   assert.equal(report.html.includes('样品名：计划试样 → 现场试样甲'), true);
   assert.equal(report.markdown.includes('实验方式：原位 → 非原位'), true);
   assert.equal(report.html.includes('秘密组分：'), false);
-  assert.equal(report.markdown.includes('现场备注ZZZ'), false);
+  // Historical run notes remain out of search but are included with their source in the report.
+  assert.equal(report.markdown.includes('原现场备注：现场备注ZZZ'), true);
   const pendingCode = snapshot.samples.find((sample) => sample.id === second.sampleId)!.code;
   const pendingSection = report.markdown.split('\n### ').find((section) => section.startsWith(pendingCode));
   assert.equal(pendingSection?.includes('试剂批次 K-9'), false);

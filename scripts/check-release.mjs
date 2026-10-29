@@ -7,7 +7,7 @@ import JSZip from 'jszip';
 const root = fileURLToPath(new URL('../', import.meta.url));
 const packageInfo = JSON.parse(await readFile(join(root, 'package.json'), 'utf8'));
 const refreshScreenshots = !process.argv.includes('--preserve-screenshots');
-const release = join(root, 'release');
+const release = resolve(root, process.env.LABRECORD_RELEASE_DIR || 'release');
 const filename = `LabRecord-${packageInfo.version}-Windows-x64.zip`;
 const zipBytes = await readFile(join(release, filename));
 const zip = await JSZip.loadAsync(zipBytes, { checkCRC32: true });

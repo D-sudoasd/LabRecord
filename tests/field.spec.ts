@@ -17,6 +17,21 @@ import { PNG } from './helpers.js';
 
 const require = createRequire(import.meta.url);
 let application: ElectronApplication, page: Page, directory: string, errors: string[];
+
+// These legacy scenarios exercise the optional detailed controls explicitly.
+// The default simplified view is covered independently by live-simple.spec.ts.
+async function expandLegacySections() {
+  await expect(page.locator('.app-header')).toBeVisible();
+  await expect(page.locator('.loading-screen')).toHaveCount(0);
+  const details = page.locator('details.plan-management');
+  if (await details.isVisible()) {
+    const open = await details.evaluate((node) => (node as HTMLDetailsElement).open);
+    if (!open) await details.locator('summary').click();
+  }
+  const more = page.getByRole('button', { name: '更多现场功能', exact: true });
+  if (await more.isVisible()) await more.click();
+}
+
 test.beforeEach(async () => {
   directory = await mkdtemp(join(tmpdir(), 'labrecord-field-'));
   const env = { ...process.env, LABRECORD_TEST_MODE: '1', LABRECORD_TEST_DATA: directory };
@@ -36,6 +51,8 @@ test.beforeEach(async () => {
   );
   await page.getByRole('button', { name: '载入演示实验' }).click();
   await page.getByRole('button', { name: '进入现场记录' }).click();
+  await expect(page.locator('.live-page')).toBeVisible();
+  await expandLegacySections();
 });
 test.afterEach(async ({}, info) => {
   if (application?.process()?.exitCode === null) {
@@ -195,7 +212,10 @@ for (const mode of ['before-write', 'lost-reply'] as const) {
     await page.getByRole('button', { name: '快速记录：已装样', exact: true }).dblclick();
     await expect(page.locator('.quick-record-bar.failed')).toContainText('已装样');
     const beforeRetry = await snapshot();
-    expect(beforeRetry.runs[0].notes).toBe('自由备注原文，快记不得覆盖');
+    expect(beforeRetry.items.find((item) => item.id === run.itemId)?.fieldNote).toBe(
+      '自由备注原文，快记不得覆盖',
+    );
+    expect(beforeRetry.runs[0].notes).toBe(run.notes);
     expect(beforeRetry.events.filter((e) => e.text === '已装样')).toHaveLength(
       mode === 'lost-reply' ? 1 : 0,
     );
@@ -209,14 +229,17 @@ for (const mode of ['before-write', 'lost-reply'] as const) {
       .poll(async () => (await calls()).filter((c) => c.command.type === 'addEvent').length)
       .toBeGreaterThanOrEqual(3);
     await expect(page.locator('.live-page')).toBeVisible();
+    await expandLegacySections();
     const failed = (await calls()).filter((c) => c.command.type === 'addEvent');
     expect(failed.length).toBeGreaterThanOrEqual(3);
     expect(new Set(failed.map((c) => c.requestId)).size).toBe(1);
     for (const attempt of failed) expect(attempt.command).toEqual(failed[0].command);
     const ordered = await calls();
-    expect(ordered.findIndex((c) => c.command.type === 'saveRun')).toBeLessThan(
-      ordered.findIndex((c) => c.command.type === 'addEvent'),
-    );
+    const noteWrite = ordered.findIndex((c) => c.command.type === 'updateFieldRow');
+    const quickRecordWrite = ordered.findIndex((c) => c.command.type === 'addEvent');
+    expect(noteWrite).toBeGreaterThanOrEqual(0);
+    expect(quickRecordWrite).toBeGreaterThanOrEqual(0);
+    expect(noteWrite).toBeLessThan(quickRecordWrite);
     await stopFault();
     await page.keyboard.press('Control+3');
     await expect(page.locator('.review-page')).toBeVisible();
@@ -224,7 +247,10 @@ for (const mode of ['before-write', 'lost-reply'] as const) {
     expect(saved.events.filter((e) => e.text === '已装样')).toHaveLength(1);
     const event = saved.events.find((e) => e.text === '已装样')!;
     expect([event.itemId, event.runId]).toEqual([run.itemId, run.id]);
-    expect(saved.runs[0].notes).toBe('自由备注原文，快记不得覆盖');
+    expect(saved.items.find((item) => item.id === run.itemId)?.fieldNote).toBe(
+      '自由备注原文，快记不得覆盖',
+    );
+    expect(saved.runs[0].notes).toBe(run.notes);
     expect(saved.runs[0].snapshot).toEqual(run.snapshot);
     expect(saved.runs[0].originalStartedAt).toBe(run.originalStartedAt);
     expect(saved.runs[0].originalEndedAt).toBeNull();
@@ -280,7 +306,10 @@ test('issue templates and custom text survive Cancel, Escape, close and page cha
   }
   await page.keyboard.press('Control+1');
   await expect(page.locator('.plan-page')).toBeVisible();
+  await expandLegacySections();
   await page.keyboard.press('Control+2');
+  await expect(page.locator('.live-page')).toBeVisible();
+  await expandLegacySections();
   await page.getByRole('button', { name: '记录问题', exact: true }).click();
   await expect(dialog.getByLabel('发生了什么？')).toHaveValue(
     '信号异常，原因待检查。另需核对探测器连接。',
@@ -321,6 +350,7 @@ for (const mode of ['before-write', 'lost-reply'] as const) {
     await dialog.getByRole('button', { name: '取消', exact: true }).click();
     await page.keyboard.press('Control+1');
     await expect(page.locator('.live-page')).toBeVisible();
+    await expandLegacySections();
     expect((await snapshot()).events.filter((e) => e.type === 'issue')).toHaveLength(
       mode === 'lost-reply' ? 1 : 0,
     );
@@ -474,7 +504,8 @@ test('delayed native picture selection remains attached to the originally viewed
   await expect.poll(async () => (await snapshot()).attachments.length).toBe(1);
   const saved = await snapshot();
   expect(saved.attachments[0].runId).toBe(run.id);
-  expect(saved.runs[0].notes).toBe('图片选择前的补充');
+  expect(saved.items.find((item) => item.id === run.itemId)?.fieldNote).toBe('图片选择前的补充');
+  expect(saved.runs[0].notes).toBe(run.notes);
   expect(saved.runs[0].snapshot).toEqual(run.snapshot);
   await expect(page.locator('.current-heading h2')).toHaveText('TA-02');
 });
@@ -485,12 +516,15 @@ test('a picture can be removed without changing the recorded run', async () => {
   const kept = join(directory, '要保留.png');
   await writeFile(image, PNG);
   await writeFile(kept, PNG);
-  await application.evaluate(({ dialog }, paths) => {
-    dialog.showOpenDialog = (async () => ({
-      canceled: false,
-      filePaths: paths,
-    })) as typeof dialog.showOpenDialog;
-  }, [image, kept]);
+  await application.evaluate(
+    ({ dialog }, paths) => {
+      dialog.showOpenDialog = (async () => ({
+        canceled: false,
+        filePaths: paths,
+      })) as typeof dialog.showOpenDialog;
+    },
+    [image, kept],
+  );
   await page.getByRole('button', { name: '添加图片', exact: true }).click();
   await expect.poll(async () => (await snapshot()).attachments.length).toBe(2);
   await page.getByRole('button', { name: '移除图片 要移除.png', exact: true }).click();
@@ -501,8 +535,12 @@ test('a picture can be removed without changing the recorded run', async () => {
   await page.getByRole('button', { name: '移除图片 要移除.png', exact: true }).click();
   await page.getByRole('button', { name: '确认移除', exact: true }).click();
   await expect(dialog).toHaveCount(0);
-  await expect(page.getByRole('button', { name: '移除图片 要保留.png', exact: true })).toBeVisible();
-  await expect(page.getByRole('button', { name: '移除图片 要移除.png', exact: true })).toHaveCount(0);
+  await expect(
+    page.getByRole('button', { name: '移除图片 要保留.png', exact: true }),
+  ).toBeVisible();
+  await expect(page.getByRole('button', { name: '移除图片 要移除.png', exact: true })).toHaveCount(
+    0,
+  );
   const after = await snapshot();
   expect(after.attachments).toHaveLength(1);
   expect(after.attachments[0].name).toBe('要保留.png');
@@ -521,27 +559,32 @@ test('search finds a started sample by an attached picture name', async () => {
   await command({ type: 'saveRun', runId: run.id, notes: '只写备注' });
   const image = join(directory, '装样照片.png');
   await writeFile(image, PNG);
-  await application.evaluate(({ dialog }, paths) => {
-    dialog.showOpenDialog = (async () => ({
-      canceled: false,
-      filePaths: paths,
-    })) as typeof dialog.showOpenDialog;
-  }, [image]);
+  await application.evaluate(
+    ({ dialog }, paths) => {
+      dialog.showOpenDialog = (async () => ({
+        canceled: false,
+        filePaths: paths,
+      })) as typeof dialog.showOpenDialog;
+    },
+    [image],
+  );
   await page.getByRole('button', { name: '添加图片', exact: true }).click();
   await expect.poll(async () => (await snapshot()).attachments.length).toBe(1);
   const row = page.getByRole('button', { name: '选择样品 TA-01 操作 1' });
   await expect(row).toContainText('图片 装样照片.png');
   await expect(row).not.toContainText('只写备注');
-  await expect(page.getByRole('button', { name: '选择样品 TA-02 操作 2' })).not.toContainText('装样照片');
+  await expect(page.getByRole('button', { name: '选择样品 TA-02 操作 2' })).not.toContainText(
+    '装样照片',
+  );
   await page.getByLabel('搜索待测样品', { exact: true }).fill('装样照片');
   await expect(page.getByRole('button', { name: '选择样品 TA-01 操作 1' })).toBeVisible();
   await expect(page.getByRole('button', { name: '选择样品 TA-02 操作 2' })).toHaveCount(0);
   await page.getByLabel('搜索待测样品', { exact: true }).fill('只写备注');
   await expect(page.getByRole('button', { name: '选择样品 TA-01 操作 1' })).toHaveCount(0);
   await page.getByRole('button', { name: '回看导出', exact: true }).click();
-  await expect(page.locator('.review-table tbody tr', { hasText: 'TA-01' }).locator('.review-pictures')).toContainText(
-    '装样照片.png',
-  );
+  await expect(
+    page.locator('.review-table tbody tr', { hasText: 'TA-01' }).locator('.review-pictures'),
+  ).toContainText('装样照片.png');
   await page.getByLabel('搜索操作记录', { exact: true }).fill('装样照片');
   await expect(page.locator('.review-table tbody tr', { hasText: 'TA-01' })).toHaveCount(1);
   await expect(page.locator('.review-table tbody tr', { hasText: 'TA-02' })).toHaveCount(0);
@@ -563,18 +606,23 @@ test('review can open an attached picture without writing a record', async () =>
   const run = await start();
   const image = join(directory, '装样照片.png');
   await writeFile(image, PNG);
-  await application.evaluate(({ dialog }, paths) => {
-    dialog.showOpenDialog = (async () => ({
-      canceled: false,
-      filePaths: paths,
-    })) as typeof dialog.showOpenDialog;
-  }, [image]);
+  await application.evaluate(
+    ({ dialog }, paths) => {
+      dialog.showOpenDialog = (async () => ({
+        canceled: false,
+        filePaths: paths,
+      })) as typeof dialog.showOpenDialog;
+    },
+    [image],
+  );
   await page.getByRole('button', { name: '添加图片', exact: true }).click();
   await expect.poll(async () => (await snapshot()).attachments.length).toBe(1);
   const before = await snapshot();
   await page.getByRole('button', { name: '回看导出', exact: true }).click();
   const pending = page.locator('.review-table tbody tr', { hasText: 'TA-02' });
-  await expect(pending.getByRole('button', { name: '查看图片 TA-02 操作 2', exact: true })).toHaveCount(0);
+  await expect(
+    pending.getByRole('button', { name: '查看图片 TA-02 操作 2', exact: true }),
+  ).toHaveCount(0);
   await page.getByRole('button', { name: '查看图片 TA-01 操作 1', exact: true }).click();
   const dialog = page.getByRole('dialog', { name: '现场图片' });
   await expect(dialog.getByRole('img', { name: '装样照片.png', exact: true })).toBeVisible();
@@ -607,6 +655,7 @@ test('review can correct an issue without changing its time or the run', async (
   });
   const issue = (await snapshot()).events.find((event) => event.text === '样品定位偏离')!;
   await page.reload();
+  await expandLegacySections();
   await page.getByRole('button', { name: '回看导出', exact: true }).click();
   await page.getByRole('button', { name: '修改问题：样品定位偏离', exact: true }).click();
   const dialog = page.getByRole('dialog', { name: '修改问题' });
@@ -614,7 +663,9 @@ test('review can correct an issue without changing its time or the run', async (
   await dialog.getByLabel('问题内容', { exact: true }).fill('样品已重新装正');
   await dialog.getByRole('button', { name: '取消', exact: true }).click();
   await expect(page.getByText('样品定位偏离', { exact: true })).toBeVisible();
-  expect((await snapshot()).events.find((event) => event.id === issue.id)?.text).toBe('样品定位偏离');
+  expect((await snapshot()).events.find((event) => event.id === issue.id)?.text).toBe(
+    '样品定位偏离',
+  );
   await page.getByRole('button', { name: '修改问题：样品定位偏离', exact: true }).click();
   const editor = page.getByRole('dialog', { name: '修改问题' });
   await editor.getByLabel('问题内容', { exact: true }).fill('   ');
@@ -631,6 +682,8 @@ test('review can correct an issue without changing its time or the run', async (
   );
   await overview.getByRole('button', { name: '关闭对话框', exact: true }).click();
   await page.getByRole('button', { name: '现场记录', exact: true }).click();
+  await expect(page.locator('.live-page')).toBeVisible();
+  await expandLegacySections();
   await page.getByLabel('搜索待测样品', { exact: true }).fill('样品定位偏离');
   await expect(page.getByRole('button', { name: '选择样品 TA-01 操作 1' })).toHaveCount(0);
   const after = await snapshot();
@@ -664,15 +717,22 @@ test('the live timeline shows and corrects an earlier issue wording', async () =
   const issue = (await snapshot()).events.find((event) => event.text === '样品定位偏离')!;
   await page.reload();
   await expect(page.locator('.live-page')).toBeVisible();
+  await expandLegacySections();
   const timeline = page.locator('.timeline-panel');
   await expect(timeline).toContainText('样品定位偏离');
   await expect(timeline).not.toContainText('曾写');
-  await timeline.getByRole('button', { name: '在时间线修改问题：样品定位偏离', exact: true }).click();
+  await timeline
+    .getByRole('button', { name: '在时间线修改问题：样品定位偏离', exact: true })
+    .click();
   const dialog = page.getByRole('dialog', { name: '修改问题' });
   await dialog.getByLabel('问题内容', { exact: true }).fill('样品已重新装正');
   await dialog.getByRole('button', { name: '取消', exact: true }).click();
-  expect((await snapshot()).events.find((event) => event.id === issue.id)?.text).toBe('样品定位偏离');
-  await timeline.getByRole('button', { name: '在时间线修改问题：样品定位偏离', exact: true }).click();
+  expect((await snapshot()).events.find((event) => event.id === issue.id)?.text).toBe(
+    '样品定位偏离',
+  );
+  await timeline
+    .getByRole('button', { name: '在时间线修改问题：样品定位偏离', exact: true })
+    .click();
   const editor = page.getByRole('dialog', { name: '修改问题' });
   await editor.getByLabel('问题内容', { exact: true }).fill('样品已重新装正');
   await editor.getByRole('button', { name: '保存问题', exact: true }).click();
@@ -699,6 +759,7 @@ test('the live timeline can correct a quick note without changing the record not
   const run = (await snapshot()).runs[0];
   await page.reload();
   await expect(page.locator('.live-page')).toBeVisible();
+  await expandLegacySections();
   await page.getByLabel('现场备注', { exact: true }).fill('自由备注保留');
   await expect(page.locator('.save-indicator')).toContainText('已保存到本机');
   await page.getByRole('button', { name: '快速记录：已装样', exact: true }).click();
@@ -726,7 +787,8 @@ test('the live timeline can correct a quick note without changing the record not
   expect(edited.text).toBe('装样方向已核对');
   expect(edited.createdAt).toBe(note.createdAt);
   expect(edited.data.previousText).toEqual(['已装样']);
-  expect(after.runs[0].notes).toBe('自由备注保留');
+  expect(after.items.find((item) => item.id === run.itemId)?.fieldNote).toBe('自由备注保留');
+  expect(after.runs[0].notes).toBe(run.notes);
   expect(after.runs[0].snapshot).toEqual(run.snapshot);
   expect(after.runs[0].originalStartedAt).toBe(run.originalStartedAt);
   expect(after.runs[0].endedAt).toBeNull();
@@ -748,6 +810,7 @@ test('review history shows the earlier timeline wording without rewriting it', a
   const note = (await snapshot()).events.find((event) => event.text === '已装样')!;
   await command({ type: 'editNote', eventId: note.id, text: '装样方向已核对' });
   await page.reload();
+  await expandLegacySections();
   await page.getByRole('button', { name: '回看导出', exact: true }).click();
   await page
     .locator('.review-table tbody tr', { hasText: 'TA-01' })
@@ -787,7 +850,10 @@ test('a retest shows an unresolved issue from the original operation', async () 
   await command({ type: 'repeat', itemId: initial.items[0].id });
   const retest = (await snapshot()).items.find((item) => item.repeatOf === initial.items[0].id)!;
   await page.reload();
+  await expandLegacySections();
   await page.getByRole('button', { name: '现场记录', exact: true }).click();
+  await expect(page.locator('.live-page')).toBeVisible();
+  await expandLegacySections();
   const choice = page.getByRole('button', {
     name: `选择样品 TA-01 操作 ${retest.order + 1}`,
     exact: true,
@@ -806,7 +872,10 @@ test('a retest shows an unresolved issue from the original operation', async () 
   const issue = (await snapshot()).events.find((event) => event.text === '样品定位偏离')!;
   await command({ type: 'resolveIssue', eventId: issue.id });
   await page.reload();
+  await expandLegacySections();
   await page.getByRole('button', { name: '现场记录', exact: true }).click();
+  await expect(page.locator('.live-page')).toBeVisible();
+  await expandLegacySections();
   await expect(
     page.getByRole('button', { name: `选择样品 TA-01 操作 ${retest.order + 1}`, exact: true }),
   ).not.toContainText('原操作未处理问题');
@@ -838,6 +907,7 @@ test('the next pending brief names an unresolved issue on a retest', async () =>
   for (const item of initial.items.slice(1)) await command({ type: 'skip', itemId: item.id });
   await command({ type: 'repeat', itemId: initial.items[0].id });
   await page.reload();
+  await expandLegacySections();
   const next = page.getByRole('region', { name: '下一项待测', exact: true });
   await expect(next).toContainText('原操作未处理问题：样品定位偏离');
   await expect(next).toContainText('重测自');
@@ -845,13 +915,14 @@ test('the next pending brief names an unresolved issue on a retest', async () =>
   await page.locator('h1').click();
   await page.keyboard.press('Control+K');
   const library = page.getByRole('dialog', { name: '全库搜索' });
-  await expect(library.getByRole('option', { name: '查看下一项 TA-01', exact: true })).toContainText(
-    '原操作未处理问题：样品定位偏离',
-  );
+  await expect(
+    library.getByRole('option', { name: '查看下一项 TA-01', exact: true }),
+  ).toContainText('原操作未处理问题：样品定位偏离');
   await page.keyboard.press('Escape');
   const issue = (await snapshot()).events.find((event) => event.text === '样品定位偏离')!;
   await command({ type: 'resolveIssue', eventId: issue.id });
   await page.reload();
+  await expandLegacySections();
   await expect(page.getByRole('region', { name: '下一项待测', exact: true })).not.toContainText(
     '原操作未处理问题',
   );
@@ -882,9 +953,11 @@ test('the next pending brief opens the original operation without starting the r
   await command({ type: 'repeat', itemId: initial.items[0].id });
   const retest = (await snapshot()).items.find((item) => item.repeatOf === initial.items[0].id)!;
   await page.reload();
+  await expandLegacySections();
   const next = page.getByRole('region', { name: '下一项待测', exact: true });
   await next.getByRole('button', { name: '查看下一项的原操作 TA-01', exact: true }).click();
   await expect(page.locator('.live-page')).toBeVisible();
+  await expandLegacySections();
   await expect(page.locator('.current-heading')).toContainText('已完成');
   await expect(page.locator('.current-heading')).toContainText('TA-01');
   const after = await snapshot();
@@ -914,10 +987,13 @@ test('the latest finished record names its own unresolved issue', async () => {
   await command({ type: 'finish', itemId: initial.items[0].id });
   const finished = (await snapshot()).runs[0];
   await page.reload();
+  await expandLegacySections();
   const recent = page.getByRole('region', { name: '最近记录', exact: true });
   await expect(recent).toContainText('未处理问题：样品定位偏离');
   await expect(recent).not.toContainText('只写备注');
   await page.getByRole('button', { name: '现场记录', exact: true }).click();
+  await expect(page.locator('.live-page')).toBeVisible();
+  await expandLegacySections();
   await page.getByRole('button', { name: '选择样品 TA-02 操作 2', exact: true }).click();
   await expect(page.getByRole('region', { name: '最近记录', exact: true })).toContainText(
     '未处理问题：样品定位偏离',
@@ -927,6 +1003,7 @@ test('the latest finished record names its own unresolved issue', async () => {
   const issue = (await snapshot()).events.find((event) => event.text === '样品定位偏离')!;
   await command({ type: 'resolveIssue', eventId: issue.id });
   await page.reload();
+  await expandLegacySections();
   await expect(page.getByRole('region', { name: '最近记录', exact: true })).not.toContainText(
     '未处理问题',
   );
@@ -951,10 +1028,16 @@ test('the experiment library opens the latest finished record without starting i
     eventType: 'issue',
     text: '样品定位偏离',
   });
-  await command({ type: 'saveRun', runId: run.id, notes: '只写备注', actual: { scanId: 'SCAN-LAST-LIB' } });
+  await command({
+    type: 'saveRun',
+    runId: run.id,
+    notes: '只写备注',
+    actual: { scanId: 'SCAN-LAST-LIB' },
+  });
   await command({ type: 'finish', itemId: initial.items[0].id });
   const finished = (await snapshot()).runs[0];
   await page.reload();
+  await expandLegacySections();
   await page.locator('h1').click();
   await page.keyboard.press('Control+K');
   const library = page.getByRole('dialog', { name: '全库搜索' });
@@ -964,11 +1047,14 @@ test('the experiment library opens the latest finished record without starting i
   await expect(recent).toContainText(finished.filename);
   await expect(recent).not.toContainText('只写备注');
   await library.getByRole('combobox', { name: '全库搜索', exact: true }).fill('样品定位偏离');
-  await expect(library.getByRole('option', { name: '查看最近记录 TA-01', exact: true })).toHaveCount(0);
+  await expect(
+    library.getByRole('option', { name: '查看最近记录 TA-01', exact: true }),
+  ).toHaveCount(0);
   await expect(library.getByText('样品定位偏离')).toHaveCount(0);
   await library.getByRole('combobox', { name: '全库搜索', exact: true }).fill('');
   await library.getByRole('option', { name: '查看最近记录 TA-01', exact: true }).click();
   await expect(page.locator('.live-page')).toBeVisible();
+  await expandLegacySections();
   await expect(page.locator('.current-heading')).toContainText('已完成');
   await expect(page.locator('.current-heading')).toContainText('TA-01');
   const after = await snapshot();
@@ -1076,6 +1162,7 @@ test('F8 cannot start during an in-flight command or while another sample or exp
   const sample = added.snapshot.samples.find((s) => s.experimentId === experimentId)!;
   await page.reload();
   await expect(page.locator('.live-page')).toBeVisible();
+  await expandLegacySections();
   await page.getByLabel('选择实验', { exact: true }).selectOption(experimentId);
   await expect(page.locator('.current-heading h2')).toHaveText(sample.code);
   await expect(page.getByRole('button', { name: '开始操作', exact: true })).toBeDisabled();
@@ -1099,6 +1186,7 @@ test('return-to-running navigation flushes and stays on the viewed sample when s
   });
   await page.reload();
   await expect(page.locator('.live-page')).toBeVisible();
+  await expandLegacySections();
   await page.getByRole('button', { name: '选择样品 TA-02 操作 2', exact: true }).click();
   const banner = page.getByRole('region', { name: '现场进行中的操作' });
   const clock = recordedClock(run.startedAt, run.offsetMinutes, run.timezone)!;
@@ -1113,7 +1201,7 @@ test('return-to-running navigation flushes and stays on the viewed sample when s
   expect(copied.runs.find((entry) => entry.id === run.id)?.originalStartedAt).toBe(
     run.originalStartedAt,
   );
-  await intercept('before-write', 'saveRun');
+  await intercept('before-write', 'updateFieldRow');
   await page.getByLabel('现场备注', { exact: true }).fill('返回进行中操作前仍需保存的文字');
   await page.getByRole('button', { name: '返回当前操作' }).click();
   await expect(page.locator('.save-indicator')).toContainText('保存失败');
@@ -1125,7 +1213,10 @@ test('return-to-running navigation flushes and stays on the viewed sample when s
   await page.getByRole('button', { name: '返回当前操作' }).click();
   await expect(page.locator('.current-heading h2')).toHaveText('TA-01');
   const data = await snapshot();
-  expect(data.runs.find((r) => r.itemId === item.id)!.notes).toBe('返回进行中操作前仍需保存的文字');
+  expect(data.items.find((entry) => entry.id === item.id)?.fieldNote).toBe(
+    '返回进行中操作前仍需保存的文字',
+  );
+  expect(data.runs.find((r) => r.itemId === item.id)!.notes).toBe('');
   expect(data.runs.find((r) => r.id === run.id)!.notes).toBe('');
 });
 
@@ -1163,9 +1254,12 @@ test('next pending uses the whole reordered queue, including earlier and hidden 
 test('focus retains current controls, notes and header; real 900×700 zoom 1.5 reflows with accessible search, timeline and issues', async ({}, info) => {
   await page.getByRole('button', { name: '实验规划', exact: true }).click();
   await expect(page.locator('.plan-page')).toBeVisible();
+  await expandLegacySections();
   await page.evaluate(() => window.scrollTo(0, 0));
   await capture(info.outputPath('combined-plan.png'));
   await page.getByRole('button', { name: '现场记录', exact: true }).click();
+  await expect(page.locator('.live-page')).toBeVisible();
+  await expandLegacySections();
   await page.getByRole('button', { name: '专注当前样品', exact: true }).click();
   await expect(page.locator('.live-page')).toHaveClass(/is-focused/);
   await application.evaluate(({ BrowserWindow }) => {
@@ -1285,7 +1379,8 @@ test('focus retains current controls, notes and header; real 900×700 zoom 1.5 r
   await expect(page.locator('.live-page')).toHaveClass(/is-focused/);
   await expect(page.locator('.current-heading h2')).toHaveText('TA-01');
   await expect(page.getByLabel('现场备注', { exact: true })).toHaveValue('专注模式中的记录');
-  expect((await snapshot()).runs[0].notes).toBe('专注模式中的记录');
+  expect((await snapshot()).items[0].fieldNote).toBe('专注模式中的记录');
+  expect((await snapshot()).runs[0].notes).toBe('');
   await expect(page.locator('.finish-button')).toBeInViewport({ ratio: 1 });
   await page.getByText('实际参数与数据文件', { exact: true }).click();
   await page.getByLabel('数据文件引用', { exact: true }).scrollIntoViewIfNeeded();
@@ -1321,7 +1416,8 @@ test('focus retains current controls, notes and header; real 900×700 zoom 1.5 r
   await expect(page.locator('.live-page')).not.toHaveClass(/is-focused/);
   await page.getByLabel('搜索待测样品', { exact: true }).scrollIntoViewIfNeeded();
   await expect(page.getByLabel('搜索待测样品', { exact: true })).toBeInViewport({ ratio: 1 });
-  expect((await snapshot()).runs[0].notes).toBe('专注模式中的记录');
+  expect((await snapshot()).items[0].fieldNote).toBe('专注模式中的记录');
+  expect((await snapshot()).runs[0].notes).toBe('');
   await application.evaluate(({ BrowserWindow }) => {
     const win = BrowserWindow.getAllWindows()[0];
     win.webContents.setZoomFactor(1);
@@ -1388,6 +1484,7 @@ test('plan sample strip opens one operation and prefers a pending retest over th
   const retest = data.items.find((item) => item.repeatOf === first.id)!;
   await page.reload();
   await expect(page.locator('.plan-page')).toBeVisible();
+  await expandLegacySections();
   await page.getByRole('button', { name: '展开 Ti-A-热处理' }).click();
   const strip = page.locator('.sample-strip', { hasText: 'TA-01' });
   await expect(page.locator('.sample-expansion-head')).toContainText('中断 1');
@@ -1406,6 +1503,8 @@ test('plan sample strip opens one operation and prefers a pending retest over th
   expect((await snapshot()).runs).toHaveLength(1);
 
   await page.getByRole('button', { name: '实验规划', exact: true }).click();
+  await expect(page.locator('.plan-page')).toBeVisible();
+  await expandLegacySections();
   await page.getByRole('button', { name: '展开 Ti-A-热处理' }).click();
   await page
     .getByRole('button', { name: `查看 TA-01 操作 ${first.order + 1} 已中断`, exact: true })
@@ -1434,6 +1533,7 @@ test('review status filter isolates interrupted and skipped operations without c
   const interrupted = (await snapshot()).runs.find((run) => run.itemId === initial.items[2].id)!;
   await page.reload();
   await expect(page.locator('.plan-page')).toBeVisible();
+  await expandLegacySections();
   await page.getByRole('button', { name: '回看导出', exact: true }).click();
   const rows = page.locator('.review-table tbody tr');
   await expect(rows).toHaveCount(4);
@@ -1445,7 +1545,10 @@ test('review status filter isolates interrupted and skipped operations without c
   await expect(rows).toContainText('TA-03');
   await page.getByLabel('搜索操作记录', { exact: true }).fill('TA-01');
   await expect(page.getByText('没有符合条件的记录')).toBeVisible();
-  await page.locator('.review-followup').getByRole('button', { name: '清除筛选', exact: true }).click();
+  await page
+    .locator('.review-followup')
+    .getByRole('button', { name: '清除筛选', exact: true })
+    .click();
   await expect(rows).toHaveCount(4);
   await expect(status).toHaveValue('');
   await status.selectOption('skipped');
@@ -1464,7 +1567,9 @@ test('review status filter isolates interrupted and skipped operations without c
   expect(after.runs.find((run) => run.id === interrupted.id)?.originalEndedAt).toBe(
     interrupted.originalEndedAt,
   );
-  expect(after.runs.find((run) => run.id === interrupted.id)?.snapshot).toEqual(interrupted.snapshot);
+  expect(after.runs.find((run) => run.id === interrupted.id)?.snapshot).toEqual(
+    interrupted.snapshot,
+  );
 });
 
 test('measurement plan status filter selects only the visible pending rows and leaves records unchanged', async () => {
@@ -1479,6 +1584,7 @@ test('measurement plan status filter selects only the visible pending rows and l
   const interrupted = (await snapshot()).runs.find((run) => run.itemId === initial.items[2].id)!;
   await page.reload();
   await expect(page.locator('.plan-page')).toBeVisible();
+  await expandLegacySections();
   const planner = page.getByRole('region', { name: '测量计划', exact: true });
   const rows = planner.locator('tbody tr');
   const status = planner.getByLabel('按状态筛选测量', { exact: true });
@@ -1512,7 +1618,9 @@ test('measurement plan status filter selects only the visible pending rows and l
   expect(after.runs.find((run) => run.id === interrupted.id)?.originalEndedAt).toBe(
     interrupted.originalEndedAt,
   );
-  expect(after.runs.find((run) => run.id === interrupted.id)?.snapshot).toEqual(interrupted.snapshot);
+  expect(after.runs.find((run) => run.id === interrupted.id)?.snapshot).toEqual(
+    interrupted.snapshot,
+  );
 });
 
 test('collapsed plan rows show operation status separately from spare counts', async () => {
@@ -1526,10 +1634,13 @@ test('collapsed plan rows show operation status separately from spare counts', a
   const interrupted = (await snapshot()).runs.find((run) => run.itemId === initial.items[2].id)!;
   await page.reload();
   await expect(page.locator('.plan-page')).toBeVisible();
+  await expandLegacySections();
   const group = page.locator('tr', {
     has: page.getByLabel('Ti-A-热处理 准备数量', { exact: true }),
   });
-  await expect(group.locator('.group-operation-status')).toHaveText('完成 1 · 中断 1 · 跳过 1 · 待测 1');
+  await expect(group.locator('.group-operation-status')).toHaveText(
+    '完成 1 · 中断 1 · 跳过 1 · 待测 1',
+  );
   await expect(group).toContainText('2 备样');
   await expect(group.locator('.sample-operations')).toHaveCount(0);
   const empty = page.locator('tr', {
@@ -1564,12 +1675,13 @@ test('queue size uses the start snapshot after the plan thickness changes', asyn
   });
   await page.reload();
   await expect(page.locator('.live-page')).toBeVisible();
-  await expect(page.getByRole('button', { name: '选择样品 TA-01 操作 1', exact: true })).toContainText(
-    '厚 0.8 mm',
-  );
-  await expect(page.getByRole('button', { name: '选择样品 TA-02 操作 2', exact: true })).toContainText(
-    '厚 1.2 mm',
-  );
+  await expandLegacySections();
+  await expect(
+    page.getByRole('button', { name: '选择样品 TA-01 操作 1', exact: true }),
+  ).toContainText('厚 0.8 mm');
+  await expect(
+    page.getByRole('button', { name: '选择样品 TA-02 操作 2', exact: true }),
+  ).toContainText('厚 1.2 mm');
   const after = await snapshot();
   expect(after.runs).toHaveLength(1);
   expect(after.runs[0].originalStartedAt).toBe(run.originalStartedAt);
@@ -1595,10 +1707,13 @@ test('focus heading keeps the recorded size while the queue is hidden', async ()
   });
   await page.reload();
   await expect(page.locator('.live-page')).toBeVisible();
+  await expandLegacySections();
   await page.getByRole('button', { name: '专注当前样品', exact: true }).click();
   await expect(page.locator('aside.queue')).toHaveCount(0);
   await expect(heading).toContainText('厚 0.8 mm');
-  await expect(heading.locator('.plan-drift')).toHaveText('当前计划已不同：尺寸 厚 1.2 mm · 宽 3 mm');
+  await expect(heading.locator('.plan-drift')).toHaveText(
+    '当前计划已不同：尺寸 厚 1.2 mm · 宽 3 mm',
+  );
   const after = await snapshot();
   expect(after.runs).toHaveLength(1);
   expect(after.runs[0].originalStartedAt).toBe(run.originalStartedAt);
@@ -1617,15 +1732,16 @@ test('queue and focus heading show a changed actual size beside the start size',
   });
   await page.reload();
   await expect(page.locator('.live-page')).toBeVisible();
+  await expandLegacySections();
   const row = page.getByRole('button', { name: '选择样品 TA-01 操作 1', exact: true });
   await expect(row).toContainText('实际 厚 1.1 mm · 宽 3 mm');
   await expect(row).toContainText('计划 厚 0.8 mm · 宽 3 mm');
-  await expect(page.getByRole('button', { name: '选择样品 TA-02 操作 2', exact: true })).toContainText(
-    '厚 0.8 mm',
-  );
-  await expect(page.getByRole('button', { name: '选择样品 TA-02 操作 2', exact: true })).not.toContainText(
-    '实际',
-  );
+  await expect(
+    page.getByRole('button', { name: '选择样品 TA-02 操作 2', exact: true }),
+  ).toContainText('厚 0.8 mm');
+  await expect(
+    page.getByRole('button', { name: '选择样品 TA-02 操作 2', exact: true }),
+  ).not.toContainText('实际');
   await page.getByRole('button', { name: '专注当前样品', exact: true }).click();
   const heading = page.locator('.current-heading');
   await expect(heading).toContainText('实际 厚 1.1 mm · 宽 3 mm');
@@ -1650,6 +1766,7 @@ test('queue, review and library search find the actual thickness rather than a l
   });
   await page.reload();
   await expect(page.locator('.live-page')).toBeVisible();
+  await expandLegacySections();
   await page.getByLabel('搜索待测样品', { exact: true }).fill('1.1');
   await expect(page.locator('.queue-row')).toHaveCount(1);
   await expect(page.locator('.queue-row')).toContainText('TA-01');
@@ -1687,7 +1804,10 @@ test('queue and focus heading keep the start preparation after the plan changes'
   });
   await page.reload();
   await expect(page.locator('.plan-page')).toBeVisible();
+  await expandLegacySections();
   await page.getByRole('button', { name: '现场记录', exact: true }).click();
+  await expect(page.locator('.live-page')).toBeVisible();
+  await expandLegacySections();
   const row = page.getByRole('button', { name: '选择样品 TA-01 操作 1', exact: true });
   await expect(row).toContainText('成分：Ti-24Nb-4Zr-8Sn（wt.%）');
   await expect(row).toContainText('热处理制度：400 °C × 2 h');
@@ -1702,15 +1822,16 @@ test('queue and focus heading keep the start preparation after the plan changes'
   });
   await page.reload();
   await expect(page.locator('.live-page')).toBeVisible();
-  await expect(page.getByRole('button', { name: '选择样品 TA-01 操作 1', exact: true })).toContainText(
-    '400 °C × 2 h',
-  );
-  await expect(page.getByRole('button', { name: '选择样品 TA-01 操作 1', exact: true })).toContainText(
-    '当前计划已不同：成分：Ti-24Nb-4Zr-8Sn（wt.%） · 热处理制度：后来改成 800 °C',
-  );
-  await expect(page.getByRole('button', { name: '选择样品 TA-02 操作 2', exact: true })).toContainText(
-    '800 °C',
-  );
+  await expandLegacySections();
+  await expect(
+    page.getByRole('button', { name: '选择样品 TA-01 操作 1', exact: true }),
+  ).toContainText('400 °C × 2 h');
+  await expect(
+    page.getByRole('button', { name: '选择样品 TA-01 操作 1', exact: true }),
+  ).toContainText('当前计划已不同：成分：Ti-24Nb-4Zr-8Sn（wt.%） · 热处理制度：后来改成 800 °C');
+  await expect(
+    page.getByRole('button', { name: '选择样品 TA-02 操作 2', exact: true }),
+  ).toContainText('800 °C');
   await page.getByRole('button', { name: '专注当前样品', exact: true }).click();
   await expect(page.locator('aside.queue')).toHaveCount(0);
   const heading = page.locator('.current-heading');
@@ -1735,23 +1856,27 @@ test('queue duration uses recorded endpoints and does not estimate an open run',
   const open = (await snapshot()).runs[0];
   await page.reload();
   await expect(page.locator('.live-page')).toBeVisible();
+  await expandLegacySections();
   const running = page.getByRole('button', { name: '选择样品 TA-01 操作 1', exact: true });
   await expect(running).toContainText('用时 未计入');
-  await expect(page.getByRole('button', { name: '选择样品 TA-02 操作 2', exact: true })).not.toContainText(
-    '用时',
-  );
+  await expect(
+    page.getByRole('button', { name: '选择样品 TA-02 操作 2', exact: true }),
+  ).not.toContainText('用时');
   await command({ type: 'finish', itemId: initial.items[0].id });
   const finished = (await snapshot()).runs[0];
   const label = runDurationLabel(finished);
   await page.reload();
   await expect(page.locator('.plan-page')).toBeVisible();
+  await expandLegacySections();
   await page.getByRole('button', { name: '现场记录', exact: true }).click();
-  await expect(page.getByRole('button', { name: '选择样品 TA-01 操作 1', exact: true })).toContainText(
-    `用时 ${label}`,
-  );
-  await expect(page.getByRole('button', { name: '选择样品 TA-02 操作 2', exact: true })).not.toContainText(
-    '用时',
-  );
+  await expect(page.locator('.live-page')).toBeVisible();
+  await expandLegacySections();
+  await expect(
+    page.getByRole('button', { name: '选择样品 TA-01 操作 1', exact: true }),
+  ).toContainText(`用时 ${label}`);
+  await expect(
+    page.getByRole('button', { name: '选择样品 TA-02 操作 2', exact: true }),
+  ).not.toContainText('用时');
   const after = await snapshot();
   expect(after.runs).toHaveLength(1);
   expect(after.runs[0].originalStartedAt).toBe(open.originalStartedAt);
@@ -1766,7 +1891,10 @@ test('collapsed plan rows sum recorded duration and leave incomplete runs out', 
   const open = (await snapshot()).runs[0];
   await page.reload();
   await expect(page.locator('.live-page')).toBeVisible();
+  await expandLegacySections();
   await page.getByRole('button', { name: '实验规划', exact: true }).click();
+  await expect(page.locator('.plan-page')).toBeVisible();
+  await expandLegacySections();
   const group = page.locator('tr', {
     has: page.getByLabel('Ti-A-热处理 准备数量', { exact: true }),
   });
@@ -1777,20 +1905,21 @@ test('collapsed plan rows sum recorded duration and leave incomplete runs out', 
   });
   await expect(empty.locator('.group-recorded-duration')).toHaveCount(0);
   await page.getByRole('button', { name: '展开 Ti-A-热处理' }).click();
-  await expect(page.getByRole('button', { name: '查看 TA-01 操作 1 进行中', exact: true })).toContainText(
-    '用时 未计入',
-  );
+  await expect(
+    page.getByRole('button', { name: '查看 TA-01 操作 1 进行中', exact: true }),
+  ).toContainText('用时 未计入');
   await command({ type: 'finish', itemId: initial.items[0].id });
   const finished = (await snapshot()).runs[0];
   await page.reload();
   await expect(page.locator('.plan-page')).toBeVisible();
+  await expandLegacySections();
   await expect(group.locator('.group-recorded-duration')).toHaveText(
     `已记录 ${runDurationLabel(finished)}`,
   );
   await page.getByRole('button', { name: '展开 Ti-A-热处理' }).click();
-  await expect(page.getByRole('button', { name: '查看 TA-01 操作 1 已完成', exact: true })).toContainText(
-    `用时 ${runDurationLabel(finished)}`,
-  );
+  await expect(
+    page.getByRole('button', { name: '查看 TA-01 操作 1 已完成', exact: true }),
+  ).toContainText(`用时 ${runDurationLabel(finished)}`);
   const after = await snapshot();
   expect(after.runs[0].originalStartedAt).toBe(open.originalStartedAt);
   expect(after.runs[0].originalEndedAt).toBe(finished.originalEndedAt);
@@ -1808,7 +1937,10 @@ test('queue uses a sample thickness override and keeps it after the sample chang
   });
   await page.reload();
   await expect(page.locator('.plan-page')).toBeVisible();
+  await expandLegacySections();
   await page.getByRole('button', { name: '现场记录', exact: true }).click();
+  await expect(page.locator('.live-page')).toBeVisible();
+  await expandLegacySections();
   const first = page.getByRole('button', { name: '选择样品 TA-01 操作 1', exact: true });
   const second = page.getByRole('button', { name: '选择样品 TA-02 操作 2', exact: true });
   await expect(first).toContainText('厚 1.5 mm');
@@ -1828,12 +1960,13 @@ test('queue uses a sample thickness override and keeps it after the sample chang
   });
   await page.reload();
   await expect(page.locator('.live-page')).toBeVisible();
-  await expect(page.getByRole('button', { name: '选择样品 TA-01 操作 1', exact: true })).toContainText(
-    '厚 1.5 mm',
-  );
-  await expect(page.getByRole('button', { name: '选择样品 TA-01 操作 1', exact: true })).toContainText(
-    '当前计划已不同：尺寸 厚 2.2 mm · 宽 3 mm',
-  );
+  await expandLegacySections();
+  await expect(
+    page.getByRole('button', { name: '选择样品 TA-01 操作 1', exact: true }),
+  ).toContainText('厚 1.5 mm');
+  await expect(
+    page.getByRole('button', { name: '选择样品 TA-01 操作 1', exact: true }),
+  ).toContainText('当前计划已不同：尺寸 厚 2.2 mm · 宽 3 mm');
   await expect(page.locator('.current-heading')).toContainText('厚 1.5 mm');
   await expect(page.locator('.current-heading .plan-drift')).toHaveText(
     '当前计划已不同：尺寸 厚 2.2 mm · 宽 3 mm',
@@ -1864,10 +1997,13 @@ test('expanded samples mark only their own differences from the group', async ()
   });
   await page.reload();
   await expect(page.locator('.plan-page')).toBeVisible();
+  await expandLegacySections();
   await page.getByRole('button', { name: '展开 Ti-A-热处理' }).click();
   const first = page.locator('.sample-strip', { hasText: 'TA-01' });
   const second = page.locator('.sample-strip', { hasText: 'TA-02' });
-  await expect(first.locator('.sample-override')).toHaveText('本样品 厚 1.5 mm · 热处理制度：800 °C × 1 h');
+  await expect(first.locator('.sample-override')).toHaveText(
+    '本样品 厚 1.5 mm · 热处理制度：800 °C × 1 h',
+  );
   await expect(first).not.toContainText('核对装样方向');
   await expect(first).not.toContainText('演示材料');
   await expect(second.locator('.sample-override')).toHaveCount(0);
@@ -1880,11 +2016,14 @@ test('expanded samples mark only their own differences from the group', async ()
   });
   await page.reload();
   await expect(page.locator('.live-page')).toBeVisible();
+  await expandLegacySections();
   await page.getByRole('button', { name: '实验规划', exact: true }).click();
+  await expect(page.locator('.plan-page')).toBeVisible();
+  await expandLegacySections();
   await page.getByRole('button', { name: '展开 Ti-A-热处理' }).click();
-  await expect(page.locator('.sample-strip', { hasText: 'TA-01' }).locator('.sample-override')).toContainText(
-    '厚 2.2 mm',
-  );
+  await expect(
+    page.locator('.sample-strip', { hasText: 'TA-01' }).locator('.sample-override'),
+  ).toContainText('厚 2.2 mm');
   const after = await snapshot();
   expect(after.runs).toHaveLength(1);
   expect(after.runs[0].snapshot.group.thickness).toBe('1.5');
@@ -1902,6 +2041,7 @@ test('measurement plan marks a sample override without rewriting the started rec
   });
   await page.reload();
   await expect(page.locator('.plan-page')).toBeVisible();
+  await expandLegacySections();
   const planner = page.getByRole('region', { name: '测量计划', exact: true });
   const first = planner.locator('tbody tr', { hasText: 'TA-01' });
   const second = planner.locator('tbody tr', { hasText: 'TA-02' });
@@ -1919,7 +2059,10 @@ test('measurement plan marks a sample override without rewriting the started rec
     parameters: { thickness: '2.2' },
   });
   await page.reload();
+  await expandLegacySections();
   await page.getByRole('button', { name: '实验规划', exact: true }).click();
+  await expect(page.locator('.plan-page')).toBeVisible();
+  await expandLegacySections();
   await expect(
     planner.locator('tbody tr', { hasText: 'TA-01' }).locator('.sample-override'),
   ).toContainText('厚 2.2 mm');
@@ -1940,6 +2083,7 @@ test('collapsed groups count samples that differ without listing the detail', as
   });
   await page.reload();
   await expect(page.locator('.plan-page')).toBeVisible();
+  await expandLegacySections();
   const group = page.locator('tr', {
     has: page.getByLabel('Ti-A-热处理 准备数量', { exact: true }),
   });
@@ -1952,9 +2096,9 @@ test('collapsed groups count samples that differ without listing the detail', as
   await expect(empty.locator('.group-sample-overrides')).toHaveCount(0);
   await expect(group).toContainText('2 备样');
   await page.getByRole('button', { name: '展开 Ti-A-热处理' }).click();
-  await expect(page.locator('.sample-strip', { hasText: 'TA-01' }).locator('.sample-override')).toContainText(
-    '厚 1.5 mm',
-  );
+  await expect(
+    page.locator('.sample-strip', { hasText: 'TA-01' }).locator('.sample-override'),
+  ).toContainText('厚 1.5 mm');
   await command({ type: 'start', itemId: initial.items[0].id });
   const run = (await snapshot()).runs[0];
   await command({
@@ -1963,7 +2107,10 @@ test('collapsed groups count samples that differ without listing the detail', as
     parameters: { thickness: '2.2' },
   });
   await page.reload();
+  await expandLegacySections();
   await page.getByRole('button', { name: '实验规划', exact: true }).click();
+  await expect(page.locator('.plan-page')).toBeVisible();
+  await expandLegacySections();
   await expect(group.locator('.group-sample-overrides')).toHaveText('1 件不同于本组');
   const after = await snapshot();
   expect(after.runs).toHaveLength(1);
@@ -1984,6 +2131,7 @@ test('live queue shows when the current plan drifts from the started snapshot', 
   });
   await page.reload();
   await expect(page.locator('.live-page')).toBeVisible();
+  await expandLegacySections();
   const started = page.getByRole('button', { name: '选择样品 TA-01 操作 1', exact: true });
   const pending = page.getByRole('button', { name: '选择样品 TA-02 操作 2', exact: true });
   await expect(started).toContainText('厚 0.8 mm');
@@ -1998,9 +2146,9 @@ test('live queue shows when the current plan drifts from the started snapshot', 
   expect(after.runs).toHaveLength(1);
   expect(after.runs[0].snapshot.group.thickness).toBe('0.8');
   expect(after.runs[0].originalStartedAt).toBe(run.originalStartedAt);
-  expect(after.samples.find((sample) => sample.id === initial.items[0].sampleId)?.parameters.thickness).toBe(
-    '1.5',
-  );
+  expect(
+    after.samples.find((sample) => sample.id === initial.items[0].sampleId)?.parameters.thickness,
+  ).toBe('1.5');
   expect(after.groups[0].thickness).toBe('0.8');
 });
 
@@ -2015,7 +2163,10 @@ test('collapsed groups count started records whose plan later changed', async ()
   });
   await page.reload();
   await expect(page.locator('.live-page')).toBeVisible();
+  await expandLegacySections();
   await page.getByRole('button', { name: '实验规划', exact: true }).click();
+  await expect(page.locator('.plan-page')).toBeVisible();
+  await expandLegacySections();
   const group = page.locator('tr', {
     has: page.getByLabel('Ti-A-热处理 准备数量', { exact: true }),
   });
@@ -2029,7 +2180,10 @@ test('collapsed groups count started records whose plan later changed', async ()
     parameters: { thickness: '1.5' },
   });
   await page.reload();
+  await expandLegacySections();
   await page.getByRole('button', { name: '实验规划', exact: true }).click();
+  await expect(page.locator('.plan-page')).toBeVisible();
+  await expandLegacySections();
   await expect(group.locator('.group-plan-drift')).toHaveText('1 件开始后计划已变');
   await expect(group).not.toContainText('厚 1.5');
   await expect(empty.locator('.group-plan-drift')).toHaveCount(0);
@@ -2053,35 +2207,40 @@ test('a protocol edited after start is marked as plan drift and can be searched'
   });
   await page.reload();
   await expect(page.locator('.live-page')).toBeVisible();
-  await expect(page.getByRole('button', { name: '选择样品 TA-01 操作 1', exact: true })).toContainText(
-    '当前计划已不同：实验制度 后来改成 450 °C',
-  );
-  await expect(page.getByRole('button', { name: '选择样品 TA-02 操作 2', exact: true })).not.toContainText(
-    '当前计划已不同',
-  );
-  await expect(page.getByRole('button', { name: '选择样品 TA-01 操作 1', exact: true })).toContainText(
-    '实验制度 10 °C/min 升至 375 °C，保温 30 min。',
-  );
-  await expect(page.getByRole('button', { name: '选择样品 TA-01 操作 1', exact: true })).not.toContainText(
-    '核对装样方向',
-  );
-  await expect(page.getByRole('button', { name: '选择样品 TA-02 操作 2', exact: true })).toContainText(
-    '实验制度 后来改成 450 °C',
-  );
-  await expect(page.getByRole('button', { name: '选择样品 TA-02 操作 2', exact: true })).not.toContainText(
-    '375',
-  );
+  await expandLegacySections();
+  await expect(
+    page.getByRole('button', { name: '选择样品 TA-01 操作 1', exact: true }),
+  ).toContainText('当前计划已不同：实验制度 后来改成 450 °C');
+  await expect(
+    page.getByRole('button', { name: '选择样品 TA-02 操作 2', exact: true }),
+  ).not.toContainText('当前计划已不同');
+  await expect(
+    page.getByRole('button', { name: '选择样品 TA-01 操作 1', exact: true }),
+  ).toContainText('实验制度 10 °C/min 升至 375 °C，保温 30 min。');
+  await expect(
+    page.getByRole('button', { name: '选择样品 TA-01 操作 1', exact: true }),
+  ).not.toContainText('核对装样方向');
+  await expect(
+    page.getByRole('button', { name: '选择样品 TA-02 操作 2', exact: true }),
+  ).toContainText('实验制度 后来改成 450 °C');
+  await expect(
+    page.getByRole('button', { name: '选择样品 TA-02 操作 2', exact: true }),
+  ).not.toContainText('375');
   await page.getByRole('button', { name: '复制开始时的实验制度', exact: true }).click();
   expect(await application.evaluate(({ clipboard }) => clipboard.readText())).toBe(
     '10 °C/min 升至 375 °C，保温 30 min。',
   );
   await expect(page.locator('.current-heading h2')).toHaveText('TA-01');
   await page.getByRole('button', { name: '复制下一项实验制度 TA-02', exact: true }).click();
-  expect(await application.evaluate(({ clipboard }) => clipboard.readText())).toBe('后来改成 450 °C');
+  expect(await application.evaluate(({ clipboard }) => clipboard.readText())).toBe(
+    '后来改成 450 °C',
+  );
   await expect(page.locator('.current-heading h2')).toHaveText('TA-01');
   await page.getByLabel('搜索待测样品', { exact: true }).fill('450');
   await expect(page.locator('.queue-row')).toHaveCount(4);
-  await expect(page.getByRole('button', { name: '选择样品 TA-01 操作 1', exact: true })).toBeVisible();
+  await expect(
+    page.getByRole('button', { name: '选择样品 TA-01 操作 1', exact: true }),
+  ).toBeVisible();
   await page.getByLabel('搜索待测样品', { exact: true }).fill('375');
   await expect(page.locator('.queue-row')).toHaveCount(1);
   await expect(page.locator('.queue-row')).toContainText('TA-01');
@@ -2094,14 +2253,20 @@ test('a protocol edited after start is marked as plan drift and can be searched'
   expect(after.groups[0].protocol).toBe('后来改成 450 °C');
   await page.getByRole('button', { name: '实验规划', exact: true }).click();
   await expect(page.locator('.plan-page')).toBeVisible();
+  await expandLegacySections();
   await page.getByRole('button', { name: '复制下一项实验制度 TA-02', exact: true }).click();
-  expect(await application.evaluate(({ clipboard }) => clipboard.readText())).toBe('后来改成 450 °C');
+  expect(await application.evaluate(({ clipboard }) => clipboard.readText())).toBe(
+    '后来改成 450 °C',
+  );
   await expect(page.locator('.plan-page')).toBeVisible();
+  await expandLegacySections();
   const planner = page.getByRole('region', { name: '测量计划', exact: true });
   await expect(planner.locator('tbody tr', { hasText: 'TA-01' })).toContainText(
     '实验制度 10 °C/min 升至 375 °C，保温 30 min。',
   );
-  await expect(planner.locator('tbody tr', { hasText: 'TA-02' })).toContainText('实验制度 后来改成 450 °C');
+  await expect(planner.locator('tbody tr', { hasText: 'TA-02' })).toContainText(
+    '实验制度 后来改成 450 °C',
+  );
   await expect(planner.locator('tbody tr', { hasText: 'TA-02' })).not.toContainText('375');
   await page.getByRole('button', { name: '展开 Ti-A-热处理', exact: true }).click();
   const startedOps = page.getByRole('group', { name: 'TA-01 的操作', exact: true });
@@ -2118,7 +2283,14 @@ test('a protocol edited after start is marked as plan drift and can be searched'
   );
   await expect(reviewRows.filter({ hasText: 'TA-02' })).toContainText('实验制度 后来改成 450 °C');
   await expect(reviewRows.filter({ hasText: 'TA-02' })).not.toContainText('375');
-  await expect(reviewRows.filter({ hasText: 'TA-01' })).not.toContainText('核对装样方向');
+  const startedReview = reviewRows.filter({ hasText: 'TA-01' });
+  await expect(startedReview.locator('.review-plan-drift')).toHaveText(
+    '当前计划已不同：实验制度 后来改成 450 °C',
+  );
+  await expect(startedReview.locator('.review-plan-drift')).not.toContainText('核对装样方向');
+  await expect(startedReview.locator('.review-note')).toHaveText(
+    '样品组备注：四个待测样品，两个备样。核对装样方向。',
+  );
   await page.getByLabel('搜索操作记录', { exact: true }).fill('375');
   await expect(reviewRows).toHaveCount(1);
   await expect(reviewRows).toContainText('TA-01');
@@ -2129,6 +2301,7 @@ test('a protocol edited after start is marked as plan drift and can be searched'
   await command({ type: 'finish', itemId: initial.items[0].id });
   await page.reload();
   await expect(page.locator('.plan-page')).toBeVisible();
+  await expandLegacySections();
   await page.getByRole('button', { name: '全库搜索', exact: true }).click();
   const library = page.getByRole('dialog', { name: '全库搜索' });
   await library.getByRole('combobox', { name: '全库搜索', exact: true }).fill('375');
@@ -2156,6 +2329,7 @@ test('the plan-changed queue filter hides other rows and keeps the real next pen
   });
   await page.reload();
   await expect(page.locator('.live-page')).toBeVisible();
+  await expandLegacySections();
   const filters = page.getByRole('group', { name: '队列筛选' });
   await filters.getByRole('button', { name: '计划已变', exact: true }).click();
   await expect(page.locator('.queue-row')).toHaveCount(1);
@@ -2186,9 +2360,13 @@ test('the plan drift count opens the earliest changed record without starting an
   });
   await page.reload();
   await expect(page.locator('.live-page')).toBeVisible();
+  await expandLegacySections();
   await page.getByRole('button', { name: '实验规划', exact: true }).click();
+  await expect(page.locator('.plan-page')).toBeVisible();
+  await expandLegacySections();
   await page.getByRole('button', { name: '查看开始后计划已变的操作', exact: true }).click();
   await expect(page.locator('.live-page')).toBeVisible();
+  await expandLegacySections();
   await expect(page.locator('.current-heading')).toContainText('TA-01');
   await expect(page.locator('.current-heading')).toContainText('正在查看');
   await expect(page.locator('.current-heading')).toContainText('当前计划已不同');
@@ -2218,6 +2396,7 @@ test('the live page opens the earliest incomplete record without starting the ne
   const running = before.runs.find((run) => run.itemId === initial.items[1].id)!;
   await page.reload();
   await expect(page.locator('.live-page')).toBeVisible();
+  await expandLegacySections();
   await expect(page.locator('.current-heading')).toContainText('TA-02');
   const gap = page.getByRole('region', { name: '现场先核对' });
   await expect(gap).toContainText('TA-01');
@@ -2263,6 +2442,7 @@ test('heading gaps open the issue list or the file form without writing a record
   });
   await page.reload();
   await expect(page.locator('.live-page')).toBeVisible();
+  await expandLegacySections();
   await expect(page.getByRole('button', { name: '选择样品 TA-01 操作 1' })).toContainText(
     '未处理问题',
   );
@@ -2285,9 +2465,9 @@ test('heading gaps open the issue list or the file form without writing a record
   expect(after.runs[0].originalStartedAt).toBe(run.originalStartedAt);
   expect(after.runs[0].endedAt).toBeNull();
   expect(after.runs[0].actual.filename || '').toBe('');
-  expect(after.events.filter((event) => event.type === 'issue' && !event.data.resolvedAt)).toHaveLength(
-    1,
-  );
+  expect(
+    after.events.filter((event) => event.type === 'issue' && !event.data.resolvedAt),
+  ).toHaveLength(1);
   expect(after.items.filter((item) => item.status === 'running')).toHaveLength(1);
   expect(after.items.filter((item) => item.status === 'pending')).toHaveLength(3);
 });
@@ -2298,14 +2478,18 @@ test('the overview copies the running folder and stays on the same record', asyn
   const run = (await snapshot()).runs[0];
   await page.reload();
   await expect(page.locator('.live-page')).toBeVisible();
+  await expandLegacySections();
   await page.getByRole('button', { name: '实验概览', exact: true }).click();
   const modal = page.getByRole('dialog', { name: '实验概览', exact: true });
   const running = modal.getByRole('region', { name: '全库进行中的操作', exact: true });
   await expect(running).toContainText(run.filename);
-  await running.getByRole('button', { name: '在概览中复制进行中的数据文件夹', exact: true }).click();
+  await running
+    .getByRole('button', { name: '在概览中复制进行中的数据文件夹', exact: true })
+    .click();
   expect(await application.evaluate(({ clipboard }) => clipboard.readText())).toBe(run.filename);
   await expect(modal).toBeVisible();
   await expect(page.locator('.live-page')).toBeVisible();
+  await expandLegacySections();
   await expect(page.locator('.current-heading')).toContainText('TA-01');
   const after = await snapshot();
   expect(after.runs).toHaveLength(1);
@@ -2332,9 +2516,12 @@ test('the overview opens a record whose actual plan differs without starting it'
     patch: { thickness: '9.9' },
   });
   await page.reload();
+  await expandLegacySections();
   await page.getByRole('button', { name: '实验概览', exact: true }).click();
   const hidden = page.getByRole('dialog', { name: '实验概览', exact: true });
-  await expect(hidden.getByRole('region', { name: '实际与开始时不同', exact: true })).toHaveCount(0);
+  await expect(hidden.getByRole('region', { name: '实际与开始时不同', exact: true })).toHaveCount(
+    0,
+  );
   await hidden.getByRole('button', { name: '关闭对话框', exact: true }).click();
   await command({
     type: 'saveRun',
@@ -2342,6 +2529,7 @@ test('the overview opens a record whose actual plan differs without starting it'
     actual: { thickness: '1.1', thicknessUnit: 'mm' },
   });
   await page.reload();
+  await expandLegacySections();
   await page.getByRole('button', { name: '实验概览', exact: true }).click();
   const modal = page.getByRole('dialog', { name: '实验概览', exact: true });
   const list = modal.getByRole('list', { name: '实际与开始时不同的操作', exact: true });
@@ -2355,6 +2543,7 @@ test('the overview opens a record whose actual plan differs without starting it'
   await list.getByRole('button', { name: '打开实际已改 TA-01 操作 1', exact: true }).click();
   await expect(modal).toHaveCount(0);
   await expect(page.locator('.live-page')).toBeVisible();
+  await expandLegacySections();
   await expect(page.locator('.current-heading')).toContainText('TA-01');
   const after = await snapshot();
   expect(after.runs).toHaveLength(1);
@@ -2374,6 +2563,7 @@ test('review records a scan id on the existing run and leaves the times unchange
   const before = await snapshot();
   const run = before.runs[0];
   await page.reload();
+  await expandLegacySections();
   await page.getByRole('button', { name: '回看导出', exact: true }).click();
   const row = page.locator('.review-table tbody tr', { hasText: 'TA-01' });
   await expect(row.locator('td').nth(4)).toContainText('未关联');
@@ -2409,7 +2599,10 @@ test('the recent record opens its file form without starting the next sample', a
   await command({ type: 'finish', itemId: initial.items[0].id });
   const finished = (await snapshot()).runs[0];
   await page.reload();
+  await expandLegacySections();
   await page.getByRole('button', { name: '现场记录', exact: true }).click();
+  await expect(page.locator('.live-page')).toBeVisible();
+  await expandLegacySections();
   await expect(page.locator('.current-heading')).toContainText('TA-02');
   const recent = page.getByRole('region', { name: '最近记录' });
   await expect(recent).toContainText('最近完成');
@@ -2433,7 +2626,10 @@ test('the recent record opens its file form without starting the next sample', a
     actual: { scanId: 'SCAN-RECENT-1' },
   });
   await page.reload();
+  await expandLegacySections();
   await page.getByRole('button', { name: '现场记录', exact: true }).click();
+  await expect(page.locator('.live-page')).toBeVisible();
+  await expandLegacySections();
   await page.getByRole('button', { name: '选择样品 TA-02 操作 2', exact: true }).click();
   const filled = page.getByRole('region', { name: '最近记录' });
   await expect(filled).toContainText('扫描 SCAN-RECENT-1');
@@ -2476,6 +2672,8 @@ test('a written reason is kept with skip or interrupt and stays out of search', 
   expect(data.items.find((item) => item.id === first.id)?.status).toBe('skipped');
   expect(data.events.some((event) => event.text === '跳过操作：样品未送达')).toBe(true);
   await page.getByRole('button', { name: '现场记录', exact: true }).click();
+  await expect(page.locator('.live-page')).toBeVisible();
+  await expandLegacySections();
   await page.getByRole('button', { name: '恢复到待测队列', exact: true }).click();
   await expect(page.locator('.current-heading')).not.toContainText('样品未送达');
   await page.getByRole('button', { name: '跳过', exact: true }).click();
@@ -2511,7 +2709,10 @@ test('the plan strip restores a skipped operation and leaves the running record 
   await command({ type: 'start', itemId: initial.items[1].id });
   const running = (await snapshot()).runs[0];
   await page.reload();
+  await expandLegacySections();
   await page.getByRole('button', { name: '实验规划', exact: true }).click();
+  await expect(page.locator('.plan-page')).toBeVisible();
+  await expandLegacySections();
   await page.getByRole('button', { name: '展开 Ti-A-热处理', exact: true }).click();
   const skipped = page.getByRole('group', { name: 'TA-01 的操作' });
   await expect(
@@ -2520,6 +2721,7 @@ test('the plan strip restores a skipped operation and leaves the running record 
   await expect(page.getByRole('button', { name: '恢复 TA-02 操作 2', exact: true })).toHaveCount(0);
   await skipped.getByRole('button', { name: '恢复 TA-01 操作 1', exact: true }).click();
   await expect(page.locator('.plan-page')).toBeVisible();
+  await expandLegacySections();
   await expect(
     skipped.getByRole('button', { name: '查看 TA-01 操作 1 待测', exact: true }),
   ).toBeVisible();
@@ -2546,15 +2748,21 @@ test('the plan strip schedules one retest and leaves the finished record unchang
   const finished = before.runs.find((run) => run.itemId === initial.items[0].id)!;
   const running = before.runs.find((run) => run.itemId === initial.items[1].id)!;
   await page.reload();
+  await expandLegacySections();
   await page.getByRole('button', { name: '实验规划', exact: true }).click();
+  await expect(page.locator('.plan-page')).toBeVisible();
+  await expandLegacySections();
   await page.getByRole('button', { name: '展开 Ti-A-热处理', exact: true }).click();
   const finishedStrip = page.getByRole('group', { name: 'TA-01 的操作' });
-  await expect(page.getByRole('button', { name: '安排重测 TA-02 操作 2', exact: true })).toHaveCount(
-    0,
-  );
+  await expect(
+    page.getByRole('button', { name: '安排重测 TA-02 操作 2', exact: true }),
+  ).toHaveCount(0);
   await finishedStrip.getByRole('button', { name: '安排重测 TA-01 操作 1', exact: true }).click();
   await expect(page.locator('.plan-page')).toBeVisible();
-  await expect(finishedStrip.getByRole('button', { name: /查看 TA-01 操作 \d+ 待测/ })).toBeVisible();
+  await expandLegacySections();
+  await expect(
+    finishedStrip.getByRole('button', { name: /查看 TA-01 操作 \d+ 待测/ }),
+  ).toBeVisible();
   await finishedStrip.getByRole('button', { name: '安排重测 TA-01 操作 1', exact: true }).click();
   await expect(finishedStrip.getByRole('button', { name: /查看 TA-01 操作/ })).toHaveCount(2);
   const after = await snapshot();
@@ -2593,7 +2801,10 @@ test('the next pending brief names a retest and does not start it', async () => 
   await command({ type: 'skip', itemId: initial.items[3].id });
   await command({ type: 'repeat', itemId: initial.items[0].id });
   await page.reload();
+  await expandLegacySections();
   await page.getByRole('button', { name: '实验规划', exact: true }).click();
+  await expect(page.locator('.plan-page')).toBeVisible();
+  await expandLegacySections();
   const planNext = page.getByRole('region', { name: '下一项待测' });
   await expect(planNext).toContainText('重测自 TA-01');
   await expect(planNext).toContainText('SCAN-NEXT-1');
@@ -2606,6 +2817,8 @@ test('the next pending brief names a retest and does not start it', async () => 
   await expect(libraryNext).toContainText('SCAN-NEXT-1');
   await page.keyboard.press('Escape');
   await page.getByRole('button', { name: '现场记录', exact: true }).click();
+  await expect(page.locator('.live-page')).toBeVisible();
+  await expandLegacySections();
   await page.getByRole('button', { name: '选择样品 TA-02 操作 2', exact: true }).click();
   const liveNext = page.getByRole('region', { name: '现场下一项' });
   await expect(liveNext).toContainText('重测自 TA-01');
@@ -2628,35 +2841,51 @@ test('review can edit a saved note without changing the recorded times', async (
   const initial = await snapshot();
   await command({ type: 'start', itemId: initial.items[0].id });
   await command({ type: 'finish', itemId: initial.items[0].id });
+  const started = (await snapshot()).runs[0];
+  await command({ type: 'saveRun', runId: started.id, notes: '原有现场观察' });
   const run = (await snapshot()).runs[0];
   await page.reload();
+  await expandLegacySections();
   await page.getByRole('button', { name: '回看导出', exact: true }).click();
   const row = page.locator('.review-table tbody tr', { hasText: 'TA-01' });
   const pending = page.locator('.review-table tbody tr', { hasText: 'TA-02' });
-  await expect(pending.getByRole('button', { name: '修改备注 TA-02 操作 2', exact: true })).toHaveCount(
-    0,
-  );
+  await expect(
+    pending.getByRole('button', { name: '修改备注 TA-02 操作 2', exact: true }),
+  ).toBeEnabled();
+  await expect(row).toContainText('原现场备注：原有现场观察');
   await row.getByRole('button', { name: '修改备注 TA-01 操作 1', exact: true }).click();
   const dialog = page.getByRole('dialog', { name: '修改现场备注' });
+  await expect(dialog.getByLabel('现场备注', { exact: true })).toHaveValue('原有现场观察');
   await dialog.getByLabel('现场备注', { exact: true }).fill('先取消的文字');
   await dialog.getByRole('button', { name: '取消', exact: true }).click();
   await expect(dialog).toHaveCount(0);
-  expect((await snapshot()).runs[0].notes).toBe('');
+  expect((await snapshot()).runs[0].notes).toBe('原有现场观察');
+  expect(
+    (await snapshot()).items.find((item) => item.id === run.itemId)?.fieldNote,
+  ).toBeUndefined();
   await row.getByRole('button', { name: '修改备注 TA-01 操作 1', exact: true }).click();
   const editor = page.getByRole('dialog', { name: '修改现场备注' });
   await editor.getByLabel('现场备注', { exact: true }).fill('回看补记装样复核');
   await editor.getByRole('button', { name: '保存备注', exact: true }).click();
   await expect(editor).toHaveCount(0);
   await expect(row).toContainText('回看补记装样复核');
+  await expect(row).toContainText('原现场备注：原有现场观察');
   await page.getByLabel('搜索操作记录', { exact: true }).fill('回看补记装样复核');
   await expect(page.locator('.review-table tbody tr', { hasText: 'TA-01' })).toHaveCount(1);
   await expect(page.locator('.review-table tbody tr', { hasText: 'TA-02' })).toHaveCount(0);
   await page.getByRole('button', { name: '现场记录', exact: true }).click();
+  await expect(page.locator('.live-page')).toBeVisible();
+  await expandLegacySections();
   await page.getByLabel('搜索待测样品', { exact: true }).fill('回看补记装样复核');
   await expect(page.getByRole('button', { name: '选择样品 TA-01 操作 1' })).toHaveCount(0);
+  await page.getByLabel('搜索待测样品', { exact: true }).fill('');
+  await page.getByRole('button', { name: '选择样品 TA-01 操作 1', exact: true }).click();
+  await expect(page.getByLabel('现场备注', { exact: true })).toHaveValue('回看补记装样复核');
+  await expect(page.locator('.live-legacy-notes')).toContainText('原现场备注：原有现场观察');
   const after = await snapshot();
   expect(after.runs).toHaveLength(1);
-  expect(after.runs[0].notes).toBe('回看补记装样复核');
+  expect(after.items.find((item) => item.id === run.itemId)?.fieldNote).toBe('回看补记装样复核');
+  expect(after.runs[0].notes).toBe(run.notes);
   expect(after.runs[0].startedAt).toBe(run.startedAt);
   expect(after.runs[0].endedAt).toBe(run.endedAt);
   expect(after.runs[0].originalStartedAt).toBe(run.originalStartedAt);
@@ -2672,13 +2901,14 @@ test('review can correct a saved scan id without changing the recorded times', a
   const run = (await snapshot()).runs[0];
   await command({ type: 'saveRun', runId: run.id, actual: { scanId: 'SCAN-OLD' } });
   await page.reload();
+  await expandLegacySections();
   await page.getByRole('button', { name: '回看导出', exact: true }).click();
   const row = page.locator('.review-table tbody tr', { hasText: 'TA-01' });
   const pending = page.locator('.review-table tbody tr', { hasText: 'TA-02' });
   await expect(row).toContainText('SCAN-OLD');
-  await expect(pending.getByRole('button', { name: '修改文件 TA-02 操作 2', exact: true })).toHaveCount(
-    0,
-  );
+  await expect(
+    pending.getByRole('button', { name: '修改文件 TA-02 操作 2', exact: true }),
+  ).toHaveCount(0);
   await row.getByRole('button', { name: '修改文件 TA-01 操作 1', exact: true }).click();
   const dialog = page.getByRole('dialog', { name: '修改数据文件' });
   await dialog.getByLabel('扫描编号', { exact: true }).fill('');
@@ -2721,7 +2951,10 @@ test('the measurement plan keeps the recorded size after the plan thickness chan
     patch: { thickness: '9.9', notes: '只改备注' },
   });
   await page.reload();
+  await expandLegacySections();
   await page.getByRole('button', { name: '实验规划', exact: true }).click();
+  await expect(page.locator('.plan-page')).toBeVisible();
+  await expandLegacySections();
   const planner = page.getByRole('region', { name: '测量计划', exact: true });
   const started = planner.locator('tbody tr', { hasText: 'TA-01' });
   const pending = planner.locator('tbody tr', { hasText: 'TA-02' });
@@ -2753,7 +2986,10 @@ test('the measurement plan restores a skipped row and keeps the running record',
   await command({ type: 'start', itemId: initial.items[1].id });
   const running = (await snapshot()).runs[0];
   await page.reload();
+  await expandLegacySections();
   await page.getByRole('button', { name: '实验规划', exact: true }).click();
+  await expect(page.locator('.plan-page')).toBeVisible();
+  await expandLegacySections();
   const planner = page.getByRole('region', { name: '测量计划', exact: true });
   await planner.getByLabel('按状态筛选测量', { exact: true }).selectOption('skipped');
   const row = planner.locator('tbody tr', { hasText: 'TA-01' });
@@ -2761,18 +2997,19 @@ test('the measurement plan restores a skipped row and keeps the running record',
   await planner.getByLabel('搜索测量计划', { exact: true }).fill('样品未送达');
   await expect(planner.getByText('没有符合筛选的测量')).toBeVisible();
   await planner.getByLabel('搜索测量计划', { exact: true }).fill('');
-  await expect(planner.getByRole('button', { name: '恢复测量 TA-02 操作 2', exact: true })).toHaveCount(
-    0,
-  );
+  await expect(
+    planner.getByRole('button', { name: '恢复测量 TA-02 操作 2', exact: true }),
+  ).toHaveCount(0);
   await row.getByRole('button', { name: '恢复测量 TA-01 操作 1', exact: true }).click();
   await expect(page.locator('.plan-page')).toBeVisible();
+  await expandLegacySections();
   await expect(planner.getByText('没有符合筛选的测量')).toBeVisible();
   await planner.getByLabel('按状态筛选测量', { exact: true }).selectOption('');
   const restored = planner.locator('tbody tr', { hasText: 'TA-01' });
   await expect(restored).not.toContainText('样品未送达');
-  await expect(restored.getByRole('button', { name: '恢复测量 TA-01 操作 1', exact: true })).toHaveCount(
-    0,
-  );
+  await expect(
+    restored.getByRole('button', { name: '恢复测量 TA-01 操作 1', exact: true }),
+  ).toHaveCount(0);
   const after = await snapshot();
   expect(after.runs).toHaveLength(1);
   expect(after.items.find((item) => item.id === initial.items[0].id)?.status).toBe('pending');
@@ -2793,6 +3030,7 @@ test('review schedules one retest and leaves the finished record unchanged', asy
   const finished = before.runs.find((run) => run.itemId === initial.items[0].id)!;
   const running = before.runs.find((run) => run.itemId === initial.items[1].id)!;
   await page.reload();
+  await expandLegacySections();
   await page.getByRole('button', { name: '回看导出', exact: true }).click();
   await expect(page.locator('.review-page')).toBeVisible();
   await expect(
@@ -2838,7 +3076,10 @@ test('the measurement plan marks a protocol changed after start and ignores note
     patch: { protocol: '保温改为 45 min', notes: '只改备注' },
   });
   await page.reload();
+  await expandLegacySections();
   await page.getByRole('button', { name: '实验规划', exact: true }).click();
+  await expect(page.locator('.plan-page')).toBeVisible();
+  await expandLegacySections();
   const planner = page.getByRole('region', { name: '测量计划', exact: true });
   const started = planner.locator('tbody tr', { hasText: 'TA-01' });
   const pending = planner.locator('tbody tr', { hasText: 'TA-02' });
@@ -2869,7 +3110,10 @@ test('the measurement plan filter keeps only rows whose plan changed after start
     patch: { notes: '只改备注' },
   });
   await page.reload();
+  await expandLegacySections();
   await page.getByRole('button', { name: '实验规划', exact: true }).click();
+  await expect(page.locator('.plan-page')).toBeVisible();
+  await expandLegacySections();
   const planner = page.getByRole('region', { name: '测量计划', exact: true });
   await expect(planner.getByRole('button', { name: '计划已变', exact: true })).toHaveCount(0);
   await command({
@@ -2878,7 +3122,10 @@ test('the measurement plan filter keeps only rows whose plan changed after start
     patch: { protocol: '保温改为 45 min' },
   });
   await page.reload();
+  await expandLegacySections();
   await page.getByRole('button', { name: '实验规划', exact: true }).click();
+  await expect(page.locator('.plan-page')).toBeVisible();
+  await expandLegacySections();
   await planner.getByRole('button', { name: '计划已变', exact: true }).click();
   await expect(planner.locator('tbody tr')).toHaveCount(1);
   await expect(planner.locator('tbody tr')).toContainText('TA-01');
@@ -2912,7 +3159,10 @@ test('the measurement plan keeps only rows whose recorded plan differs', async (
     patch: { protocol: '保温改为 45 min' },
   });
   await page.reload();
+  await expandLegacySections();
   await page.getByRole('button', { name: '实验规划', exact: true }).click();
+  await expect(page.locator('.plan-page')).toBeVisible();
+  await expandLegacySections();
   const planner = page.getByRole('region', { name: '测量计划', exact: true });
   await expect(planner.getByRole('button', { name: '计划已变', exact: true })).toBeVisible();
   await expect(planner.getByRole('button', { name: '实际已改', exact: true })).toHaveCount(0);
@@ -2923,7 +3173,10 @@ test('the measurement plan keeps only rows whose recorded plan differs', async (
     actual: { protocol: '现场改为 20 min' },
   });
   await page.reload();
+  await expandLegacySections();
   await page.getByRole('button', { name: '实验规划', exact: true }).click();
+  await expect(page.locator('.plan-page')).toBeVisible();
+  await expandLegacySections();
   await planner.getByRole('button', { name: '实际已改', exact: true }).click();
   await expect(planner.locator('tbody tr')).toHaveCount(1);
   await expect(planner.locator('tbody tr')).toContainText('TA-01');
@@ -2957,7 +3210,10 @@ test('the measurement plan shows an actual protocol without rewriting the start 
     actual: { protocol: '现场改为 20 min' },
   });
   await page.reload();
+  await expandLegacySections();
   await page.getByRole('button', { name: '实验规划', exact: true }).click();
+  await expect(page.locator('.plan-page')).toBeVisible();
+  await expandLegacySections();
   const planner = page.getByRole('region', { name: '测量计划', exact: true });
   const started = planner.locator('tbody tr', { hasText: 'TA-01' });
   const pending = planner.locator('tbody tr', { hasText: 'TA-02' });
@@ -2991,12 +3247,15 @@ test('search finds a started sample by the protocol recorded after start', async
   });
   await page.reload();
   await expect(page.locator('.live-page')).toBeVisible();
+  await expandLegacySections();
   await page.getByLabel('搜索待测样品', { exact: true }).fill('现场改为 20 min');
   await expect(page.getByRole('button', { name: '选择样品 TA-01 操作 1' })).toBeVisible();
   await expect(page.getByRole('button', { name: '选择样品 TA-02 操作 2' })).toHaveCount(0);
   await page.getByLabel('搜索待测样品', { exact: true }).fill('核对装样方向');
   await expect(page.getByRole('button', { name: '选择样品 TA-01 操作 1' })).toHaveCount(0);
   await page.getByRole('button', { name: '实验规划', exact: true }).click();
+  await expect(page.locator('.plan-page')).toBeVisible();
+  await expandLegacySections();
   const planner = page.getByRole('region', { name: '测量计划', exact: true });
   await planner.getByLabel('搜索测量计划', { exact: true }).fill('现场改为 20 min');
   await expect(planner.locator('tbody tr')).toHaveCount(1);
@@ -3039,6 +3298,7 @@ test('search finds a started sample by the preparation recorded after start', as
   });
   await page.reload();
   await expect(page.locator('.live-page')).toBeVisible();
+  await expandLegacySections();
   await page.getByLabel('搜索待测样品', { exact: true }).fill('试剂批次 K-9');
   await expect(page.getByRole('button', { name: '选择样品 TA-01 操作 1' })).toBeVisible();
   await expect(page.getByRole('button', { name: '选择样品 TA-02 操作 2' })).toHaveCount(0);
@@ -3089,6 +3349,7 @@ test('the queue and review show the recorded preparation beside the start prepar
   });
   await page.reload();
   await expect(page.locator('.live-page')).toBeVisible();
+  await expandLegacySections();
   const row = page.getByRole('button', { name: '选择样品 TA-01 操作 1' });
   await expect(row).toContainText('制备/试剂：Ti-A / 制备批次 A → 试剂批次 K-9');
   await expect(row).toContainText('样品名：');
@@ -3104,11 +3365,15 @@ test('the queue and review show the recorded preparation beside the start prepar
   await expect(page.locator('.current-heading')).not.toContainText('只写备注');
   await expect(page.locator('.current-heading')).not.toContainText('当前计划已不同');
   await page.getByRole('button', { name: '实验规划', exact: true }).click();
+  await expect(page.locator('.plan-page')).toBeVisible();
+  await expandLegacySections();
   const planner = page.getByRole('region', { name: '测量计划', exact: true });
   const started = planner.locator('tbody tr', { hasText: 'TA-01' });
   await expect(started.locator('.measurement-recorded-plan')).toContainText('试剂批次 K-9');
   await expect(started.locator('.measurement-recorded-plan')).not.toContainText('秘密组分');
-  await expect(planner.locator('tbody tr', { hasText: 'TA-02' }).locator('.measurement-recorded-plan')).toHaveCount(0);
+  await expect(
+    planner.locator('tbody tr', { hasText: 'TA-02' }).locator('.measurement-recorded-plan'),
+  ).toHaveCount(0);
   await page.getByRole('button', { name: '回看导出', exact: true }).click();
   const review = page.locator('.review-table tbody tr', { hasText: 'TA-01' });
   await expect(review.locator('.review-recorded-plan')).toContainText('试剂批次 K-9');
@@ -3131,6 +3396,7 @@ test('review can correct the actual preparation without changing the start snaps
   const run = (await snapshot()).runs[0];
   await command({ type: 'saveRun', runId: run.id, notes: '只写备注' });
   await page.reload();
+  await expandLegacySections();
   await page.getByRole('button', { name: '回看导出', exact: true }).click();
   const row = page.locator('.review-table tbody tr', { hasText: 'TA-01' });
   const pending = page.locator('.review-table tbody tr', { hasText: 'TA-02' });
@@ -3139,8 +3405,12 @@ test('review can correct the actual preparation without changing the start snaps
   ).toHaveCount(0);
   await row.getByRole('button', { name: '修改实际制备 TA-01 操作 1', exact: true }).click();
   const dialog = page.getByRole('dialog', { name: '修改实际制备' });
-  await expect(dialog.getByLabel('实际样品名', { exact: true })).toHaveValue('Ti-A 拉伸试样');
-  await expect(dialog.getByLabel('实际制备或试剂', { exact: true })).toHaveValue('Ti-A / 制备批次 A');
+  await expect(dialog.getByLabel('实际样品名', { exact: true })).toHaveValue('');
+  await expect(dialog.getByLabel('实际样品名', { exact: true })).toHaveAttribute('placeholder', '未记录');
+  await expect(dialog).toContainText('开始时参考：Ti-A 拉伸试样');
+  await expect(dialog.getByLabel('实际制备或试剂', { exact: true })).toHaveValue(
+    'Ti-A / 制备批次 A',
+  );
   await expect(dialog.getByLabel('实际实验方式', { exact: true })).toHaveValue('In situ');
   await dialog.getByLabel('实际样品名', { exact: true }).fill('现场试样甲');
   await dialog.getByLabel('实际实验方式', { exact: true }).selectOption('Ex situ');
@@ -3164,7 +3434,8 @@ test('review can correct the actual preparation without changing the start snaps
   expect(after.runs).toHaveLength(1);
   expect(after.runs[0].actual.preparation).toBe('试剂批次 K-9');
   expect(after.runs[0].actual.mode).toBe('Ex situ');
-  expect(after.runs[0].actualSample?.name).toBe('现场试样甲');
+  expect(after.runs[0].actualSample?.specimenName).toBe('现场试样甲');
+  expect(after.runs[0].actualSample?.name).toBe(run.actualSample?.name);
   expect(after.runs[0].actual.thickness).toBe('0.8');
   expect(after.runs[0].actual.composition).toBe('演示材料');
   expect(after.runs[0].notes).toBe('只写备注');
@@ -3195,6 +3466,7 @@ test('the experiment list counts records whose actual plan differs', async () =>
   });
   await page.reload();
   await expect(page.locator('.live-page')).toBeVisible();
+  await expandLegacySections();
   await expect(page.getByLabel('选择实验', { exact: true })).not.toContainText('实际已改');
   await command({
     type: 'saveRun',
@@ -3202,11 +3474,14 @@ test('the experiment list counts records whose actual plan differs', async () =>
     actual: { preparation: '试剂批次 K-9' },
   });
   await page.reload();
+  await expandLegacySections();
   await expect(page.getByLabel('选择实验', { exact: true })).toContainText('实际已改 1');
   await page.locator('h1').click();
   await page.keyboard.press('Control+K');
   const library = page.getByRole('dialog', { name: '全库搜索' });
-  await expect(library.getByRole('option', { name: /同步辐射实验/ }).first()).toContainText('实际已改 1');
+  await expect(library.getByRole('option', { name: /同步辐射实验/ }).first()).toContainText(
+    '实际已改 1',
+  );
   await page.keyboard.press('Escape');
   const after = await snapshot();
   expect(after.runs).toHaveLength(1);
@@ -3230,6 +3505,7 @@ test('the queue and review show the recorded protocol beside the start protocol'
   });
   await page.reload();
   await expect(page.locator('.live-page')).toBeVisible();
+  await expandLegacySections();
   const row = page.getByRole('button', { name: '选择样品 TA-01 操作 1' });
   await expect(row).toContainText('实际制度 现场改为 20 min');
   await expect(row).toContainText('开始时');
@@ -3262,7 +3538,10 @@ test('the measurement plan shows recorded duration and does not estimate an open
   await command({ type: 'start', itemId: initial.items[0].id });
   const started = (await snapshot()).runs[0];
   await page.reload();
+  await expandLegacySections();
   await page.getByRole('button', { name: '实验规划', exact: true }).click();
+  await expect(page.locator('.plan-page')).toBeVisible();
+  await expandLegacySections();
   const planner = page.getByRole('region', { name: '测量计划', exact: true });
   const openRow = planner.locator('tbody tr', { hasText: 'TA-01' });
   const pending = planner.locator('tbody tr', { hasText: 'TA-02' });
@@ -3277,12 +3556,21 @@ test('the measurement plan shows recorded duration and does not estimate an open
     reason: '核对用时',
   });
   await page.reload();
+  await expandLegacySections();
   await page.getByRole('button', { name: '实验规划', exact: true }).click();
+  await expect(page.locator('.plan-page')).toBeVisible();
+  await expandLegacySections();
   await expect(
-    page.getByRole('region', { name: '测量计划', exact: true }).locator('tbody tr', { hasText: 'TA-01' }).locator('.measurement-duration'),
+    page
+      .getByRole('region', { name: '测量计划', exact: true })
+      .locator('tbody tr', { hasText: 'TA-01' })
+      .locator('.measurement-duration'),
   ).toHaveText('用时 5 分 00 秒');
   await expect(
-    page.getByRole('region', { name: '测量计划', exact: true }).locator('tbody tr', { hasText: 'TA-02' }).locator('.measurement-duration'),
+    page
+      .getByRole('region', { name: '测量计划', exact: true })
+      .locator('tbody tr', { hasText: 'TA-02' })
+      .locator('.measurement-duration'),
   ).toHaveCount(0);
   const after = await snapshot();
   expect(after.runs).toHaveLength(1);
@@ -3308,6 +3596,7 @@ test('the experiment library shows recorded duration and incomplete runs separat
   });
   await command({ type: 'start', itemId: initial.items[1].id });
   await page.reload();
+  await expandLegacySections();
   await page.locator('h1').click();
   await page.keyboard.press('Control+K');
   const library = page.getByRole('dialog', { name: '全库搜索' });
@@ -3347,7 +3636,10 @@ test('the plan page shows the latest finished record and opens it without starti
   await command({ type: 'start', itemId: initial.items[1].id });
   const finishedBefore = (await snapshot()).runs.find((run) => run.id === started.id)!;
   await page.reload();
+  await expandLegacySections();
   await page.getByRole('button', { name: '实验规划', exact: true }).click();
+  await expect(page.locator('.plan-page')).toBeVisible();
+  await expandLegacySections();
   const recent = page.getByRole('region', { name: '最近记录' });
   await expect(recent).toContainText('最近完成');
   await expect(recent).toContainText('TA-01');
@@ -3357,6 +3649,7 @@ test('the plan page shows the latest finished record and opens it without starti
   await expect(recent).not.toContainText('核对装样方向');
   await recent.getByRole('button', { name: '查看最近记录 TA-01', exact: true }).click();
   await expect(page.locator('.live-page')).toBeVisible();
+  await expandLegacySections();
   await expect(page.locator('.current-heading')).toContainText('TA-01');
   await expect(page.locator('.current-heading')).toContainText('正在查看');
   const after = await snapshot();
@@ -3387,11 +3680,17 @@ test('the plan page copies the latest finished folder and stays on the plan', as
   const before = await snapshot();
   const finishedBefore = before.runs.find((run) => run.id === started.id)!;
   await page.reload();
+  await expandLegacySections();
   await page.getByRole('button', { name: '实验规划', exact: true }).click();
+  await expect(page.locator('.plan-page')).toBeVisible();
+  await expandLegacySections();
   const recent = page.getByRole('region', { name: '最近记录' });
   await recent.getByRole('button', { name: '复制最近记录文件夹 TA-01', exact: true }).click();
-  expect(await application.evaluate(({ clipboard }) => clipboard.readText())).toBe(started.filename);
+  expect(await application.evaluate(({ clipboard }) => clipboard.readText())).toBe(
+    started.filename,
+  );
   await expect(page.locator('.plan-page')).toBeVisible();
+  await expandLegacySections();
   await expect(page.locator('.live-page')).toHaveCount(0);
   const after = await snapshot();
   const finished = after.runs.find((run) => run.id === started.id)!;
@@ -3427,14 +3726,20 @@ test('the latest scan can be copied from the plan, live page and overview withou
   const before = await snapshot();
   const finishedBefore = before.runs.find((run) => run.id === started.id)!;
   await page.reload();
+  await expandLegacySections();
   await page.getByRole('button', { name: '实验规划', exact: true }).click();
+  await expect(page.locator('.plan-page')).toBeVisible();
+  await expandLegacySections();
   const recent = page.getByRole('region', { name: '最近记录', exact: true });
   await expect(recent).toContainText('扫描 SCAN-LAST-1');
   await expect(recent).not.toContainText('只写备注');
   await recent.getByRole('button', { name: '复制最近记录扫描编号 TA-01', exact: true }).click();
   expect(await application.evaluate(({ clipboard }) => clipboard.readText())).toBe('SCAN-LAST-1');
   await expect(page.locator('.plan-page')).toBeVisible();
+  await expandLegacySections();
   await page.getByRole('button', { name: '现场记录', exact: true }).click();
+  await expect(page.locator('.live-page')).toBeVisible();
+  await expandLegacySections();
   const liveRecent = page.getByRole('region', { name: '最近记录', exact: true });
   await liveRecent.getByRole('button', { name: '复制最近记录扫描编号 TA-01', exact: true }).click();
   expect(await application.evaluate(({ clipboard }) => clipboard.readText())).toBe('SCAN-LAST-1');
@@ -3448,16 +3753,22 @@ test('the latest scan can be copied from the plan, live page and overview withou
   await expect(overviewRecent).toContainText('SCAN-LAST-1');
   await expect(overviewRecent).toContainText(started.filename);
   await expect(overviewRecent).not.toContainText('只写备注');
-  await overviewRecent.getByRole('button', { name: '复制最近记录扫描编号 TA-01', exact: true }).click();
+  await overviewRecent
+    .getByRole('button', { name: '复制最近记录扫描编号 TA-01', exact: true })
+    .click();
   expect(await application.evaluate(({ clipboard }) => clipboard.readText())).toBe('SCAN-LAST-1');
   await expect(overview).toBeVisible();
   await overviewRecent.getByRole('button', { name: '打开最近记录 TA-01', exact: true }).click();
   await expect(page.locator('.live-page')).toBeVisible();
+  await expandLegacySections();
   await expect(page.locator('.current-heading')).toContainText('正在查看');
   await expect(page.locator('.current-heading')).toContainText('TA-01');
   await command({ type: 'saveRun', runId: started.id, actual: { scanId: 'beam/scan' } });
   await page.reload();
+  await expandLegacySections();
   await page.getByRole('button', { name: '实验规划', exact: true }).click();
+  await expect(page.locator('.plan-page')).toBeVisible();
+  await expandLegacySections();
   await expect(
     page.getByRole('button', { name: '复制最近记录扫描编号 TA-01', exact: true }),
   ).toHaveCount(0);
@@ -3498,6 +3809,7 @@ test('review and the live heading name only the latest finished operation', asyn
   await command({ type: 'finish', itemId: initial.items[0].id });
   const finished = (await snapshot()).runs[0];
   await page.reload();
+  await expandLegacySections();
   await page.getByRole('button', { name: '回看导出', exact: true }).click();
   const finishedRow = page.locator('.review-table tbody tr', { hasText: 'TA-01' });
   const pendingRow = page.locator('.review-table tbody tr', { hasText: 'TA-02' });
@@ -3511,6 +3823,8 @@ test('review and the live heading name only the latest finished operation', asyn
   await page.getByLabel('搜索操作记录', { exact: true }).fill('样品定位偏离');
   await expect(page.locator('.review-table tbody tr', { hasText: 'TA-01' })).toHaveCount(0);
   await page.getByRole('button', { name: '现场记录', exact: true }).click();
+  await expect(page.locator('.live-page')).toBeVisible();
+  await expandLegacySections();
   await page.getByRole('button', { name: '选择样品 TA-01 操作 1', exact: true }).click();
   await expect(page.locator('.current-heading')).toContainText('最近完成');
   await expect(page.locator('.current-heading')).not.toContainText('只写备注');
@@ -3518,7 +3832,9 @@ test('review and the live heading name only the latest finished operation', asyn
   await page.getByRole('button', { name: '选择样品 TA-02 操作 2', exact: true }).click();
   await expect(page.locator('.current-heading')).not.toContainText('最近完成');
   await page.getByLabel('搜索待测样品', { exact: true }).fill('最近完成');
-  await expect(page.getByRole('button', { name: '选择样品 TA-01 操作 1', exact: true })).toHaveCount(0);
+  await expect(
+    page.getByRole('button', { name: '选择样品 TA-01 操作 1', exact: true }),
+  ).toHaveCount(0);
   const after = await snapshot();
   expect(after.runs).toHaveLength(1);
   expect(after.runs[0].notes).toBe('只写备注');
@@ -3548,6 +3864,7 @@ test('the latest record shows the end clock saved with that run', async () => {
   expect(clock).toBeTruthy();
   const label = `结束 ${clock!.clock} ${clock!.zone}`;
   await page.reload();
+  await expandLegacySections();
   const recent = page.getByRole('region', { name: '最近记录', exact: true });
   await expect(recent).toContainText(label);
   await expect(recent).toContainText('用时 5 分 00 秒');
@@ -3555,15 +3872,19 @@ test('the latest record shows the end clock saved with that run', async () => {
   await page.locator('h1').click();
   await page.keyboard.press('Control+K');
   const library = page.getByRole('dialog', { name: '全库搜索' });
-  await expect(library.getByRole('option', { name: '查看最近记录 TA-01', exact: true })).toContainText(
-    label,
-  );
+  await expect(
+    library.getByRole('option', { name: '查看最近记录 TA-01', exact: true }),
+  ).toContainText(label);
   await page.keyboard.press('Escape');
   await page.getByRole('button', { name: '现场记录', exact: true }).click();
+  await expect(page.locator('.live-page')).toBeVisible();
+  await expandLegacySections();
   await page.getByRole('button', { name: '选择样品 TA-02 操作 2', exact: true }).click();
   await expect(page.getByRole('region', { name: '最近记录', exact: true })).toContainText(label);
   await page.getByLabel('搜索待测样品', { exact: true }).fill(clock!.clock);
-  await expect(page.getByRole('button', { name: '选择样品 TA-01 操作 1', exact: true })).toHaveCount(0);
+  await expect(
+    page.getByRole('button', { name: '选择样品 TA-01 操作 1', exact: true }),
+  ).toHaveCount(0);
   await page.getByRole('button', { name: '实验概览', exact: true }).click();
   await expect(
     page
@@ -3601,17 +3922,22 @@ test('finished queue and measurement rows show the saved end clock', async () =>
   expect(clock).toBeTruthy();
   const label = `结束 ${clock!.clock} ${clock!.zone}`;
   await page.reload();
+  await expandLegacySections();
   const finishedChoice = page.getByRole('button', { name: '选择样品 TA-01 操作 1', exact: true });
   const runningChoice = page.getByRole('button', { name: '选择样品 TA-02 操作 2', exact: true });
   await expect(finishedChoice).toContainText(label);
   await expect(runningChoice).not.toContainText(clock!.clock);
   await page.getByLabel('搜索待测样品', { exact: true }).fill(clock!.clock);
-  await expect(page.getByRole('button', { name: '选择样品 TA-01 操作 1', exact: true })).toHaveCount(0);
+  await expect(
+    page.getByRole('button', { name: '选择样品 TA-01 操作 1', exact: true }),
+  ).toHaveCount(0);
   await page.getByRole('button', { name: '实验规划', exact: true }).click();
+  await expect(page.locator('.plan-page')).toBeVisible();
+  await expandLegacySections();
   await page.getByRole('button', { name: '展开 Ti-A-热处理' }).click();
-  await expect(page.getByRole('button', { name: '查看 TA-01 操作 1 已完成', exact: true })).toContainText(
-    label,
-  );
+  await expect(
+    page.getByRole('button', { name: '查看 TA-01 操作 1 已完成', exact: true }),
+  ).toContainText(label);
   await expect(
     page.getByRole('button', { name: '查看 TA-02 操作 2 进行中', exact: true }),
   ).not.toContainText(clock!.clock);
@@ -3650,7 +3976,10 @@ test('focus mode keeps the saved end clock on the current finished sample', asyn
   expect(clock).toBeTruthy();
   const label = `结束 ${clock!.clock} ${clock!.zone}`;
   await page.reload();
+  await expandLegacySections();
   await page.getByRole('button', { name: '现场记录', exact: true }).click();
+  await expect(page.locator('.live-page')).toBeVisible();
+  await expandLegacySections();
   await expect(page.locator('.current-heading')).not.toContainText(clock!.clock);
   await page.getByRole('button', { name: '选择样品 TA-01 操作 1', exact: true }).click();
   await page.getByRole('button', { name: '专注当前样品', exact: true }).click();
@@ -3661,9 +3990,9 @@ test('focus mode keeps the saved end clock on the current finished sample', asyn
   await page.getByRole('button', { name: '队列与搜索', exact: true }).click();
   const queue = page.getByRole('dialog', { name: '待测队列与搜索' });
   await queue.getByLabel('搜索待测样品', { exact: true }).fill(clock!.clock);
-  await expect(queue.getByRole('button', { name: '选择样品 TA-01 操作 1', exact: true })).toHaveCount(
-    0,
-  );
+  await expect(
+    queue.getByRole('button', { name: '选择样品 TA-01 操作 1', exact: true }),
+  ).toHaveCount(0);
   await queue.getByLabel('搜索待测样品', { exact: true }).fill('');
   await queue.getByRole('button', { name: '选择样品 TA-02 操作 2', exact: true }).click();
   await expect(page.locator('.current-heading')).not.toContainText(clock!.clock);
@@ -3686,15 +4015,20 @@ test('the live page and overview copy the latest folder without leaving the curr
   const completed = (await snapshot()).runs[0];
   await command({ type: 'start', itemId: initial.items[1].id });
   await page.reload();
+  await expandLegacySections();
   const recent = page.getByRole('region', { name: '最近记录', exact: true });
   await recent.getByRole('button', { name: '复制最近记录文件夹 TA-01', exact: true }).click();
-  expect(await application.evaluate(({ clipboard }) => clipboard.readText())).toBe(started.filename);
+  expect(await application.evaluate(({ clipboard }) => clipboard.readText())).toBe(
+    started.filename,
+  );
   await expect(page.locator('.current-heading')).toContainText('TA-02');
   await expect(page.locator('.current-heading')).toContainText('进行中');
   await page.getByRole('button', { name: '实验概览', exact: true }).click();
   const overview = page.getByRole('dialog', { name: '实验概览', exact: true });
   await overview.getByRole('button', { name: '复制最近记录文件夹 TA-01', exact: true }).click();
-  expect(await application.evaluate(({ clipboard }) => clipboard.readText())).toBe(started.filename);
+  expect(await application.evaluate(({ clipboard }) => clipboard.readText())).toBe(
+    started.filename,
+  );
   await expect(overview).toBeVisible();
   const after = await snapshot();
   const kept = after.runs.find((run) => run.id === started.id)!;
@@ -3716,20 +4050,25 @@ test('a running operation shows its saved start clock and not an end clock', asy
   expect(clock).toBeTruthy();
   const label = `开始 ${clock!.clock} ${clock!.zone}`;
   await page.reload();
+  await expandLegacySections();
   const runningChoice = page.getByRole('button', { name: '选择样品 TA-01 操作 1', exact: true });
   await expect(runningChoice).toContainText(label);
   await expect(runningChoice).toContainText('用时 未计入');
   await expect(runningChoice).not.toContainText('结束 ');
-  await expect(page.getByRole('button', { name: '选择样品 TA-02 操作 2', exact: true })).not.toContainText(
-    clock!.clock,
-  );
+  await expect(
+    page.getByRole('button', { name: '选择样品 TA-02 操作 2', exact: true }),
+  ).not.toContainText(clock!.clock);
   await page.getByLabel('搜索待测样品', { exact: true }).fill(clock!.clock);
-  await expect(page.getByRole('button', { name: '选择样品 TA-01 操作 1', exact: true })).toHaveCount(0);
+  await expect(
+    page.getByRole('button', { name: '选择样品 TA-01 操作 1', exact: true }),
+  ).toHaveCount(0);
   await page.getByRole('button', { name: '实验规划', exact: true }).click();
+  await expect(page.locator('.plan-page')).toBeVisible();
+  await expandLegacySections();
   await page.getByRole('button', { name: '展开 Ti-A-热处理' }).click();
-  await expect(page.getByRole('button', { name: '查看 TA-01 操作 1 进行中', exact: true })).toContainText(
-    label,
-  );
+  await expect(
+    page.getByRole('button', { name: '查看 TA-01 操作 1 进行中', exact: true }),
+  ).toContainText(label);
   await expect(
     page.getByRole('button', { name: '查看 TA-01 操作 1 进行中', exact: true }),
   ).not.toContainText('结束 ');
@@ -3757,6 +4096,7 @@ test('focus mode keeps the saved start clock in the current status line', async 
   expect(clock).toBeTruthy();
   const label = `开始 ${clock!.clock} ${clock!.zone}`;
   await page.reload();
+  await expandLegacySections();
   await page.getByRole('button', { name: '专注当前样品', exact: true }).click();
   await expect(page.locator('.queue')).toHaveCount(0);
   await expect(page.locator('.current-heading')).toContainText('进行中');
@@ -3765,9 +4105,9 @@ test('focus mode keeps the saved start clock in the current status line', async 
   await page.getByRole('button', { name: '队列与搜索', exact: true }).click();
   const queue = page.getByRole('dialog', { name: '待测队列与搜索' });
   await queue.getByLabel('搜索待测样品', { exact: true }).fill(clock!.clock);
-  await expect(queue.getByRole('button', { name: '选择样品 TA-01 操作 1', exact: true })).toHaveCount(
-    0,
-  );
+  await expect(
+    queue.getByRole('button', { name: '选择样品 TA-01 操作 1', exact: true }),
+  ).toHaveCount(0);
   await queue.getByLabel('搜索待测样品', { exact: true }).fill('');
   await queue.getByRole('button', { name: '选择样品 TA-02 操作 2', exact: true }).click();
   await expect(page.locator('.current-heading')).not.toContainText(clock!.clock);
@@ -3789,6 +4129,7 @@ test('review shows the saved timezone under the start clock', async () => {
   const clock = recordedClock(started.startedAt, started.offsetMinutes, started.timezone);
   expect(clock).toBeTruthy();
   await page.reload();
+  await expandLegacySections();
   await page.getByRole('button', { name: '回看导出', exact: true }).click();
   const runningRow = page.locator('.review-table tbody tr', { hasText: 'TA-01' });
   const pendingRow = page.locator('.review-table tbody tr', { hasText: 'TA-02' });
@@ -3817,18 +4158,21 @@ test('the queue and measurement plan show a saved file name and not the file ref
     actual: { filename: 'frame-001.cbf', files: 'E:\\raw\\hidden.cbf' },
   });
   await page.reload();
+  await expandLegacySections();
   const choice = page.getByRole('button', { name: '选择样品 TA-01 操作 1', exact: true });
   await expect(choice).toContainText('文件 frame-001.cbf');
   await expect(choice).not.toContainText('hidden.cbf');
   await expect(choice).not.toContainText('只写备注');
-  await expect(page.getByRole('button', { name: '选择样品 TA-02 操作 2', exact: true })).not.toContainText(
-    'frame-001.cbf',
-  );
+  await expect(
+    page.getByRole('button', { name: '选择样品 TA-02 操作 2', exact: true }),
+  ).not.toContainText('frame-001.cbf');
   await page.getByRole('button', { name: '实验规划', exact: true }).click();
+  await expect(page.locator('.plan-page')).toBeVisible();
+  await expandLegacySections();
   await page.getByRole('button', { name: '展开 Ti-A-热处理' }).click();
-  await expect(page.getByRole('button', { name: '查看 TA-01 操作 1 进行中', exact: true })).toContainText(
-    '文件 frame-001.cbf',
-  );
+  await expect(
+    page.getByRole('button', { name: '查看 TA-01 操作 1 进行中', exact: true }),
+  ).toContainText('文件 frame-001.cbf');
   await expect(
     page.getByRole('button', { name: '查看 TA-02 操作 2 待测', exact: true }),
   ).not.toContainText('frame-001.cbf');
@@ -3859,6 +4203,7 @@ test('focus mode keeps the saved file name in the current status line', async ()
     actual: { filename: 'frame-001.cbf', files: 'E:\\raw\\hidden.cbf' },
   });
   await page.reload();
+  await expandLegacySections();
   await page.getByRole('button', { name: '专注当前样品', exact: true }).click();
   await expect(page.locator('.queue')).toHaveCount(0);
   await expect(page.locator('.current-heading')).toContainText('文件 frame-001.cbf');
@@ -3895,6 +4240,7 @@ test('the latest record names its saved file and not the file reference', async 
   const finished = (await snapshot()).runs[0];
   await command({ type: 'start', itemId: initial.items[1].id });
   await page.reload();
+  await expandLegacySections();
   const recent = page.getByRole('region', { name: '最近记录', exact: true });
   await expect(recent).toContainText('文件 frame-001.cbf');
   await expect(recent).not.toContainText('hidden.cbf');
@@ -3903,12 +4249,12 @@ test('the latest record names its saved file and not the file reference', async 
   await page.locator('h1').click();
   await page.keyboard.press('Control+K');
   const library = page.getByRole('dialog', { name: '全库搜索' });
-  await expect(library.getByRole('option', { name: '查看最近记录 TA-01', exact: true })).toContainText(
-    '文件 frame-001.cbf',
-  );
-  await expect(library.getByRole('option', { name: '查看最近记录 TA-01', exact: true })).not.toContainText(
-    'hidden.cbf',
-  );
+  await expect(
+    library.getByRole('option', { name: '查看最近记录 TA-01', exact: true }),
+  ).toContainText('文件 frame-001.cbf');
+  await expect(
+    library.getByRole('option', { name: '查看最近记录 TA-01', exact: true }),
+  ).not.toContainText('hidden.cbf');
   await page.keyboard.press('Escape');
   await page.getByRole('button', { name: '实验概览', exact: true }).click();
   const overview = page.getByRole('dialog', { name: '实验概览', exact: true });
@@ -3954,6 +4300,7 @@ test('the latest actual file name can be copied without leaving the current samp
   const finished = (await snapshot()).runs[0];
   await command({ type: 'start', itemId: initial.items[1].id });
   await page.reload();
+  await expandLegacySections();
   const recent = page.getByRole('region', { name: '最近记录', exact: true });
   await expectClipboardCopy(
     recent.getByRole('button', { name: '复制最近记录文件名 TA-01', exact: true }),
@@ -3962,6 +4309,8 @@ test('the latest actual file name can be copied without leaving the current samp
   await expect(page.locator('.current-heading')).toContainText('TA-02');
   await expect(page.locator('.current-heading')).toContainText('进行中');
   await page.getByRole('button', { name: '实验规划', exact: true }).click();
+  await expect(page.locator('.plan-page')).toBeVisible();
+  await expandLegacySections();
   await expectClipboardCopy(
     page
       .getByRole('region', { name: '最近记录', exact: true })
@@ -3969,6 +4318,7 @@ test('the latest actual file name can be copied without leaving the current samp
     'frame-001.cbf',
   );
   await expect(page.locator('.plan-page')).toBeVisible();
+  await expandLegacySections();
   await page.getByRole('button', { name: '实验概览', exact: true }).click();
   const overview = page.getByRole('dialog', { name: '实验概览', exact: true });
   await expectClipboardCopy(
@@ -3983,7 +4333,10 @@ test('the latest actual file name can be copied without leaving the current samp
     actual: { filename: 'E:\\raw\\hidden.cbf' },
   });
   await page.reload();
+  await expandLegacySections();
   await page.getByRole('button', { name: '实验规划', exact: true }).click();
+  await expect(page.locator('.plan-page')).toBeVisible();
+  await expandLegacySections();
   await expect(
     page.getByRole('button', { name: '复制最近记录文件名 TA-01', exact: true }),
   ).toHaveCount(0);
@@ -4012,6 +4365,7 @@ test('the running operation shows and copies its saved file name from another sa
     actual: { filename: 'frame-001.cbf', files: 'E:\\raw\\hidden.cbf' },
   });
   await page.reload();
+  await expandLegacySections();
   await page.getByRole('button', { name: '选择样品 TA-02 操作 2', exact: true }).click();
   const banner = page.getByRole('region', { name: '现场进行中的操作', exact: true });
   await expect(banner).toContainText('文件 frame-001.cbf');
@@ -4056,7 +4410,10 @@ test('the plan and review bars copy the running file name without returning to l
     actual: { filename: 'frame-001.cbf', files: 'E:\\raw\\hidden.cbf' },
   });
   await page.reload();
+  await expandLegacySections();
   await page.getByRole('button', { name: '实验规划', exact: true }).click();
+  await expect(page.locator('.plan-page')).toBeVisible();
+  await expandLegacySections();
   const planBar = page.getByRole('region', { name: '进行中的操作', exact: true });
   await expect(planBar).toContainText('文件 frame-001.cbf');
   await expect(planBar).not.toContainText('hidden.cbf');
@@ -4066,6 +4423,7 @@ test('the plan and review bars copy the running file name without returning to l
     'frame-001.cbf',
   );
   await expect(page.locator('.plan-page')).toBeVisible();
+  await expandLegacySections();
   await page.getByRole('button', { name: '回看导出', exact: true }).click();
   const reviewBar = page.getByRole('region', { name: '进行中的操作', exact: true });
   await expect(reviewBar).toContainText('文件 frame-001.cbf');
@@ -4098,7 +4456,10 @@ test('a running scan id can be copied from the plan, review, live and overview',
     actual: { scanId: 'SCAN-RUN-1', files: 'E:\\raw\\hidden.cbf' },
   });
   await page.reload();
+  await expandLegacySections();
   await page.getByRole('button', { name: '实验规划', exact: true }).click();
+  await expect(page.locator('.plan-page')).toBeVisible();
+  await expandLegacySections();
   const planBar = page.getByRole('region', { name: '进行中的操作', exact: true });
   await expect(planBar).toContainText('扫描 SCAN-RUN-1');
   await expect(planBar).not.toContainText('hidden.cbf');
@@ -4108,6 +4469,7 @@ test('a running scan id can be copied from the plan, review, live and overview',
     'SCAN-RUN-1',
   );
   await expect(page.locator('.plan-page')).toBeVisible();
+  await expandLegacySections();
   await page.getByRole('button', { name: '回看导出', exact: true }).click();
   await expectClipboardCopy(
     page
@@ -4117,6 +4479,8 @@ test('a running scan id can be copied from the plan, review, live and overview',
   );
   await expect(page.locator('.review-page')).toBeVisible();
   await page.getByRole('button', { name: '现场记录', exact: true }).click();
+  await expect(page.locator('.live-page')).toBeVisible();
+  await expandLegacySections();
   await page.getByRole('button', { name: '选择样品 TA-02 操作 2', exact: true }).click();
   const banner = page.getByRole('region', { name: '现场进行中的操作', exact: true });
   await expect(banner).toContainText('扫描 SCAN-RUN-1');
@@ -4159,6 +4523,7 @@ test('the experiment library names the running operation without estimating its 
     actual: { scanId: 'SCAN-RUN-1', filename: 'frame-001.cbf', files: 'E:\\raw\\hidden.cbf' },
   });
   await page.reload();
+  await expandLegacySections();
   await page.locator('h1').click();
   await page.keyboard.press('Control+K');
   const library = page.getByRole('dialog', { name: '全库搜索' });
@@ -4172,6 +4537,7 @@ test('the experiment library names the running operation without estimating its 
   await expect(running).not.toContainText('结束 ');
   await running.click();
   await expect(page.locator('.live-page')).toBeVisible();
+  await expandLegacySections();
   await expect(page.locator('.current-heading')).toContainText('TA-01');
   await expect(page.locator('.current-heading')).toContainText('正在操作');
   const after = await snapshot();
@@ -4198,6 +4564,7 @@ test('search opens the running operation when the duration is still uncounted', 
     actual: { scanId: 'SCAN-RUN-1', files: 'E:\\raw\\hidden.cbf' },
   });
   await page.reload();
+  await expandLegacySections();
   await page.locator('h1').click();
   await page.keyboard.press('Control+K');
   const library = page.getByRole('dialog', { name: '全库搜索' });
@@ -4213,6 +4580,7 @@ test('search opens the running operation when the duration is still uncounted', 
   await library.getByRole('combobox', { name: '全库搜索', exact: true }).fill('用时未计入');
   await library.getByRole('option').filter({ hasText: '用时未计入' }).click();
   await expect(page.locator('.live-page')).toBeVisible();
+  await expandLegacySections();
   await expect(page.locator('.current-heading')).toContainText('正在操作');
   await expect(page.locator('.current-heading')).toContainText('TA-01');
   const after = await snapshot();
@@ -4241,15 +4609,27 @@ test('the plan page schedules one retest from the latest finished record', async
   const before = await snapshot();
   const finishedBefore = before.runs.find((run) => run.id === started.id)!;
   await page.reload();
+  await expandLegacySections();
   await page.getByRole('button', { name: '实验规划', exact: true }).click();
+  await expect(page.locator('.plan-page')).toBeVisible();
+  await expandLegacySections();
   const recent = page.getByRole('region', { name: '最近记录' });
   const schedule = recent.getByRole('button', { name: '安排最近记录的重测 TA-01', exact: true });
   await schedule.click();
   await expect(page.locator('.plan-page')).toBeVisible();
+  await expandLegacySections();
   await page.getByRole('button', { name: '展开 Ti-A-热处理', exact: true }).click();
-  await expect(page.getByRole('group', { name: 'TA-01 的操作' }).getByRole('button', { name: /查看 TA-01 操作 \d+ 待测/ })).toBeVisible();
+  await expect(
+    page
+      .getByRole('group', { name: 'TA-01 的操作' })
+      .getByRole('button', { name: /查看 TA-01 操作 \d+ 待测/ }),
+  ).toBeVisible();
   await schedule.click();
-  await expect(page.getByRole('group', { name: 'TA-01 的操作' }).getByRole('button', { name: /查看 TA-01 操作/ })).toHaveCount(2);
+  await expect(
+    page
+      .getByRole('group', { name: 'TA-01 的操作' })
+      .getByRole('button', { name: /查看 TA-01 操作/ }),
+  ).toHaveCount(2);
   const after = await snapshot();
   const retests = after.items.filter((item) => item.repeatOf === initial.items[0].id);
   expect(retests).toHaveLength(1);
@@ -4274,6 +4654,7 @@ test('review can correct the actual thickness without changing the start snapsho
   await command({ type: 'finish', itemId: initial.items[0].id });
   const run = (await snapshot()).runs[0];
   await page.reload();
+  await expandLegacySections();
   await page.getByRole('button', { name: '回看导出', exact: true }).click();
   const row = page.locator('.review-table tbody tr', { hasText: 'TA-01' });
   const pending = page.locator('.review-table tbody tr', { hasText: 'TA-02' });
@@ -4315,6 +4696,7 @@ test('review can correct the actual width and leaves the height blank', async ()
   await command({ type: 'finish', itemId: initial.items[0].id });
   const run = (await snapshot()).runs[0];
   await page.reload();
+  await expandLegacySections();
   await page.getByRole('button', { name: '回看导出', exact: true }).click();
   const row = page.locator('.review-table tbody tr', { hasText: 'TA-01' });
   await row.getByRole('button', { name: '修改实际尺寸 TA-01 操作 1', exact: true }).click();
@@ -4349,22 +4731,31 @@ test('review keeps only records whose actual plan differs from the start', async
   await command({ type: 'start', itemId: initial.items[0].id });
   await command({ type: 'finish', itemId: initial.items[0].id });
   const run = (await snapshot()).runs[0];
-  await command({ type: 'saveRun', runId: run.id, notes: '只写备注', actual: { filename: 'beam.tif' } });
+  await command({
+    type: 'saveRun',
+    runId: run.id,
+    notes: '只写备注',
+    actual: { filename: 'beam.tif' },
+  });
   await command({
     type: 'updateGroups',
     ids: [initial.groups[0].id],
     patch: { thickness: '9.9' },
   });
   await page.reload();
+  await expandLegacySections();
   await page.getByRole('button', { name: '回看导出', exact: true }).click();
   await expect(page.getByRole('button', { name: '实际已改', exact: true })).toHaveCount(0);
-  await expect(page.locator('.review-table tbody tr', { hasText: 'TA-01' })).toContainText('当前计划已不同');
+  await expect(page.locator('.review-table tbody tr', { hasText: 'TA-01' })).toContainText(
+    '当前计划已不同',
+  );
   await command({
     type: 'saveRun',
     runId: run.id,
     actual: { thickness: '1.1', thicknessUnit: 'mm' },
   });
   await page.reload();
+  await expandLegacySections();
   await page.getByRole('button', { name: '回看导出', exact: true }).click();
   await page.getByRole('button', { name: '实际已改', exact: true }).click();
   await expect(page.locator('.review-table tbody tr')).toHaveCount(1);
@@ -4405,6 +4796,7 @@ test('search finds a started sample by the thickness changed after start', async
   });
   await page.reload();
   await expect(page.locator('.live-page')).toBeVisible();
+  await expandLegacySections();
   await page.getByLabel('搜索待测样品', { exact: true }).fill('1.5');
   await expect(page.locator('.queue-row')).toHaveCount(1);
   await expect(page.locator('.queue-row')).toContainText('TA-01');
@@ -4436,10 +4828,13 @@ test('review shows plan drift for the started sample only', async () => {
     parameters: { thickness: '1.5' },
   });
   await page.reload();
+  await expandLegacySections();
   await page.getByRole('button', { name: '回看导出', exact: true }).click();
   const started = page.locator('.review-table tbody tr', { hasText: 'TA-01' });
   const pending = page.locator('.review-table tbody tr', { hasText: 'TA-02' });
-  await expect(started.locator('.review-plan-drift')).toHaveText('当前计划已不同：尺寸 厚 1.5 mm · 宽 3 mm');
+  await expect(started.locator('.review-plan-drift')).toHaveText(
+    '当前计划已不同：尺寸 厚 1.5 mm · 宽 3 mm',
+  );
   await expect(pending.locator('.review-plan-drift')).toHaveCount(0);
   const after = await snapshot();
   expect(after.runs).toHaveLength(1);

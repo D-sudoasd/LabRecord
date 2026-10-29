@@ -217,7 +217,7 @@ test('all exports include plan, actual changes, problems, originals, units, blan
     await exportFile(store.snapshot(), experimentId!, format, join(directory, '导出.' + format));
   const data = JSON.parse(await readFile(join(directory, '导出.json'), 'utf8'));
   assert.equal(data.format, 'LabRecord');
-  assert.equal(data.schemaVersion, 1);
+  assert.equal(data.schemaVersion, 3);
   assert.equal(data.runs[0].snapshot.sample.code, '000012');
   assert.equal(data.runs[0].actual.temperature, null);
   assert.equal(data.runs[0].snapshot.fields[0].unit, '°C');

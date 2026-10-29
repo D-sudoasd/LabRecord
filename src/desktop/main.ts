@@ -17,7 +17,7 @@ import { randomUUID } from 'node:crypto';
 import { Store, CommandRejectedError } from './store.js';
 import { previewFile, previewRows, parseDelimited, importTable, exportFile, writeFieldSheetWorkbook } from './tables.js';
 import { fieldSheetHtml } from '../shared/fieldSheet.js';
-import { addAttachment, createBackup, dailyBackup, removeAttachment, unpackBackup } from './backups.js';
+import { addAttachment, backupBeforeV3Migration, createBackup, dailyBackup, removeAttachment, unpackBackup } from './backups.js';
 import { writeReportBundle } from './reports.js';
 import { CloudSync } from './github-sync.js';
 import { CloudCredentials } from './cloud-credentials.js';
@@ -120,6 +120,11 @@ async function installWorkspace(staging: string, reason = 'before-restore') {
       store,
       join(backupPath, `${reason}-${Date.now()}-${randomUUID()}.labrecord`),
     );
+    await backupBeforeV3Migration(staging, backupPath);
+    // Migrate the verified incoming copy before closing or moving the current
+    // workspace. A failed migration therefore leaves the live store untouched.
+    const prepared = new Store(staging);
+    prepared.close();
     store.close();
     const previous = join(dataPath, 'previous-' + randomUUID());
     let moved = false;
@@ -177,6 +182,7 @@ else {
     .whenReady()
     .then(async () => {
       Menu.setApplicationMenu(null);
+      await backupBeforeV3Migration(workspacePath, backupPath);
       store = new Store(workspacePath);
       protocol.handle('labrecord', async (request) => {
         const url = new URL(request.url);

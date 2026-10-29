@@ -3,7 +3,8 @@ import { createReadStream } from 'node:fs';
 import { join, resolve, sep } from 'node:path';
 import { randomUUID, createHash } from 'node:crypto';
 import { z } from 'zod';
-import type { Snapshot, CloudResult, CloudSummary } from '../shared/model.js';
+import type { ActualSourceField, Snapshot, CloudResult, CloudSummary } from '../shared/model.js';
+import { ACTUAL_SAMPLE_KEYS, ACTUAL_VALUE_KEYS } from '../shared/model.js';
 import { createBackup, unpackBackup } from './backups.js';
 import type { Store } from './store.js';
 import { hashBytes } from './reports.js';
@@ -194,6 +195,45 @@ export function snapshotDigest(snapshot: Snapshot) {
   );
   return hashBytes(JSON.stringify(canonical(sorted)));
 }
+
+/** Reconstruct an old snapshot solely for comparing its existing sync digest.
+ * Never remove user-written or planned v3 provenance, including explicit blanks. */
+function legacyDigests(snapshot: Snapshot): string[] {
+  if (snapshot.schemaVersion !== 3) return [];
+  const owns = (value: object, key: string) => Object.prototype.hasOwnProperty.call(value, key);
+  const runs = [];
+  for (const run of snapshot.runs) {
+    const sources = run.actualSources;
+    if (!sources || typeof sources !== 'object' || Array.isArray(sources)) return [];
+    const expected: ActualSourceField[] = [
+      ...ACTUAL_SAMPLE_KEYS
+        .filter((field) => run.actualSample && owns(run.actualSample, field))
+        .map((field) => `actualSample.${field}` as const),
+      ...ACTUAL_VALUE_KEYS.filter((field) => owns(run.actual, field)).map(
+        (field) => `actual.${field}` as const,
+      ),
+    ];
+    if (
+      Object.keys(sources).length !== expected.length ||
+      expected.some((key) => !owns(sources, key) || sources[key] !== 'legacy')
+    )
+      return [];
+    // v2 backups require all four sample details whenever the object exists.
+    if (
+      run.actualSample &&
+      ['name', 'width', 'height', 'dimensionUnit'].some(
+        (field) => typeof (run.actualSample as Record<string, unknown>)[field] !== 'string',
+      )
+    )
+      return [];
+    const { actualSources: _actualSources, ...oldRun } = run;
+    runs.push(oldRun);
+  }
+  const v2: Snapshot = { ...snapshot, schemaVersion: 2, runs };
+  // v1 records can already carry these optional JSON properties. Preserve the
+  // entire entity when comparing; only the original, exact hash is meaningful.
+  return [snapshotDigest(v2), snapshotDigest({ ...v2, schemaVersion: 1 })];
+}
 export function cloudSummary(snapshot: Snapshot): CloudSummary {
   return {
     experiments: snapshot.experiments.length,
@@ -281,10 +321,19 @@ export class CloudSync {
       remembered.prefix === prefix
         ? remembered.digest
         : null;
+    // Only migration-created provenance may be removed for old-version comparisons.
+    // Uploaded indexes and received backups still use their exact schema digest.
+    const legacy = legacyDigests(localSnapshot);
+    const comparableDigest =
+      digest === pointer?.digest
+        ? digest
+        : legacy.find((candidate) => candidate === pointer?.digest) ||
+          legacy.find((candidate) => candidate === baseline) ||
+          digest;
     const direction =
       mode === 'auto'
         ? syncDirection(
-            digest,
+            comparableDigest,
             pointer?.digest || null,
             baseline,
             localSnapshot.experiments.length === 0,
@@ -298,7 +347,9 @@ export class CloudSync {
         message: '本机和云端都有独立修改。选择要继续使用的一份，另一份会保留为备份或云端历史。',
       };
     if (direction === 'unchanged') {
-      await this.remember(digest);
+      // Keep the digest actually present in the remote index, including a v1
+      // digest, so a later remote update can still be compared to its baseline.
+      await this.remember(pointer!.digest);
       return {
         action: 'unchanged',
         local,

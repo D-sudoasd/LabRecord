@@ -8,6 +8,19 @@ import { recordedClock } from '../src/shared/recordedTime.js';
 
 const require = createRequire(import.meta.url);
 let application: ElectronApplication, page: Page, directory: string;
+
+async function openPlanManagement() {
+  const details = page.locator('details.plan-management');
+  await expect(details).toBeVisible();
+  if (!(await details.evaluate((element: HTMLDetailsElement) => element.open)))
+    await details.locator(':scope > summary').click();
+}
+
+async function openLiveMore() {
+  const button = page.getByRole('button', { name: '更多现场功能', exact: true });
+  if (await button.count()) await button.click();
+}
+
 test.beforeEach(async () => {
   directory = await mkdtemp(join(tmpdir(), 'labrecord-usability-'));
   const env = { ...process.env, LABRECORD_TEST_MODE: '1', LABRECORD_TEST_DATA: directory };
@@ -19,6 +32,7 @@ test.beforeEach(async () => {
   });
   page = await application.firstWindow();
   await page.getByRole('button', { name: '载入演示实验' }).click();
+  await openPlanManagement();
 });
 test.afterEach(async ({}, info) => {
   if (application?.process()?.exitCode === null) {
@@ -78,6 +92,7 @@ test('workspace running banner returns across experiments only after saving the 
   await page.reload();
   await page.getByRole('button', { name: '实验规划', exact: true }).click();
   await page.getByLabel('选择实验').selectOption(other.experimentId!);
+  await openPlanManagement();
   const banner = page.getByRole('region', { name: '进行中的操作' });
   await expect(banner).toContainText(
     initial.samples.find((sample) => sample.id === initial.items[0].sampleId)!.code,
@@ -156,6 +171,7 @@ test('queue status counts and clear filters preserve the full next-item order', 
   const beforeFiltering = await snapshot();
   await page.reload();
   await page.getByRole('button', { name: '实验规划', exact: true }).click();
+  await openPlanManagement();
   const planning = page.locator('.planning-card');
   await planning.getByLabel('搜索样品组', { exact: true }).fill('SCAN-QUEUE-02');
   await expect(planning.locator('.toolbar-title')).toContainText('1 /');
@@ -168,16 +184,19 @@ test('queue status counts and clear filters preserve the full next-item order', 
   await expect(page.getByRole('checkbox', { name: /TA-03/ })).toHaveCount(0);
   await measurementSearch.fill('');
   await page.getByRole('button', { name: '现场记录', exact: true }).click();
+  await openLiveMore();
   await expect(page.locator('.live-progress')).toContainText('备样 5');
   await expect(page.locator('.live-progress')).toContainText('本组备样 2');
   const samplesBeforeSpare = (await snapshot()).samples.length;
   await page.getByRole('button', { name: '启用备样', exact: true }).click();
   const spareDialog = page.getByRole('dialog', { name: '选择样品组启用备样' });
-  const currentGroup = spareDialog.getByRole('button', { name: '启用备样 Ti-A 拉伸试样 当前样品组' });
+  const currentGroup = spareDialog.getByRole('button', {
+    name: '启用备样 Ti-A 拉伸试样 当前样品组',
+  });
   await expect(currentGroup).toContainText('备样 2');
-  await expect(spareDialog.getByRole('button', { name: '启用备样 Ti-B 对照试样', exact: true })).toContainText(
-    '备样 3',
-  );
+  await expect(
+    spareDialog.getByRole('button', { name: '启用备样 Ti-B 对照试样', exact: true }),
+  ).toContainText('备样 3');
   await spareDialog.getByRole('button', { name: '关闭对话框', exact: true }).click();
   expect((await snapshot()).samples).toHaveLength(samplesBeforeSpare);
   expect((await snapshot()).runs).toHaveLength(1);
@@ -278,6 +297,7 @@ test('a retest shows the original scan and folder and opens that run without sta
   await command({ type: 'repeat', itemId: originalId });
   await page.reload();
   await page.getByRole('button', { name: '现场记录', exact: true }).click();
+  await openLiveMore();
   const repeat = (await snapshot()).items.find((item) => item.repeatOf === originalId)!;
   const row = page.getByRole('button', { name: `选择样品 TA-01 操作 ${repeat.order + 1}` });
   await expect(row).toContainText('重测自 TA-01');
@@ -337,14 +357,17 @@ test('review gaps distinguish planned names from actual references and remain us
   await expect(rows).toHaveCount(4);
   await expect(rows.nth(2).locator('td').nth(4)).toHaveText('尚未开始');
   const finished = (await snapshot()).runs.find((run) => run.endedAt)!;
-  const finishedClock = recordedClock(finished.startedAt, finished.offsetMinutes, finished.timezone)!;
-  await expect(page.locator('.review-table tbody tr', { hasText: 'TA-01' }).locator('td').nth(2)).toHaveAttribute(
-    'title',
-    `${finishedClock.clock} ${finishedClock.zone}`,
-  );
-  await expect(page.locator('.review-table tbody tr', { hasText: 'TA-01' }).locator('td').nth(2)).toContainText(
-    finishedClock.clock,
-  );
+  const finishedClock = recordedClock(
+    finished.startedAt,
+    finished.offsetMinutes,
+    finished.timezone,
+  )!;
+  await expect(
+    page.locator('.review-table tbody tr', { hasText: 'TA-01' }).locator('td').nth(2),
+  ).toHaveAttribute('title', `${finishedClock.clock} ${finishedClock.zone}`);
+  await expect(
+    page.locator('.review-table tbody tr', { hasText: 'TA-01' }).locator('td').nth(2),
+  ).toContainText(finishedClock.clock);
   const note = (await snapshot()).events.find((event) => event.text === '记录时区核对')!;
   const noteClock = recordedClock(note.createdAt, finished.offsetMinutes, finished.timezone)!;
   await page
@@ -390,6 +413,7 @@ test('experiment library and next pending open the field without starting a run'
   const progress = page.getByRole('region', { name: '下一项待测' });
   await expect(progress).toContainText('TA-01');
   await progress.getByRole('button', { name: '去现场查看下一项 TA-01', exact: true }).click();
+  await openLiveMore();
   await expect(page.getByRole('heading', { level: 1 })).toContainText('TA-01');
   expect((await snapshot()).runs).toHaveLength(0);
   await expect(page.getByText('待测。下一步：开始。')).toBeVisible();
@@ -433,6 +457,7 @@ test('experiment library and next pending open the field without starting a run'
   await expect(page.getByRole('button', { name: '选择样品 TA-02 操作 2' })).toHaveCount(0);
   await page.getByRole('button', { name: '清除搜索待测样品', exact: true }).click();
   await page.getByRole('button', { name: '实验规划', exact: true }).click();
+  await openPlanManagement();
   await expect(progress).toContainText('TA-02');
   const planning = page.locator('.planning-card');
   await planning.getByLabel('搜索样品组', { exact: true }).fill(copiedId.slice(0, 7));
@@ -449,6 +474,7 @@ test('experiment library and next pending open the field without starting a run'
   expect((await snapshot()).runs).toHaveLength(1);
   expect((await snapshot()).runs[0].endedAt).toBeNull();
   await page.getByRole('button', { name: '实验规划', exact: true }).click();
+  await openPlanManagement();
   await progress.getByRole('button', { name: '去现场查看下一项 TA-02', exact: true }).click();
   await expect(page.getByRole('heading', { level: 1 })).toContainText('TA-02');
   await expect(page.getByText('待测。先完成正在进行的操作。')).toBeVisible();
@@ -470,7 +496,9 @@ test('experiment library and next pending open the field without starting a run'
   expect((await snapshot()).runs).toHaveLength(1);
 
   await page.getByRole('button', { name: '全库搜索', exact: true }).click();
-  const search = page.getByRole('dialog', { name: '全库搜索' }).getByRole('combobox', { name: '全库搜索', exact: true });
+  const search = page
+    .getByRole('dialog', { name: '全库搜索' })
+    .getByRole('combobox', { name: '全库搜索', exact: true });
   await search.fill('核对装样方向');
   await expect(page.getByText('没有匹配的样品或实验')).toBeVisible();
   await search.fill('演示材料');
@@ -490,6 +518,7 @@ test('experiment library and next pending open the field without starting a run'
   });
   await page.reload();
   await expect(page.getByRole('heading', { level: 1 })).toContainText('TA-01');
+  await openLiveMore();
   const beforeScanCopy = await snapshot();
   const scanRun = beforeScanCopy.runs[0];
   await page.getByText('实际参数与数据文件', { exact: true }).click();
@@ -534,7 +563,9 @@ test('experiment library and next pending open the field without starting a run'
   await expect(changes).toContainText('0.8 mm');
   await expect(changes).toContainText('1.1 mm');
   await expect(page.getByText('尚无完整起止')).toBeVisible();
-  await expect(page.locator('.review-table tbody tr', { hasText: 'TA-01' })).toContainText('未计入');
+  await expect(page.locator('.review-table tbody tr', { hasText: 'TA-01' })).toContainText(
+    '未计入',
+  );
   await expect(page.locator('.review-table tbody tr', { hasText: 'TA-02' })).not.toContainText(
     '未计入',
   );
@@ -553,7 +584,9 @@ test('experiment library and next pending open the field without starting a run'
     reviewRun.snapshot.sample.id,
   );
   await page.getByRole('button', { name: '复制数据文件夹 TA-01 操作 1', exact: true }).click();
-  expect(await application.evaluate(({ clipboard }) => clipboard.readText())).toBe(reviewRun.filename);
+  expect(await application.evaluate(({ clipboard }) => clipboard.readText())).toBe(
+    reviewRun.filename,
+  );
   const afterReviewCopy = await snapshot();
   expect(afterReviewCopy.runs).toHaveLength(1);
   expect(afterReviewCopy.runs[0].endedAt).toBeNull();
@@ -576,7 +609,9 @@ test('experiment library and next pending open the field without starting a run'
   expect(opened.runs).toHaveLength(1);
   expect(opened.runs[0].endedAt).toBeNull();
   await page.getByRole('button', { name: '全库搜索', exact: true }).click();
-  const referenceSearch = page.getByRole('dialog', { name: '全库搜索' }).getByRole('combobox', { name: '全库搜索', exact: true });
+  const referenceSearch = page
+    .getByRole('dialog', { name: '全库搜索' })
+    .getByRole('combobox', { name: '全库搜索', exact: true });
   await referenceSearch.fill('SCAN-88421');
   await expect(page.getByRole('option', { name: /TA-01/ })).toBeVisible();
   await referenceSearch.fill('核对装样方向');

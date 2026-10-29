@@ -151,6 +151,7 @@ test('saved parameters in continue-add count as clean when closing', async () =>
 test('quick add keeps specimen drafts when counts change and clears them after saving', async () => {
   const before = await snapshot();
   const dialog = await openQuickAdd();
+  await dialog.getByText('批量添加或设置备样', { exact: true }).click();
   await dialog.getByLabel('样品统称 *', { exact: true }).fill('数量调整草稿');
   await dialog.getByLabel('准备数量', { exact: true }).fill('2');
   await dialog.getByLabel('计划测试数量', { exact: true }).fill('2');
@@ -191,6 +192,21 @@ test('quick add keeps specimen drafts when counts change and clears them after s
   await expect(rows).toHaveCount(1);
   await expect(dialog.getByRole('button', { name: '后面也用这个尺寸' })).toHaveCount(0);
   await dialog.getByRole('button', { name: '保存并继续添加', exact: true }).click();
+  let hiddenPrompt = dialog.getByRole('alertdialog', { name: '有已填写的样品被数量缩减隐藏' });
+  await expect(hiddenPrompt).toContainText('2 件隐藏样品');
+  await expect(hiddenPrompt.getByRole('button', { name: '返回检查', exact: true })).toBeFocused();
+  await page.keyboard.press('Escape');
+  await expect(hiddenPrompt).toHaveCount(0);
+  await dialog.getByLabel('计划测试数量', { exact: true }).fill('3');
+  await expect(dialog.getByLabel(`${second} 原始编号或名称`, { exact: true })).toHaveValue('原始 B');
+  await expect(dialog.getByLabel(`${third} 高度`, { exact: true })).toHaveValue('7.2');
+  await dialog.getByLabel('计划测试数量', { exact: true }).fill('1');
+  await dialog.getByRole('button', { name: '保存并继续添加', exact: true }).click();
+  hiddenPrompt = dialog.getByRole('alertdialog', { name: '有已填写的样品被数量缩减隐藏' });
+  await expect(hiddenPrompt.getByRole('button', { name: '返回检查', exact: true })).toBeFocused();
+  await page.keyboard.press('Tab');
+  await expect(hiddenPrompt.getByRole('button', { name: '放弃隐藏内容并保存', exact: true })).toBeFocused();
+  await page.keyboard.press('Enter');
   await expect.poll(async () => (await snapshot()).samples.length).toBe(before.samples.length + 1);
   await expect(dialog.getByLabel('样品统称 *', { exact: true })).toHaveValue('');
   const after = await snapshot();
@@ -215,14 +231,101 @@ test('quick add keeps specimen drafts when counts change and clears them after s
   }
 });
 
+test('spare-only save asks before discarding an explicitly cleared measurement note', async () => {
+  const before = await snapshot();
+  const dialog = await openQuickAdd();
+  await dialog.getByLabel('样品统称 *', { exact: true }).fill('备样清空备注');
+  const note = dialog.getByRole('textbox', { name: /本次测量备注$/ });
+  await note.fill('曾填写');
+  await note.fill('');
+  await dialog.getByText('批量添加或设置备样', { exact: true }).click();
+  await dialog.getByLabel('计划测试数量', { exact: true }).fill('0');
+  await dialog.getByRole('button', { name: '添加为备样', exact: true }).click();
+  const warning = dialog.getByRole('alertdialog', { name: '有已填写的样品被数量缩减隐藏' });
+  await expect(warning).toContainText('1 件隐藏样品');
+  await warning.getByRole('button', { name: '放弃隐藏内容并保存', exact: true }).click();
+  await expect(dialog).toHaveCount(0);
+  const after = await snapshot();
+  expect(after.groups).toHaveLength(before.groups.length + 1);
+  expect(after.samples).toHaveLength(before.samples.length);
+  expect(after.items).toHaveLength(before.items.length);
+  expect(after.runs).toHaveLength(before.runs.length);
+});
+
+test('a rejected save keeps hidden rows available for correction and retry', async () => {
+  const before = await snapshot();
+  const dialog = await openQuickAdd();
+  await dialog.getByText('批量添加或设置备样', { exact: true }).click();
+  await dialog.getByLabel('样品统称 *', { exact: true }).fill('重试保留隐藏草稿');
+  await dialog.getByLabel('准备数量', { exact: true }).fill('2');
+  const count = dialog.getByLabel('计划测试数量', { exact: true });
+  await count.fill('2');
+  const second = (await dialog.locator('.specimen-plan li code').nth(1).innerText()).trim();
+  await dialog.getByLabel(`${second} 本次测量备注`, { exact: true }).fill('隐藏的备注');
+  await count.fill('1');
+  await application.evaluate(({ ipcMain }) => {
+    const handlers = (ipcMain as unknown as { _invokeHandlers: Map<string, (...args: any[]) => unknown> })._invokeHandlers;
+    const original = handlers.get('command')!;
+    let reject = true;
+    ipcMain.removeHandler('command');
+    ipcMain.handle('command', async (...args) => {
+      if (args[1]?.type === 'addSamples' && reject) {
+        reject = false;
+        return { ok: false, error: '测试模拟：保存失败', rejected: true };
+      }
+      return original(...args);
+    });
+  });
+  await dialog.getByRole('button', { name: '添加并安排测试', exact: true }).click();
+  await dialog.getByRole('alertdialog').getByRole('button', { name: '放弃隐藏内容并保存' }).click();
+  await expect(dialog).toContainText('测试模拟：保存失败');
+  await count.fill('2');
+  await expect(dialog.getByLabel(`${second} 本次测量备注`, { exact: true })).toHaveValue('隐藏的备注');
+  await count.fill('1');
+  await dialog.getByRole('button', { name: '添加并安排测试', exact: true }).click();
+  await expect(dialog).toHaveCount(0);
+  const after = await snapshot();
+  expect(after.samples).toHaveLength(before.samples.length + 1);
+  expect(after.items).toHaveLength(before.items.length + 1);
+});
+
+test('untouched inherited state in a hidden arrange row does not require confirmation', async () => {
+  const dialog = await openQuickAdd();
+  await dialog.getByLabel('样品统称 *', { exact: true }).fill('未修改备样');
+  await dialog.getByLabel('样品状态', { exact: true }).fill('固溶');
+  await dialog.getByText('批量添加或设置备样', { exact: true }).click();
+  await dialog.getByLabel('准备数量', { exact: true }).fill('2');
+  await dialog.getByLabel('计划测试数量', { exact: true }).fill('0');
+  await dialog.getByRole('button', { name: '添加为备样', exact: true }).click();
+  await page.locator('details.plan-management > summary').click();
+  const group = page.locator('.plan-table tr', {
+    has: page.getByRole('textbox', { name: '未修改备样 样品统称', exact: true }),
+  });
+  await group.getByRole('button', { name: '安排测试', exact: true }).click();
+  const arrange = page.getByRole('dialog', { name: '安排待测样品' });
+  const count = arrange.getByLabel('本次加入待测队列的数量 *', { exact: true });
+  await count.fill('2');
+  await expect(arrange.locator('.specimen-plan li')).toHaveCount(2);
+  await count.fill('1');
+  await arrange.getByRole('button', { name: '加入待测队列', exact: true }).click();
+  await expect(arrange).toHaveCount(0);
+  const data = await snapshot();
+  const savedGroup = data.groups.find((entry) => entry.name === '未修改备样')!;
+  const samples = data.samples.filter((entry) => entry.groupId === savedGroup.id);
+  expect(samples).toHaveLength(1);
+  expect(samples[0].parameters.state).toBe('固溶');
+});
+
 test('arrange preserves hidden specimen drafts without inventing sample names', async () => {
   const dialog = await openQuickAdd();
+  await dialog.getByText('批量添加或设置备样', { exact: true }).click();
   await dialog.getByLabel('样品统称 *', { exact: true }).fill('待安排草稿组');
   await dialog.getByLabel('样品状态', { exact: true }).fill('固溶');
   await dialog.getByLabel('准备数量', { exact: true }).fill('3');
   await dialog.getByLabel('计划测试数量', { exact: true }).fill('0');
   await dialog.getByRole('button', { name: '添加为备样', exact: true }).click();
   await expect(dialog).toHaveCount(0);
+  await page.locator('details.plan-management > summary').click();
 
   const groupRow = page.locator('.plan-table tr').filter({
     has: page.getByRole('textbox', { name: '待安排草稿组 样品统称', exact: true }),
@@ -280,6 +383,20 @@ test('arrange preserves hidden specimen drafts without inventing sample names', 
   await expect(arrange.getByLabel(`${secondCode} 宽度`, { exact: true })).toHaveValue('2.4');
   await count.fill('1');
   await addButton.click();
+  let hiddenPrompt = arrange.getByRole('alertdialog', { name: '有已填写的样品被数量缩减隐藏' });
+  await expect(hiddenPrompt).toContainText('1 件隐藏样品');
+  await expect(hiddenPrompt.getByRole('button', { name: '返回检查', exact: true })).toBeFocused();
+  await page.keyboard.press('Escape');
+  await expect(hiddenPrompt).toHaveCount(0);
+  await count.fill('2');
+  await expect(arrange.getByLabel(`${secondCode} 样品名`, { exact: true })).toHaveValue('原始 B');
+  await count.fill('1');
+  await addButton.click();
+  hiddenPrompt = arrange.getByRole('alertdialog', { name: '有已填写的样品被数量缩减隐藏' });
+  await expect(hiddenPrompt.getByRole('button', { name: '返回检查', exact: true })).toBeFocused();
+  await page.keyboard.press('Tab');
+  await expect(hiddenPrompt.getByRole('button', { name: '放弃隐藏内容并保存', exact: true })).toBeFocused();
+  await page.keyboard.press('Enter');
   await expect(arrange).toHaveCount(0);
   let data = await snapshot();
   const group = data.groups.find((entry) => entry.name === '待安排草稿组')!;
@@ -306,7 +423,9 @@ test('arrange preserves hidden specimen drafts without inventing sample names', 
     has: page.locator('code', { hasText: samples[1].code }),
   });
   await expect(fieldRow.locator('td').nth(3)).toContainText('待安排草稿组');
-  await expect(fieldRow.locator('td').nth(3)).not.toContainText(`待安排草稿组-${freshCode}`);
+  await expect(
+    fieldRow.getByLabel(`${samples[1].code} 原始编号或名称`, { exact: true }),
+  ).toHaveValue('');
 
   // A second specimen cannot use a code that looks like a repeat of the first one.
   const newGroup = await openQuickAdd();

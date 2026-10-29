@@ -74,6 +74,18 @@ async function createExperiment(name: string, code: string, first = false) {
   return experiment;
 }
 
+async function openPlanManagement() {
+  const details = page.locator('details.plan-management');
+  await expect(details).toBeVisible();
+  if (!(await details.evaluate((element: HTMLDetailsElement) => element.open)))
+    await details.locator(':scope > summary').click();
+}
+
+async function openLiveMore() {
+  const button = page.getByRole('button', { name: '更多现场功能', exact: true });
+  if (await button.count()) await button.click();
+}
+
 async function addSamples(name: string, state: string, prepared: string, count: string) {
   await page
     .getByRole('region', { name: '现场规划表', exact: true })
@@ -82,12 +94,14 @@ async function addSamples(name: string, state: string, prepared: string, count: 
   const modal = page.getByRole('dialog', { name: '添加样品', exact: true });
   await modal.getByLabel('样品统称 *', { exact: true }).fill(name);
   await modal.getByLabel('样品状态', { exact: true }).fill(state);
+  await modal.getByText('批量添加或设置备样', { exact: true }).click();
   await modal.getByLabel('准备数量', { exact: true }).fill(prepared);
   await modal.getByLabel('计划测试数量', { exact: true }).fill(count);
   await modal
     .getByRole('button', { name: count === '0' ? '添加为备样' : '添加并安排测试', exact: true })
     .click();
   await expect(modal).toHaveCount(0);
+  await openPlanManagement();
 }
 
 async function openOverview() {
@@ -252,6 +266,7 @@ test('overview: prepared 6 / physical samples 4 / operations 4 / spares 2; real 
   await closeOverview(modal);
 
   await page.getByRole('button', { name: '进入现场记录', exact: true }).click();
+  await openLiveMore();
   await page.getByRole('button', { name: '开始操作', exact: true }).click();
   await page.getByRole('button', { name: '记录问题', exact: true }).click();
   const issueForm = page.getByRole('dialog', { name: '记录现场问题', exact: true });
@@ -345,6 +360,7 @@ test('overview: prepared 6 / physical samples 4 / operations 4 / spares 2; real 
   await closeOverview(modal);
 
   // Enable a spare through the existing UI; it adds one physical sample and one operation.
+  await openLiveMore();
   await page.getByRole('button', { name: '启用备样', exact: true }).click();
   await page
     .getByRole('dialog', { name: '选择样品组启用备样', exact: true })
@@ -410,6 +426,7 @@ test('real 900x700 Electron window at 150% zoom: search/save/overview stay acces
     await expect(control).toBeInViewport({ ratio: 1 });
   }
   await expect(page.locator('.save-indicator')).toHaveText('已保存到本机');
+  await openPlanManagement();
   const search = page.getByLabel('搜索样品组', { exact: true });
   await search.fill('Ti-A');
   await search.evaluate((input) => input.scrollIntoView({ block: 'center', inline: 'nearest' }));
@@ -724,13 +741,15 @@ test('viewing B while A runs: actual draft flush failure blocks return; delayed 
   const itemA = initial.items.slice().sort((a, b) => a.order - b.order)[1];
   const sampleA = initial.samples.find((s) => s.id === itemA.sampleId)!;
   await page.getByRole('button', { name: '进入现场记录', exact: true }).click();
+  await openLiveMore();
   await page.getByRole('button', { name: `选择样品 ${sampleA.code} 操作 2`, exact: true }).click();
   await page.getByRole('button', { name: '开始操作', exact: true }).click();
   await page.getByLabel('现场备注', { exact: true }).fill('跨实验前必须保存的记录');
   const experimentB = await createExperiment('实验 B', 'EXP-B');
   let data = await snapshot();
   const runA = data.runs.find((r) => r.itemId === itemA.id)!;
-  expect(runA.notes).toBe('跨实验前必须保存的记录');
+  expect(runA.notes).toBe('');
+  expect(data.items.find((item) => item.id === itemA.id)?.fieldNote).toBe('跨实验前必须保存的记录');
   await page.getByRole('button', { name: '实验规划', exact: true }).click();
   await addSamples('样品 B', '状态 B', '1', '1');
   data = await snapshot();
@@ -853,7 +872,7 @@ test('viewing B while A runs: actual draft flush failure blocks return; delayed 
     'aria-label',
     `选择样品 ${sampleA.code} 操作 2`,
   );
-  await expect(page.getByLabel('现场备注', { exact: true })).toHaveValue(runA.notes);
+  await expect(page.getByLabel('现场备注', { exact: true })).toHaveValue('跨实验前必须保存的记录');
   data = await snapshot();
   expect(data.groups.find((g) => g.id === groupB.id)!.name).toBe('B 保存后的名称');
   expect(data.items.filter((i) => i.status === 'running').map((i) => i.id)).toEqual([itemA.id]);

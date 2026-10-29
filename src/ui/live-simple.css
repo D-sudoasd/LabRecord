@@ -1,0 +1,60 @@
+/* The detailed controls remain available from “更多现场功能”. */
+.live-page.is-simple .live-layout {
+  grid-template-columns: minmax(0, 1fr);
+  max-width: 1040px;
+  margin-inline: auto;
+}
+
+.live-page.is-simple .live-layout > .queue,
+.live-page.is-simple .live-layout > .timeline-desktop,
+.live-page.is-simple .heading-actions > .focus-toggle,
+.live-page.is-simple .heading-actions > .focus-secondary,
+.live-page.is-simple .heading-actions > .more-actions-toggle,
+.live-page.is-simple .live-progress,
+.live-page.is-simple
+  .current-card.has-selection
+  > :not(.current-controls):not(.record-section):not(.current-folder-card):not(
+    [aria-label='现场下一项']
+  ),
+.live-page.is-simple .operation-actions > .live-advanced-action {
+  display: none;
+}
+
+.live-page.is-simple .current-heading .current-material,
+.live-page.is-simple [aria-label='现场下一项'] > div > span {
+  display: none;
+}
+
+.live-page.is-simple .current-heading > div:first-child {
+  flex: 1;
+  min-width: 0;
+}
+
+.live-page.is-simple .live-comparison {
+  min-width: 0;
+  margin: 4px 0;
+}
+
+.live-page.is-simple .live-comparison summary {
+  cursor: pointer;
+}
+
+.live-page.is-simple .live-comparison summary span {
+  display: inline-block;
+  max-width: calc(100% - 1.5em);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  vertical-align: top;
+  white-space: nowrap;
+}
+
+.live-page.is-simple .live-comparison > p {
+  margin: 4px 0 0 1.2em;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.live-page .live-legacy-notes {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}

@@ -22,20 +22,46 @@ import {
   operationStatusReason,
 } from '../shared/history.js';
 import { repeatSourceLabel } from '../shared/repeats.js';
-import { operationPlanDrift, recordedPlanChangeText, plannedCustomFieldValue } from '../shared/planChanges.js';
+import {
+  actualFieldSource,
+  actualSpecimenName,
+  actualSpecimenNameField,
+  operationPlanDrift,
+  recordedPlanChangeText,
+  plannedCustomFieldValue,
+} from '../shared/planChanges.js';
 import { latestEndedMark, runningOperationSummary } from '../shared/library.js';
 import { recordedEndLabel, recordedStartLabel } from '../shared/recordedTime.js';
 import { fieldSchema, validatePatch } from './validation.js';
 import { measurementFor, plannedGroup, regimeLabel } from '../shared/measurement.js';
 import { MATERIAL_FIELDS } from '../shared/materials.js';
-import { FIELD_SHEET_HEADERS, fieldSheetPrintRows, fieldSheetRows } from '../shared/fieldSheet.js';
+import {
+  FIELD_SHEET_HEADERS,
+  LEGACY_FIELD_SHEET_HEADERS,
+  fieldSheetNote,
+  fieldSheetPrintRows,
+  fieldSheetRows,
+  type FieldSheetPrintRow,
+} from '../shared/fieldSheet.js';
 
 /** A full CSV unions group, operation, event, and attachment columns.
  *  Each custom field adds three of those columns, and an experiment may have 50. */
 export const IMPORT_COLUMN_LIMIT = 300;
+/** Exported actual values describe operations and must never become sample fields on import. */
+const ACTUAL_EXPORT_RESERVED = new Set([
+  '实际样品状态',
+  '实际样品状态来源',
+  '实际样品名称来源',
+  '实际宽度来源',
+  '实际高度来源',
+  '实际宽高单位来源',
+  '实际厚度来源',
+  '实际厚度单位来源',
+]);
 function isFieldSheetHeaders(headers: readonly string[]) {
   const present = new Set(headers.map((header) => header.trim()));
-  return FIELD_SHEET_HEADERS.every((header) => present.has(header));
+  // Older four-column planning sheets must remain protected after adding the note column.
+  return LEGACY_FIELD_SHEET_HEADERS.every((header) => present.has(header));
 }
 
 export const IMPORT_FIELDS: { key: ImportKey; label: string; aliases: string[] }[] = [
@@ -79,7 +105,7 @@ export const IMPORT_FIELDS: { key: ImportKey; label: string; aliases: string[] }
 function customPlanningHeader(field: Field) {
   const header = `${field.label}${field.unit ? ' / ' + field.unit : ''}`;
   const normalized = header.toLowerCase().replace(/\s/g, '');
-  return IMPORT_FIELDS.some(({ aliases }) =>
+  return ACTUAL_EXPORT_RESERVED.has(header) || IMPORT_FIELDS.some(({ aliases }) =>
     aliases.some((alias) => alias.toLowerCase().replace(/\s/g, '') === normalized),
   )
     ? `自定义 ${header}`
@@ -143,6 +169,11 @@ export function previewRows(rows: string[][], name = '粘贴的表格'): TablePr
     '“数量”只表示准备数量；导入后请另行安排待测样品。',
     '原表完成标记和实验时间作为历史信息保留，不会生成操作或自动计时。',
   ];
+  const actualColumns = headers.filter((header) => ACTUAL_EXPORT_RESERVED.has(header));
+  if (actualColumns.length)
+    warnings.push(
+      `“${actualColumns.join('”“')}”是实际操作值或其来源，导入时不会写入样品，也不会生成操作记录。`,
+    );
   if (headers.includes('待核对'))
     warnings.push('“待核对”是导出时生成的核对结果，导入时不写入样品。');
   if (headers.includes('用时'))
@@ -187,7 +218,7 @@ export function previewRows(rows: string[][], name = '粘贴的表格'): TablePr
     warnings.push('只导入记录类型为样品组的行；操作、事件和附件行不生成样品或实际记录。');
   if (isFieldSheetHeaders(headers))
     warnings.push(
-      '“简写编号”“尺寸”“原位参数”“实际样品信息”是现场规划表，导入时不写入样品，也不生成操作记录。',
+      '“简写编号”“尺寸”“原位参数”“实际样品信息”以及可选的“备注”是现场规划表，导入时不写入样品，也不生成操作记录。',
     );
   return { name, headers, rows: clean.slice(1), mapping, warnings };
 }
@@ -270,6 +301,8 @@ export function importTable(store: Store, request: ImportRequest): Snapshot {
       column! >= table.headers.length
     )
       throw new Error('字段映射无效。');
+  if (Object.values(mapping).some((column) => ACTUAL_EXPORT_RESERVED.has(table.headers[column!])))
+    throw new Error('实际操作值及其来源不能导入为样品字段。');
   if (mapping.state === undefined && mapping.name === undefined) {
     throw new Error('请选择“样品名称”或“样品状态”对应的列。');
   }
@@ -290,6 +323,7 @@ export function importTable(store: Store, request: ImportRequest): Snapshot {
     const reserved = new Set(
       table.customFields ? ['实验编号', '计划测试样品数', '备样数量', 'group_id'] : [],
     );
+    for (const header of ACTUAL_EXPORT_RESERVED) reserved.add(header);
     reserved.add('待核对');
     reserved.add('记录类型');
     reserved.add('用时');
@@ -453,7 +487,7 @@ export function experimentSnapshot(snapshot: Snapshot, experimentId: string): Sn
   const filter = <T extends { experimentId: string }>(rows: T[]) =>
     rows.filter((r) => r.experimentId === experimentId);
   return {
-    schemaVersion: 1,
+    schemaVersion: snapshot.schemaVersion,
     experiments: snapshot.experiments.filter((e) => e.id === experimentId),
     groups: filter(snapshot.groups),
     samples: filter(snapshot.samples),
@@ -480,14 +514,20 @@ export function operationRows(
   const header = [
     '实验编号',
     '样品状态',
+    '实际样品状态',
+    '实际样品状态来源',
     '计划样品名称',
     '实际样品名称',
+    '实际样品名称来源',
     '计划宽度',
     '计划高度',
     '计划宽高单位',
     '实际宽度',
+    '实际宽度来源',
     '实际高度',
+    '实际高度来源',
     '实际宽高单位',
+    '实际宽高单位来源',
     '样品编号',
     '操作',
     '状态',
@@ -499,11 +539,14 @@ export function operationRows(
     '计划厚度',
     '计划厚度单位',
     '实际厚度',
+    '实际厚度来源',
     '实际厚度单位',
+    '实际厚度单位来源',
     '计划制备或试剂名称',
     '实际制备或试剂名称',
     '计划备注',
     '现场备注',
+    '测量备注',
     '开始时间',
     '结束时间',
     '开始时间UTC',
@@ -550,6 +593,7 @@ export function operationRows(
       const sample = run?.snapshot.sample || snapshot.samples.find((s) => s.id === item.sampleId)!;
       const stored = snapshot.groups.find((g) => g.id === sample.groupId);
       const group = run?.snapshot.group || plannedGroup(stored!, sample, item);
+      const note = fieldSheetNote(item, run?.snapshot.group || stored!, sample, run, stored);
       const measurement = measurementFor(snapshot, item);
       const problems = snapshot.events
         .filter((e) => e.itemId === item.id && e.type === 'issue')
@@ -562,14 +606,20 @@ export function operationRows(
       return [
         experiment.code,
         group.state,
+        run?.actualSample?.state ?? null,
+        actualFieldSource(run, 'actualSample.state'),
         group.name ?? null,
-        run?.actualSample?.name ?? null,
+        actualSpecimenName(run) ?? null,
+        actualFieldSource(run, actualSpecimenNameField(run)),
         group.width ?? null,
         group.height ?? null,
         group.dimensionUnit ?? null,
         run?.actualSample?.width ?? null,
+        actualFieldSource(run, 'actualSample.width'),
         run?.actualSample?.height ?? null,
+        actualFieldSource(run, 'actualSample.height'),
         run?.actualSample?.dimensionUnit ?? null,
+        actualFieldSource(run, 'actualSample.dimensionUnit'),
         sample.code,
         item.operation,
         STATUS_LABEL[item.status],
@@ -581,11 +631,14 @@ export function operationRows(
         group.thickness,
         group.thicknessUnit,
         run?.actual.thickness ?? null,
+        actualFieldSource(run, 'actual.thickness'),
         run?.actual.thicknessUnit ?? null,
+        actualFieldSource(run, 'actual.thicknessUnit'),
         group.preparation,
         run?.actual.preparation ?? null,
         group.notes,
         run?.notes || '',
+        note.noteSource === 'legacy-run' ? `原现场备注：${note.note}` : note.note,
         localIso(run?.startedAt || null, run?.offsetMinutes || 0),
         localIso(run?.endedAt || null, run?.offsetMinutes || 0),
         run?.startedAt || '',
@@ -626,7 +679,10 @@ export function operationRows(
         ...MATERIAL_FIELDS.map(({ key }) => group[key] ?? null),
         ...fields.flatMap((f) =>
           definition.some((d) => sameField(d, f))
-            ? [plannedCustomFieldValue(sample.values, group.values, f.id) ?? null, run?.actual[f.id] ?? null]
+            ? [
+                plannedCustomFieldValue(sample.values, group.values, f.id) ?? null,
+                run?.actual[f.id] ?? null,
+              ]
             : [null, null],
         ),
       ];
@@ -668,9 +724,9 @@ function addSheet(workbook: ExcelJS.Workbook, name: string, rows: (string | numb
     sheet.autoFilter = { from: 'A1', to: { row: rows.length, column: rows[0].length } };
 }
 function fieldSheetRowHeight(values: (string | number | null)[]) {
-  const widths = [18, 24, 44, 48];
+  const widths = [18, 22, 32, 34, 32];
   return Math.max(
-    38,
+    52,
     ...values.map((value, index) => {
       const code = String(value ?? '');
       const width = Math.max(8, (widths[index] ?? 36) - 6);
@@ -687,22 +743,103 @@ function fieldSheetRowHeight(values: (string | number | null)[]) {
         return smallCodeFont ? units * 0.65 : units;
       };
       const lines = code.split('\n').reduce<number>((total, line) => {
-        const units = Array.from(line).reduce(
-          (sum, character) => sum + characterWidth(character),
-          0,
-        );
-        return total + Math.max(1, Math.ceil(units / width));
+        let lineCount = 1;
+        let used = 0;
+        // Excel keeps Latin identifiers/words together where possible. Summing their
+        // widths loses the unused space before each word that moves to the next line.
+        const tokens = line.match(/[A-Za-z0-9_./:+-]+|[\s\S]/gu) ?? [];
+        for (const token of tokens) {
+          const characters = Array.from(token);
+          const tokenWidth = characters.reduce(
+            (sum, character) => sum + characterWidth(character),
+            0,
+          );
+          if (tokenWidth <= width && used > 0 && used + tokenWidth > width) {
+            lineCount += 1;
+            used = 0;
+          }
+          // Very long words still have to wrap inside the word.
+          for (const character of characters) {
+            const units = characterWidth(character);
+            if (used > 0 && used + units > width) {
+              lineCount += 1;
+              used = 0;
+            }
+            used += units;
+          }
+        }
+        return total + lineCount;
       }, 0);
       const lineHeight = smallCodeFont ? 13 : 16;
-      return lines * lineHeight + 8;
+      // Allow another line for font and Excel-version wrapping differences.
+      return (lines + 1) * lineHeight + 8;
     }),
   );
 }
+
+/** Split only Excel rows whose wrapped text would exceed its safe printable height. */
+function excelFieldSheetPrintRows(rows: readonly FieldSheetPrintRow[]): FieldSheetPrintRow[] {
+  const maximumHeight = 380;
+  const splitHeight = 344;
+  const boundaries = new Set(['\n', ' ', '；', ';', '，', ',', '、', '。', '|', '·']);
+  return rows.flatMap((row) => {
+    const columns = row.cells.slice(1).map((value, offset) => {
+      const estimate = (part: string) => {
+        const cells = ['', '', '', '', ''];
+        cells[offset + 1] = part;
+        return fieldSheetRowHeight(cells);
+      };
+      if (estimate(value) <= maximumHeight) return [value];
+      const characters = Array.from(value);
+      const chunks: string[] = [];
+      let start = 0;
+      while (start < characters.length) {
+        const remaining = characters.slice(start).join('');
+        if (estimate(remaining) <= maximumHeight) {
+          chunks.push(remaining);
+          break;
+        }
+        let low = 1;
+        let high = characters.length - start - 1;
+        while (low < high) {
+          const middle = Math.ceil((low + high) / 2);
+          if (estimate(characters.slice(start, start + middle).join('')) <= splitHeight)
+            low = middle;
+          else high = middle - 1;
+        }
+        let end = start + low;
+        // Prefer a nearby natural boundary without discarding any characters.
+        for (let index = end - 1; index >= Math.max(start + 1, end - 96); index -= 1) {
+          if (boundaries.has(characters[index])) {
+            end = index + 1;
+            break;
+          }
+        }
+        chunks.push(characters.slice(start, end).join(''));
+        start = end;
+      }
+      return chunks;
+    });
+    const count = Math.max(...columns.map((segments) => segments.length));
+    return Array.from({ length: count }, (_, index) => ({
+      cells: [
+        row.cells[0],
+        columns[0][index] ?? '',
+        columns[1][index] ?? '',
+        columns[2][index] ?? '',
+        columns[3][index] ?? '',
+      ] as FieldSheetPrintRow['cells'],
+      continuation: row.continuation || index > 0,
+      continued: row.continued || count > 1,
+    }));
+  });
+}
+
 function configureFieldSheet(
   sheet: ExcelJS.Worksheet,
   printRows: readonly { continuation: boolean; continued: boolean }[],
 ) {
-  const widths = [18, 24, 44, 48];
+  const widths = [18, 22, 32, 34, 32];
   sheet.columns.forEach((column, index) => {
     column.width = widths[index] ?? 36;
   });
@@ -716,13 +853,18 @@ function configureFieldSheet(
     margins: { left: 0.25, right: 0.25, top: 0.45, bottom: 0.45, header: 0.2, footer: 0.2 },
     printTitlesRow: '1:1',
   };
+  const edge = { style: 'thin' as const, color: { argb: 'FF71857D' } };
   sheet.eachRow((row, index) => {
+    // Gridlines are hidden and do not reliably print; explicit borders also cover empty cells.
+    for (let column = 1; column <= 5; column += 1) {
+      row.getCell(column).border = { top: edge, right: edge, bottom: edge, left: edge };
+    }
     if (index > 1) {
-      const values = Array.from({ length: 4 }, (_, column) => row.getCell(column + 1).text);
+      const values = Array.from({ length: 5 }, (_, column) => row.getCell(column + 1).text);
       const printRow = printRows[index - 2];
       row.height = Math.min(
         380,
-        Math.max(printRow?.continued ? 250 : 38, fieldSheetRowHeight(values)),
+        Math.max(printRow?.continued ? 250 : 52, fieldSheetRowHeight(values)),
       );
       if (values[0].length > 70) {
         const codeCell = row.getCell(1);
@@ -736,7 +878,9 @@ function configureFieldSheet(
   });
 }
 function addFieldSheet(workbook: ExcelJS.Workbook, snapshot: Snapshot, experimentId: string) {
-  const rows = fieldSheetPrintRows(fieldSheetRows(snapshot, experimentId));
+  const rows = excelFieldSheetPrintRows(
+    fieldSheetPrintRows(fieldSheetRows(snapshot, experimentId)),
+  );
   addSheet(workbook, '现场规划表', [[...FIELD_SHEET_HEADERS], ...rows.map((row) => row.cells)]);
   const sheet = workbook.getWorksheet('现场规划表');
   if (sheet) configureFieldSheet(sheet, rows);

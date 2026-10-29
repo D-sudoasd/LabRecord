@@ -85,7 +85,7 @@ test('the field sheet lists every measurement in order and keeps per-run snapsho
       heatTreatment: '350 °C 30 min',
       otherTreatment: '机械抛光',
       preparation: '样品组制备说明',
-      notes: '这段私密备注不能打印',
+      notes: '第一组旧备注',
     },
     count: 1,
     prefix: 'G',
@@ -118,7 +118,7 @@ test('the field sheet lists every measurement in order and keeps per-run snapsho
       preparedCount: 3,
       mode: 'Ex situ',
       priority: 'P0',
-      notes: '第二组备注不应出现在现场表',
+      notes: '第二组旧备注',
     },
     count: 1,
     prefix: 'G',
@@ -196,7 +196,7 @@ test('the field sheet lists every measurement in order and keeps per-run snapsho
   assert.match(reordered[0].identity, /制备 \/ 试剂名称：样品组制备说明/);
   assert.doesNotMatch(reordered[0].identity, /私密备注|notes|不要印/);
   assert.doesNotMatch(reordered[0].identity, new RegExp(firstSample.id));
-  assert.doesNotMatch(reordered[2].identity, /未指定/);
+  assert.match(reordered[2].identity, /状态：未指定/);
 
   store.command({ type: 'start', itemId: first });
   const runBefore = structuredClone(store.snapshot().runs[0]);
@@ -261,18 +261,24 @@ test('the field sheet lists every measurement in order and keeps per-run snapsho
   assert.match(html, /一行一项测量/);
   assert.match(
     html,
-    /<colgroup><col class="code"><col class="size"><col class="protocol"><col class="identity"><\/colgroup>/,
+    /<colgroup><col class="code"><col class="size"><col class="protocol"><col class="identity"><col class="note"><\/colgroup>/,
   );
   assert.match(html, /thead \{ display: table-header-group; \}/);
   assert.match(html, /break-inside: avoid/);
   assert.equal(html.includes('未填写'), false);
-  assert.equal(html.includes('第二组备注不应出现在现场表'), false);
+  assert.equal(html.includes('样品组备注：第二组旧备注'), true);
   assert.equal(html.includes('排队原因不打印'), false);
+  const printable = fieldSheetPrintRows(fieldSheetRows(store.snapshot(), experimentId));
   assert.equal(
-    html.includes('（续）'),
-    false,
-    'ordinary length measurements are not marked as continuations',
+    (html.match(/<small class="field-sheet-continuation">（续）<\/small>/g) || []).length,
+    printable.filter((row) => row.continuation).length,
+    'only actual continuation rows are labelled',
   );
+  for (const row of fieldSheetRows(store.snapshot(), experimentId)) {
+    const related = printable.filter((segment) => segment.cells[0] === row.code);
+    assert.equal(related.map((segment) => segment.cells[2]).join(''), row.protocol);
+    assert.equal(related.map((segment) => segment.cells[3]).join(''), row.identity);
+  }
 
   await exportFile(store.snapshot(), experimentId, 'xlsx', join(directory, 'full.xlsx'));
   const full = new ExcelJS.Workbook();
@@ -281,9 +287,9 @@ test('the field sheet lists every measurement in order and keeps per-run snapsho
   const fullSheet = full.getWorksheet('现场规划表')!;
   const readRows = (sheet: ExcelJS.Worksheet) =>
     Array.from({ length: sheet.rowCount }, (_, row) =>
-      Array.from({ length: 4 }, (_, column) => sheet.getRow(row + 1).getCell(column + 1).text),
+      Array.from({ length: 5 }, (_, column) => sheet.getRow(row + 1).getCell(column + 1).text),
     );
-  assert.deepEqual(readRows(fullSheet), fieldSheetTable(store.snapshot(), experimentId));
+  assert.deepEqual(readRows(fullSheet), fieldSheetPrintTable(store.snapshot(), experimentId));
   await writeFieldSheetWorkbook(store.snapshot(), experimentId, join(directory, 'sheet.xlsx'));
   const dedicated = new ExcelJS.Workbook();
   await dedicated.xlsx.readFile(join(directory, 'sheet.xlsx'));
@@ -293,8 +299,8 @@ test('the field sheet lists every measurement in order and keeps per-run snapsho
   );
   const sheet = dedicated.worksheets[0];
   const header = sheet.getRow(1).values as string[];
-  assert.deepEqual(header.slice(1), ['简写编号', '尺寸', '原位参数', '实际样品信息']);
-  assert.deepEqual(readRows(sheet), fieldSheetTable(store.snapshot(), experimentId));
+  assert.deepEqual(header.slice(1), ['简写编号', '尺寸', '原位参数', '实际样品信息', '备注']);
+  assert.deepEqual(readRows(sheet), fieldSheetPrintTable(store.snapshot(), experimentId));
   assert.equal(sheet.pageSetup.orientation, 'landscape');
   assert.equal(sheet.pageSetup.fitToWidth, 1);
   assert.equal(sheet.pageSetup.fitToHeight, 0);
@@ -302,7 +308,11 @@ test('the field sheet lists every measurement in order and keeps per-run snapsho
   assert.ok(sheet.getRow(2).height! >= 34);
   assert.ok(sheet.getColumn(1).width! >= 16);
   assert.equal(sheet.getRow(2).getCell(1).alignment?.wrapText, true);
-  assert.ok(sheet.getRow(2).height! <= 200, 'ordinary printable rows remain compact');
+  const ordinaryIndex = printable.findIndex((row) => !row.continued);
+  assert.ok(
+    ordinaryIndex >= 0 && sheet.getRow(ordinaryIndex + 2).height! <= 200,
+    'ordinary printable rows remain compact',
+  );
 
   const preview = previewRows([
     ['简写编号', '尺寸', '原位参数', '实际样品信息'],
@@ -342,7 +352,7 @@ test('the field sheet lists every measurement in order and keeps per-run snapsho
   );
   assert.equal(store.snapshot().runs.length, runs);
   assert.equal(store.snapshot().groups.length, groups);
-  assert.equal(store.snapshot().schemaVersion, 1);
+  assert.equal(store.snapshot().schemaVersion, 3);
   assert.equal(archiveSchema.safeParse(store.snapshot()).success, true);
   const backupPath = join(directory, 'sample-group-name.labrecord');
   await createBackup(store, backupPath);
@@ -543,7 +553,7 @@ test('long printable cells continue on bounded physical rows with the original c
   assert.equal(physicalRows[0].continuation, false);
   assert.ok(physicalRows.slice(1).every((row) => row.continuation));
   assert.deepEqual(physicalTable, [
-    ['简写编号', '尺寸', '原位参数', '实际样品信息'],
+    ['简写编号', '尺寸', '原位参数', '实际样品信息', '备注'],
     ...physicalRows.map((row) => row.cells),
   ]);
   assert.ok(
@@ -551,7 +561,7 @@ test('long printable cells continue on bounded physical rows with the original c
     'every continuation repeats the exact folder name',
   );
   assert.deepEqual(
-    [1, 2, 3].map((column) => physicalRows.map((row) => row.cells[column]).join('')),
+    [1, 2, 3, 4].map((column) => physicalRows.map((row) => row.cells[column]).join('')),
     logicalTable[1].slice(1),
     'concatenated print cells exactly recover each original long value',
   );
@@ -635,6 +645,9 @@ test('wide ASCII cells estimate printable height and continue without truncating
         size: '',
         protocol,
         identity: '',
+        note: '',
+        noteSource: 'empty',
+        legacyNotes: '',
       },
     ]);
   const shortWide = 'W'.repeat(80);
@@ -683,5 +696,8 @@ test('wide ASCII cells estimate printable height and continue without truncating
   const wideHeight = sheet.getRow(3).height!;
   assert.ok(ordinaryHeight <= 65, `ordinary row stays compact (${ordinaryHeight} pt)`);
   assert.ok(wideHeight >= 85, `wide glyphs receive wrap height (${wideHeight} pt)`);
-  assert.ok(wideHeight <= 125, `moderate wide text does not inflate the row (${wideHeight} pt)`);
+  assert.ok(
+    wideHeight <= 145,
+    `moderate wide text remains bounded with wrap margin (${wideHeight} pt)`,
+  );
 });

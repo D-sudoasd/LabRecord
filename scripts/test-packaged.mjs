@@ -2,7 +2,8 @@ import { spawnSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-const executable = resolve('release/win-unpacked/LabRecord.exe');
+const releaseDirectory = resolve(process.env.LABRECORD_RELEASE_DIR || 'release');
+const executable = resolve(releaseDirectory, 'win-unpacked/LabRecord.exe');
 if (process.platform !== 'win32' || !existsSync(executable))
   throw new Error('Run npm run package on Windows first.');
 const result = spawnSync(

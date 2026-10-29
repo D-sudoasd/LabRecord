@@ -31,6 +31,9 @@ import {
   PROTOCOL_PLACEHOLDER,
 } from '../shared/model';
 import {
+  actualFieldSource,
+  actualSpecimenName,
+  actualSpecimenNameField,
   actualProtocolLabel,
   laterPlanDrift,
   operationPlanDrift,
@@ -104,6 +107,8 @@ import {
   plannedGroup,
   reserveMeasurementNames,
 } from '../shared/measurement';
+import { fieldSheetNote } from '../shared/fieldSheet';
+import './live-simple.css';
 
 export function TimesDialog({
   itemId,
@@ -585,6 +590,7 @@ export function Live() {
   const [filter, setFilter] = useState('all'),
     [search, setSearch] = useState(''),
     [focused, setFocused] = useState(false),
+    [moreVisible, setMoreVisible] = useState(false),
     [queueOpen, setQueueOpen] = useState(false),
     [moreTarget, setMoreTarget] = useState<EventTarget | null>(null),
     [timelineTarget, setTimelineTarget] = useState<EventTarget | null>(null);
@@ -598,9 +604,10 @@ export function Live() {
     if (title.top < bounds.top || title.bottom > bounds.bottom) {
       list.scrollTop += title.top - bounds.top - 12;
     }
-  }, [selected?.id, selected?.status, focused, queueOpen, filter, search]);
+  }, [selected?.id, selected?.status, focused, queueOpen, moreVisible, filter, search]);
   const [actualOpen, setActualOpen] = useState(false);
   const openActualFor = useRef<string | null>(null);
+  const focusActualFile = useRef(false);
   useEffect(() => {
     if (openActualFor.current && openActualFor.current === selected?.id) {
       openActualFor.current = null;
@@ -610,9 +617,14 @@ export function Live() {
     setActualOpen(false);
   }, [selected?.id]);
   useEffect(() => {
-    if (!actualOpen) return;
-    document.getElementById('live-actual-files')?.scrollIntoView({ block: 'nearest' });
-  }, [actualOpen]);
+    if (!actualOpen || !moreVisible) return;
+    const details = document.getElementById('live-actual-files');
+    details?.scrollIntoView({ block: 'nearest' });
+    if (focusActualFile.current && details) {
+      focusActualFile.current = false;
+      details.querySelector<HTMLInputElement>('input[aria-label="实际文件名"]')?.focus();
+    }
+  }, [actualOpen, moreVisible]);
   const [timesTarget, setTimesTarget] = useState<EventTarget | null>(null),
     [eventDialog, setEventDialog] = useState<{ target: EventTarget; issue: boolean } | null>(null),
     [spareExperiment, setSpareExperiment] = useState<string | null>(null),
@@ -705,6 +717,15 @@ export function Live() {
   const startedClockLabel = run ? recordedStartLabel(run) : '';
   const fileLabel = actualFilenameLabel(run || undefined);
   const group = sample && snapshot.groups.find((g) => g.id === sample.groupId)!;
+  const fieldRow = selected && sample && group
+    ? fieldSheetNote(
+        selected,
+        run?.snapshot.group || group,
+        run?.snapshot.sample || sample,
+        run,
+        group,
+      )
+    : undefined;
   const displayedGroup =
     run?.snapshot.group || (group && sample && selected && plannedGroup(group, sample, selected));
   const liveSize = displayedGroup ? operationSizeLine(displayedGroup, run || undefined) : '';
@@ -714,7 +735,22 @@ export function Live() {
       ? laterPlanDrift(run.snapshot.group, plannedGroup(group, sample, selected))
       : '';
   const liveProtocol = actualProtocolLabel(run);
-  const liveRecorded = recordedPlanSearchText(run);
+  const liveRecorded = run
+    ? startedPlanChanges(run)
+        .filter((change) => change.source === 'builtin' && ['name', 'mode', 'preparation'].includes(change.key))
+        .map((change) => `${change.label}：${change.planned} → ${change.actual}`)
+        .join(' ')
+    : '';
+  const hasActualState = !!run?.actualSample &&
+    Object.prototype.hasOwnProperty.call(run.actualSample, 'state');
+  const stateSource = run?.actualSources?.['actualSample.state'];
+  const actualState = hasActualState ? String(run?.actualSample?.state ?? '') : '';
+  const stateValue = actualState || (stateSource === 'legacy'
+    ? '旧版空值，语义不明'
+    : stateSource === 'edited' ? '已清空' : '未填写');
+  const liveState = run
+    ? `实际状态：${hasActualState ? stateValue : '未记录'}${stateSource === 'planned' ? '（由计划初始化）' : stateSource === 'legacy' && actualState ? '（旧版记录）' : ''} · 开始时：${displayedGroup?.state || '未填写'}`
+    : displayedGroup?.state || '';
   const completed = items.filter((i) => i.status === 'completed').length;
   const pending = items.filter((i) => i.status === 'pending').length;
   const skipped = items.filter((i) => i.status === 'skipped').length;
@@ -1521,7 +1557,7 @@ export function Live() {
   const awayFolder = awayRun?.filename || '';
   const awayFile = actualFilenameLabel(awayRun);
   const awayScan = actualScanLabel(awayRun);
-  const liveCode = (run ? run.snapshot.sample.code : sample?.code) || '';
+  const liveCode = run?.filename || selected?.plannedName || sample?.code || '';
   const liveGiven = (run ? run.snapshot.sample.parameters.name : sample?.parameters.name)?.trim();
   const liveName = liveGiven || (displayedGroup ? sampleName(displayedGroup) : '');
   const liveTitle =
@@ -1531,7 +1567,7 @@ export function Live() {
         : `${liveCode} · ${liveName}`
       : '现场记录';
   return (
-    <div className={`page live-page${focused ? ' is-focused' : ''}`}>
+    <div className={`page live-page${focused ? ' is-focused' : ''}${moreVisible ? '' : ' is-simple'}`}>
       <div className="page-heading compact-heading">
         <div>
           <h1>{liveTitle}</h1>
@@ -1546,6 +1582,26 @@ export function Live() {
           </p>
         </div>
         <div className="heading-actions">
+          <button
+            type="button"
+            className="button live-more-toggle"
+            aria-expanded={moreVisible}
+            onClick={() => {
+              if (!moreVisible) {
+                setMoreVisible(true);
+                return;
+              }
+              void flush()
+                .then(() => {
+                  setFocused(false);
+                  setMoreVisible(false);
+                })
+                .catch((error) => notify(error.message, true));
+            }}
+          >
+            {moreVisible ? '收起现场功能' : '更多现场功能'}
+            <ChevronDown size={16} />
+          </button>
           <button
             className="button focus-toggle"
             aria-pressed={focused}
@@ -1704,7 +1760,7 @@ export function Live() {
             </Empty>
           </section>
         ) : (
-          <section className="card current-card" key={selected.id}>
+          <section className="card current-card has-selection" key={selected.id}>
             <div className="current-controls">
               <header className="current-heading">
                 <div>
@@ -1723,20 +1779,34 @@ export function Live() {
                       : sample.parameters.name
                     )?.trim() ? (
                       <strong>
-                        {run?.snapshot.sample.code || sample.code} · {displayedGroup.state}
+                        {run?.snapshot.sample.code || sample.code} · {liveState}
                         {liveSize ? ` · ${liveSize}` : ''}
                       </strong>
                     ) : (
                       <>
                         <strong>{run?.actualSample?.name || sampleName(displayedGroup)}</strong>
-                        {displayedGroup.name ? ` · ${displayedGroup.state}` : ''}
+                        {displayedGroup.name || run ? ` · ${liveState}` : ''}
                         {liveSize ? ` · ${liveSize}` : ''}
                       </>
                     )}
                   </p>
                   {liveMaterials && <p className="current-material">{liveMaterials}</p>}
-                  {liveDrift && <p className="plan-drift">当前计划已不同：{liveDrift}</p>}
-                  {liveProtocol && <p className="actual-protocol">{liveProtocol}</p>}
+                  {liveDrift && (moreVisible ? (
+                    <p className="plan-drift">当前计划已不同：{liveDrift}</p>
+                  ) : (
+                    <details className="live-comparison">
+                      <summary><span className="plan-drift">当前计划已不同：{liveDrift}</span></summary>
+                      <p>当前计划已不同：{liveDrift}</p>
+                    </details>
+                  ))}
+                  {liveProtocol && (moreVisible ? (
+                    <p className="actual-protocol">{liveProtocol}</p>
+                  ) : (
+                    <details className="live-comparison">
+                      <summary><span className="actual-protocol">{liveProtocol}</span></summary>
+                      <p>{liveProtocol}</p>
+                    </details>
+                  ))}
                   {liveRecorded && <p className="recorded-plan">{liveRecorded}</p>}
                   <p className="next-step">
                     {selected.status === 'pending' &&
@@ -1779,6 +1849,8 @@ export function Live() {
                                 return;
                               }
                               if (label === '文件未关联') {
+                                focusActualFile.current = true;
+                                setMoreVisible(true);
                                 setActualOpen(true);
                                 return;
                               }
@@ -1824,7 +1896,7 @@ export function Live() {
                       开始操作 <kbd aria-hidden="true">F8</kbd>
                     </button>
                     <button
-                      className="button"
+                      className="button live-advanced-action"
                       disabled={busy > 0 || actionGuard}
                       onClick={() => {
                         void action('skip');
@@ -1834,7 +1906,7 @@ export function Live() {
                       跳过
                     </button>
                     <button
-                      className="text-button"
+                      className="text-button live-advanced-action"
                       disabled={busy > 0 || actionGuard}
                       onClick={() => {
                         setReasonText('');
@@ -1860,7 +1932,7 @@ export function Live() {
                       完成并切换下一项 <kbd aria-hidden="true">F8</kbd> <ArrowRight size={18} />
                     </button>
                     <button
-                      className="button"
+                      className="button live-advanced-action"
                       disabled={busy > 0 || actionGuard}
                       onClick={() => {
                         void action('interrupt');
@@ -1870,7 +1942,7 @@ export function Live() {
                       中断
                     </button>
                     <button
-                      className="text-button"
+                      className="text-button live-advanced-action"
                       disabled={busy > 0 || actionGuard}
                       onClick={() => {
                         setReasonText('');
@@ -1883,7 +1955,7 @@ export function Live() {
                 )}
                 {(selected.status === 'completed' || selected.status === 'interrupted') && (
                   <button
-                    className="button"
+                    className="button live-advanced-action"
                     disabled={busy > 0 || actionGuard}
                     onClick={() => {
                       void action('repeat');
@@ -1918,24 +1990,21 @@ export function Live() {
                 </h3>
                 <span>自动保存</span>
               </div>
-              {run ? (
-                <AutoInput
-                  key={run.id}
-                  label="现场备注"
-                  multiline
-                  value={run.notes}
-                  onSave={(notes) => execute({ type: 'saveRun', runId: run.id, notes }, false)}
-                  placeholder="直接记录变化、观察现象或注意事项…"
-                  className="live-notes"
-                />
-              ) : (
-                <div className="note-before-start">
-                  <p>开始后可以直接编辑现场备注。</p>
-                  <button className="text-button" onClick={() => openEvent(false)}>
-                    开始前先记一条信息 <Plus size={14} />
-                  </button>
-                </div>
+              <AutoInput
+                key={selected.id}
+                label="现场备注"
+                multiline
+                value={fieldRow?.note ?? ''}
+                onSave={(fieldNote) =>
+                  execute({ type: 'updateFieldRow', itemId: selected.id, fieldNote }, false)
+                }
+                placeholder="直接记录变化、观察现象或注意事项…"
+                className="live-notes"
+              />
+              {fieldRow?.noteSource === 'legacy-run' && (
+                <small>当前内容来自原现场备注；修改不会覆盖原记录。</small>
               )}
+              {fieldRow?.legacyNotes && <p className="live-legacy-notes">{fieldRow.legacyNotes}</p>}
             </div>
             <div className="quick-record-actions" role="group" aria-label="现场快速记录">
               <button className="button issue-button" onClick={() => openEvent(true)}>
@@ -2099,7 +2168,7 @@ export function Live() {
               <div className="next-pending-indicator" role="region" aria-label="现场下一项">
                 <ArrowRight size={16} />
                 <div>
-                  <strong>下一项 {upcoming.sampleCode}</strong>
+                  <strong>下一项 {upcoming.folder || upcoming.sampleCode}</strong>
                   {upcoming.measurement && <span>{upcoming.measurement}</span>}
                   {upcoming.preparation && <span>{upcoming.preparation}</span>}
                   {upcoming.protocol && <span title={upcoming.protocol}>{upcoming.protocol}</span>}
@@ -2449,11 +2518,16 @@ export function Live() {
                     <span>实际样品名称</span>
                     <AutoInput
                       label="实际样品名称"
-                      value={run.actualSample?.name || ''}
-                      onSave={(name) =>
-                        execute({ type: 'saveRun', runId: run.id, actualSample: { name } }, false)
+                      value={actualSpecimenName(run) ?? ''}
+                      placeholder={actualSpecimenNameField(run) ? undefined : '未记录'}
+                      onSave={(specimenName) =>
+                        execute({ type: 'saveRun', runId: run.id, actualSample: { specimenName } }, false)
                       }
                     />
+                    <small>
+                      来源：{actualFieldSource(run, actualSpecimenNameField(run))}
+                      {!actualSpecimenNameField(run) && `；开始时参考：${run.snapshot.sample.parameters.name || run.snapshot.group.name || '未填写'}`}
+                    </small>
                   </label>
                   {(['width', 'height', 'dimensionUnit'] as const).map((key) => (
                     <label className="field" key={key}>

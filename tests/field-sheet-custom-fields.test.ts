@@ -232,7 +232,7 @@ test('custom fields sharing built-in labels never create false built-in changes'
     },
   });
   const unchangedBuiltins = fieldSheetRows(store.snapshot(), experimentId)[0];
-  assert.equal(unchangedBuiltins.size, '厚 1.0 mm');
+  assert.equal(unchangedBuiltins.size, '开始时 厚 1.0 mm');
   assert.match(unchangedBuiltins.protocol, /制度：内置制度开始值/);
   assert.doesNotMatch(unchangedBuiltins.protocol, /实际制度|实际实验方式/);
   assert.match(
@@ -258,6 +258,7 @@ test('custom fields sharing built-in labels never create false built-in changes'
   assert.match(changedBuiltins.size, /实际 厚 1.2 mm · 计划 厚 1.0 mm/);
   assert.match(changedBuiltins.protocol, /实际制度 内置制度实际值 · 开始时 内置制度开始值/);
   assert.match(changedBuiltins.protocol, /实际实验方式 非原位 · 开始时 原位/);
+  assert.match(changedBuiltins.identity, /开始时样品组：真实样品组/);
   assert.match(changedBuiltins.identity, /实际样品名：真实样品名实际值 · 开始时：真实样品组/);
   assert.match(changedBuiltins.identity, /实际制备 \/ 试剂：内置制备实际值/);
   assert.match(changedBuiltins.identity, /实际样品名（自定义）：自定义名称实际值/);

@@ -9,6 +9,18 @@ const require = createRequire(import.meta.url);
 let application: ElectronApplication, page: Page, directory: string;
 let pageErrors: string[];
 
+async function openPlanManagement() {
+  const details = page.locator('details.plan-management');
+  await expect(details).toBeVisible();
+  if (!(await details.evaluate((element: HTMLDetailsElement) => element.open)))
+    await details.locator(':scope > summary').click();
+}
+
+async function openLiveMore() {
+  const button = page.getByRole('button', { name: '更多现场功能', exact: true });
+  if (await button.count()) await button.click();
+}
+
 test.beforeEach(async () => {
   directory = await mkdtemp(join(tmpdir(), 'labrecord-improvements-'));
   const env = { ...process.env, LABRECORD_TEST_MODE: '1', LABRECORD_TEST_DATA: directory };
@@ -25,6 +37,7 @@ test.beforeEach(async () => {
     BrowserWindow.getAllWindows()[0].showInactive(),
   );
   await page.getByRole('button', { name: '载入演示实验', exact: true }).click();
+  await openPlanManagement();
 });
 
 test.afterEach(async ({}, info) => {
@@ -69,7 +82,8 @@ async function rejectRunSaves() {
     (globalThis as any).improvementsFailSave = true;
     ipcMain.removeHandler('command');
     ipcMain.handle('command', (...args) =>
-      (globalThis as any).improvementsFailSave && args[1]?.type === 'saveRun'
+      (globalThis as any).improvementsFailSave &&
+      (args[1]?.type === 'saveRun' || args[1]?.type === 'updateFieldRow')
         ? { ok: false, error: '验收：暂时不能保存', rejected: true }
         : original(...args),
     );
@@ -162,6 +176,7 @@ test('arrange defaults to one and arrange-all remains a cancellable draft withou
     count: 0,
   });
   await page.reload();
+  await openPlanManagement();
   await page
     .getByRole('row', { name: /准备数量未填/ })
     .getByRole('button', { name: '安排测试', exact: true })
@@ -183,6 +198,7 @@ test('measurement filters reset together and review gaps open the exact existing
   const before = await snapshot();
   await page.reload();
   await page.getByRole('button', { name: '实验规划', exact: true }).click();
+  await openPlanManagement();
   const planner = page.getByRole('region', { name: '测量计划', exact: true });
   await planner.getByLabel('搜索测量计划', { exact: true }).fill('TA-01');
   await planner.getByLabel('按状态筛选测量', { exact: true }).selectOption('completed');
@@ -262,6 +278,7 @@ test('field notes precede context cards and copying flushes safely while narrow 
   const run = before.runs.find((entry) => entry.itemId === initial.items[1].id)!;
   await page.reload();
   await page.getByRole('button', { name: '现场记录', exact: true }).click();
+  await openLiveMore();
   const currentChoice = page.getByRole('button', { name: '选择样品 TA-02 操作 2', exact: true });
   await currentChoice.click();
   const code = currentChoice.locator('strong');
@@ -313,8 +330,12 @@ test('field notes precede context cards and copying flushes safely while narrow 
   await expect(page.locator('.current-heading h2')).toHaveText('TA-02');
   const after = await snapshot();
   expect(after.runs).toHaveLength(2);
-  expect(after.items).toEqual(before.items);
-  expect(after.runs.find((entry) => entry.id === run.id)?.notes).toBe('复制前仍需保存的现场备注');
+  expect(after.items).toEqual(
+    before.items.map((item) =>
+      item.id === run.itemId ? { ...item, fieldNote: '复制前仍需保存的现场备注' } : item,
+    ),
+  );
+  expect(after.runs.find((entry) => entry.id === run.id)?.notes).toBe(run.notes);
   expect(after.runs.find((entry) => entry.id === run.id)?.snapshot).toEqual(run.snapshot);
   expect(after.runs.find((entry) => entry.id === run.id)?.originalStartedAt).toBe(
     run.originalStartedAt,

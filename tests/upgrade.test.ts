@@ -13,6 +13,7 @@ import {
   previewFile,
 } from '../src/desktop/tables.js';
 import { addAttachment, createBackup, unpackBackup } from '../src/desktop/backups.js';
+import { Store } from '../src/desktop/store.js';
 import { renderReport, writeReportBundle } from '../src/desktop/reports.js';
 
 test('quick addition atomically creates named samples and queue; dimensions retain planning and actual history', (t) => {
@@ -121,15 +122,31 @@ test('old v1 backups without name or dimensions restore without inventing values
   store.command({ type: 'start', itemId: store.snapshot().items[0].id });
   const run = store.snapshot().runs[0];
   delete run.actualSample;
+  delete run.actualSources;
   store.put('runs', run);
+  // Build a genuine v1 SQLite backup containing legacy-shaped records.
+  store.db.exec('ALTER TABLE items DROP COLUMN field_note; PRAGMA user_version=1;');
   const file = join(directory, '旧版.labrecord');
   await createBackup(store, file);
   const restored = await unpackBackup(file, join(directory, 'restored'));
+  assert.equal(restored.schemaVersion, 1);
   assert.equal(restored.groups[0].name, undefined);
   assert.equal(restored.groups[0].width, undefined);
   assert.equal(restored.runs[0].actualSample, undefined);
   assert.equal(restored.runs[0].endedAt, null);
   assert.deepEqual(restored.runs[0].snapshot, run.snapshot);
+  const upgraded = new Store(join(directory, 'restored'));
+  try {
+    const migrated = upgraded.snapshot();
+    assert.equal(migrated.schemaVersion, 3);
+    assert.equal(migrated.groups[0].name, undefined);
+    assert.equal(migrated.groups[0].width, undefined);
+    assert.equal(migrated.runs[0].actualSample, undefined);
+    assert.equal(migrated.runs[0].endedAt, null);
+    assert.deepEqual(migrated.runs[0].snapshot, run.snapshot);
+  } finally {
+    upgraded.close();
+  }
 });
 
 test('old groups without a protocol read as blank and do not rewrite existing run snapshots', async (t) => {
